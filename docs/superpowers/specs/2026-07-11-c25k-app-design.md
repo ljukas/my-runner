@@ -11,7 +11,7 @@ A free, local-first Couch-to-5K app. It guides someone who can barely run throug
 ### Hard constraints (from AGENTS.md)
 
 - No backend, no accounts, no analytics. All data on-device; iCloud device backup is the v1 safety net.
-- iOS primary target; standard Expo universal app structure retained.
+- Mobile only: iOS primary target, Android secondary. No web target (react-native-web removed from the repo).
 - Never edit native projects; everything via app.json + config plugins (CNG).
 - Prefer Expo-official packages; `@expo/ui` (SwiftUI) for UI wherever it earns it.
 
@@ -42,7 +42,7 @@ A free, local-first Couch-to-5K app. It guides someone who can barely run throug
 | Data export | Deferred to v2 |
 | Delivery | **5 incremental stages, each a working app** (§13); a separate implementation plan per stage follows this spec |
 | Onboarding | Versioned first-launch flow from Stage 1; each stage that needs a permission adds a step; **primer-before-prompt** for every permission, "Not now" always available |
-| E2E | Maestro from Stage 1 (local-first via official MCP), enabled by a dev-only compressed plan; every stage ships flows for its new surface |
+| E2E | Maestro from Stage 1 (tooling already configured — ADR 0001), enabled by a dev-only compressed plan; every stage ships flows for its new surface |
 
 ## 2. Packages
 
@@ -193,7 +193,7 @@ expo-speech speaks through this shared session by default (`usesApplicationAudio
 
 ## 7. Platform ports (iOS now, Android later)
 
-Every platform-touching capability sits behind a small TS interface owned by `services/`; callers (engine, screens) import only the port. Adapter selection via platform file resolution (`.ios.ts` / `.android.ts`), matching the repo's existing `.web.tsx` pattern. `domain/` and `run-engine` stay 100% platform-free.
+Every platform-touching capability sits behind a small TS interface owned by `services/`; callers (engine, screens) import only the port. Adapter selection via platform file resolution (`.ios.ts` / `.android.ts`). `domain/` and `run-engine` stay 100% platform-free.
 
 | Port | iOS adapter (v1) | Android adapter (later) |
 |---|---|---|
@@ -234,7 +234,7 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 - **Run detail** — RouteMap with segment-colored route + SwiftUI splits list (per segment: planned/actual time, distance, pace) + "Save to Apple Health" retry if unsaved.
 - **Settings** — SwiftUI `Form`: cue toggles (all cues / milestone cues), Apple Health toggle (triggers authorization), About, Reset all data (destructive confirm via native alert).
 
-**Theming:** existing `Colors`/`Fonts` from `src/constants/theme.ts` bridged into SwiftUI via `Host seedColor` + `foregroundColor`/`background` modifiers; RN shells keep using `ThemedText`/`ThemedView`. One visual system per block — never alternate RN and SwiftUI text within the same cluster.
+**Theming:** the repo's styling system is Uniwind (Tailwind v4 for RN) — RN shells style with `className` tokens from `src/global.css`, via the `className`-based `ThemedText`/`ThemedView` wrappers. SwiftUI trees can't consume Tailwind classes, so they bridge through the JS palette mirror in `src/constants/theme.ts` (`Colors`) via `Host seedColor` + `foregroundColor`/`background` modifiers — one more reason that mirror must stay in sync with `global.css`. One visual system per block — never alternate RN and SwiftUI text within the same cluster.
 
 ## 9. HealthKit integration (behind `HealthAdapter`)
 
@@ -248,7 +248,7 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 
 - **Unit (`bun test`):** `domain/` + run engine are pure TS: segment derivation (incl. pause/skip/resume edge cases), elapsed math, accuracy filtering + haversine, polyline encoding, plan-data integrity (27 sessions; per-session durations sum to spec; W6R3 = 25 min NHS).
 - **Milestone 0 — device spike (go/no-go before building screens):** minimal dev-client build → TestFlight/release configuration on a physical iPhone: locked-phone GPS continuity for 30+ min, TTS audibility while locked, Spotify ducking + recovery, silent switch, Bluetooth headphones, phone-call interruption. Background behavior is untestable in Expo Go and misleading in simulators — this validates the riskiest assumptions first. Failure of TTS-while-locked → switch `CueService` to pre-recorded files (decision pre-made).
-- **E2E (every stage, not an end-phase):** Maestro set up in Stage 1, local-first via the official Maestro MCP; EAS `maestro` job as CI gate later. Automatable session flows depend on the **dev-only compressed plan** (same session structure, seconds-long segments, behind a `__DEV__`/launch-argument switch — part of `domain/plan.ts`'s contract, also useful for demos). Each stage ships flows for its new surface and its exit criteria include "stage flows pass" (§13).
+- **E2E (every stage, not an end-phase):** Maestro CLI + MCP are already configured in the repo (ADR 0001, `.mcp.json`); Stage 1 contributes the first `.maestro/` flows and stable `testID`s. EAS `maestro` job as CI gate later. Automatable session flows depend on the **dev-only compressed plan** (same session structure, seconds-long segments, behind a `__DEV__`/launch-argument switch — part of `domain/plan.ts`'s contract, also useful for demos). Each stage ships flows for its new surface and its exit criteria include "stage flows pass" (§13).
 - **Manual checklist:** location permission denied path, kill-mid-run resume, HealthKit deny + retry, week-9 completion celebration, partial-run display.
 
 ## 11. Error handling
@@ -289,7 +289,7 @@ V1 ships in **five incremental stages. Each stage is a working, usable app** —
 - Run engine v1: full timestamp state machine (start/pause/resume/skip/end-early), foreground `setInterval` heartbeat — the GPS heartbeat slots in later without engine changes.
 - Screens: NativeTabs (Plan / History / Settings shells), Plan tab with progression + free repeat, pre-run form sheet, full-screen-modal run screen (countdown, current/next segment, controls, `useKeepAwake`), basic run summary, basic History list.
 - Onboarding: framework + steps — welcome, how C25K works, gentle "check with a doctor if unsure" note. No system permissions (the MVP needs none).
-- E2E foundation: Maestro + `.maestro/` flows — onboarding → plan browse → start → compressed session completes → History row; pause/skip/end-early variants; progression advances.
+- E2E foundation: first `.maestro/` flows (CLI + MCP already configured, ADR 0001) + stable `testID`s — onboarding → plan browse → start → compressed session completes → History row; pause/skip/end-early variants; progression advances.
 - **Deliberately absent:** sound, GPS, distance, maps, Health, crash resume.
 - **Works when:** a full session runs screen-on with correct transitions and lands in History; progression advances; stage flows pass.
 

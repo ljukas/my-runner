@@ -12,12 +12,15 @@ Hard constraints:
 
 # Commands
 
-- `npm install` — install dependencies
-- `npx expo start` (or `npm start`) — start the dev server; press `i`/`a`/`w` for iOS simulator, Android emulator, or web
-- `npm run ios` / `npm run android` / `npm run web` — start directly on a platform
-- `npm run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
+This project uses **Bun** as its package manager and script runner — `bun.lock` is the only lockfile, and Expo CLI/EAS Build auto-detect Bun from it. Metro and the dev server still run on Node (keep a Node LTS installed); Bun handles installing and launching.
+
+- `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
+- `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
+- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a`/`w` for iOS simulator, Android emulator, or web
+- `bun run ios` / `bun run android` / `bun run web` — start directly on a platform
+- `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
 - No test runner is configured yet
-- `npm run reset-project` — template script that moves the starter code aside and creates a blank `src/app/`; don't run it casually
+- `bun run reset-project` — template script that moves the starter code aside and creates a blank `src/app/`; don't run it casually
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
 

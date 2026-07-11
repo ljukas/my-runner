@@ -53,6 +53,11 @@ only results; the training plan remains static TypeScript data (spec §3).
 1. **One connection.** The database is opened once via `SQLiteProvider` with
    `enableChangeListener: true`; WAL journal mode is enabled at open. Never
    `useNewConnection`.
+
+   *Implementation note (Stage 1):* the single connection is a module-scope
+   singleton in `src/db/client.ts` (`openDatabaseSync` + `drizzle()`), not
+   `SQLiteProvider` — the run engine's persistence adapter needs the DB
+   outside the React tree. All other guarantees of this point stand.
 2. **Typed schema + generated migrations.** Schema lives in `src/db/schema.ts`;
    `drizzle-kit generate` with `dialect: 'sqlite'`, `driver: 'expo'` produces
    `.sql` files plus `migrations.js` (committed). Pipeline requirements:

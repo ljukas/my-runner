@@ -17,7 +17,12 @@ export function createSettingsStore(storage: StringStorage) {
   function load(): SettingsValues {
     const raw = storage.getItemSync(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw) as Partial<SettingsValues>;
+    let parsed: Partial<SettingsValues>;
+    try {
+      parsed = JSON.parse(raw) as Partial<SettingsValues>;
+    } catch {
+      return { ...DEFAULTS }; // corrupted storage must never crash startup
+    }
     return {
       useCompressedPlan: parsed.useCompressedPlan ?? DEFAULTS.useCompressedPlan,
       keepScreenAwake: parsed.keepScreenAwake ?? DEFAULTS.keepScreenAwake,

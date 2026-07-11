@@ -23,6 +23,30 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
+# E2E tests (Maestro)
+
+E2E tests are Maestro flows in `.maestro/` at the repo root, run **locally** — see
+`docs/adr/0001-local-first-maestro-e2e-testing.md` for the rationale and the plan
+to make the EAS Workflows `maestro` job the CI gate later.
+
+- **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the app
+  built onto it via `bun run ios`.
+- **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
+  server registered in `.mcp.json` (`list_devices` → `run`).
+- **Authoring:** use the MCP `inspect_screen` tool to read real element IDs from the
+  running app instead of guessing selectors; consult the MCP `cheat_sheet` tool and
+  https://docs.maestro.dev/llms.txt for flow syntax.
+- **Policy:** run the full suite locally before merging to `main` any change touching
+  `src/`, `app.json`, or dependencies; run targeted flows during development as needed.
+- **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent
+  MCP tools (see `.claude/rules/argent.md`) are for interactive dev-time work —
+  exploratory QA, driving the simulator while implementing, debugging, and profiling.
+
+`.maestro/` does not exist yet — it lands with the first flows once screens have
+stable identifiers (`testID`s) and a first smoke flow is written (separate upcoming
+task, blocked on `app.json` gaining `ios.bundleIdentifier`/`android.package` so flows
+have an `appId` to launch).
+
 # Architecture
 
 - **Routing:** expo-router file-based routing rooted at `src/app/` (entry point is `expo-router/entry` in package.json). Typed routes and the React Compiler are enabled via `experiments` in `app.json`.

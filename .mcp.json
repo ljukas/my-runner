@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "maestro": {
+      "type": "stdio",
+      "command": "maestro",
+      "args": [
+        "mcp"
+      ],
+      "env": {}
+    },
+    "argent": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "node_modules/@swmansion/argent/dist/cli.js",
+        "mcp"
+      ]
+    }
+  }
+}

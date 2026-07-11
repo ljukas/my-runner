@@ -19,7 +19,7 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a`/`w` for iOS simulator, Android emulator, or web
 - `bun run ios` / `bun run android` / `bun run web` — start directly on a platform
 - `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
-- No test runner is configured yet
+- No unit test runner is configured yet; E2E tests are Maestro flows — see "E2E tests (Maestro)" below
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
@@ -41,6 +41,9 @@ to make the EAS Workflows `maestro` job the CI gate later.
 - **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent
   MCP tools (see `.claude/rules/argent.md`) are for interactive dev-time work —
   exploratory QA, driving the simulator while implementing, debugging, and profiling.
+  Argent's own flow record/replay (`flow-*` tools) is a dev-loop convenience (e.g.
+  re-profiling after a fix), not a second E2E layer — regression flows live only in
+  `.maestro/`.
 
 `.maestro/` does not exist yet — it lands with the first flows once screens have
 stable identifiers (`testID`s) and a first smoke flow is written (separate upcoming

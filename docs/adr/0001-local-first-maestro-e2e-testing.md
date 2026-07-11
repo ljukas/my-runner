@@ -32,6 +32,11 @@ executed **locally** against the iOS Simulator, either with the Maestro CLI
 (`maestro test .maestro/`) or through the official Maestro MCP server
 registered project-scope in `.mcp.json`. No unofficial skills or wrappers.
 
+Scripted E2E regression lives only in `.maestro/`. The Argent MCP tooling that
+shares `.mcp.json` covers the interactive dev loop (exploratory QA, debugging,
+profiling, and reading element IDs while authoring flows); its flow
+record/replay feature is a dev-loop convenience, not a second E2E layer.
+
 **When to run:**
 
 - The **full suite** runs locally before merging to `main` any change touching

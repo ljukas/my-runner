@@ -8,7 +8,7 @@ A free Couch-to-5K mobile app: it guides someone who can barely run through a pr
 
 Hard constraints:
 - **No backend, no accounts, no analytics.** All data lives on-device, with iCloud as the only sync/backup mechanism.
-- iOS is the primary target (iCloud), but the project is a standard Expo universal app (iOS/Android/web).
+- Mobile only: iOS is the primary target (iCloud); Android is the secondary target. There is no web target — react-native-web has been removed.
 
 # Commands
 
@@ -16,8 +16,8 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 
 - `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
-- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a`/`w` for iOS simulator, Android emulator, or web
-- `bun run ios` / `bun run android` / `bun run web` — start directly on a platform
+- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a` for iOS simulator or Android emulator
+- `bun run ios` / `bun run android` — start directly on a platform
 - `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
 - No unit test runner is configured yet; E2E tests are Maestro flows — see "E2E tests (Maestro)" below
 
@@ -60,7 +60,7 @@ task). Flows launch the app via its `appId`: `se.lukaslindqvist.myrunner` (set a
 - **Routing:** expo-router file-based routing rooted at `src/app/` (entry point is `expo-router/entry` in package.json). Typed routes and the React Compiler are enabled via `experiments` in `app.json`.
 - **Navigation:** the root layout `src/app/_layout.tsx` wraps the app in a `ThemeProvider` and renders `src/components/app-tabs.tsx`, which uses `NativeTabs` from `expo-router/unstable-native-tabs`. Adding a tab screen requires both a route file in `src/app/` and a matching `NativeTabs.Trigger` in `app-tabs.tsx`.
 - **Path aliases:** `@/*` → `src/*` and `@/assets/*` → `assets/*` (tsconfig.json). Use these instead of relative imports.
-- **Platform forks:** web-specific implementations live in `.web.tsx`/`.web.ts` siblings (e.g. `app-tabs.web.tsx`, `use-color-scheme.web.ts`); Metro picks the right file per platform.
+- **Platform forks:** none — the app is mobile-only, with no `.web.tsx`/`.web.ts` siblings. Handle iOS/Android differences inline via `Platform.select`/`Platform.OS`.
 - **Styling:** [Uniwind](https://docs.uniwind.dev) (Tailwind CSS v4 for React Native) is the main styling library — style with `className` directly on core RN components (`<View className="flex-1 bg-background">`); no Babel plugin or component wrappers needed. Metro is wired through `withUniwindConfig` in `metro.config.js` (it must stay the outermost wrapper) and auto-regenerates `src/uniwind-types.d.ts`. For third-party components without `className` support, wrap once with `withUniwind`; where an API needs a style object, use `useResolveClassNames`. Prefer `className` over `StyleSheet` in new code.
 - **Theming:** theme tokens live in `src/global.css` (imported by `src/app/_layout.tsx`) under `@variant light`/`@variant dark` blocks, producing utilities like `bg-background-element` and `text-foreground-secondary` that follow the system theme automatically. `src/constants/theme.ts` keeps a JS mirror of the palette (`Colors`) for the few places that need raw color values (`use-theme` hook) — keep it in sync with `global.css`. `ThemedText`/`ThemedView` are `className`-based wrappers over these tokens.
 - **Current state:** `src/` still contains the create-expo-app starter screens (Home/Explore demo). This is scaffolding to be replaced by the actual C25K features (training plan, run session screen with timers/audio cues, progress history), not app code to preserve.

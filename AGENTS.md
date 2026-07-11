@@ -20,7 +20,6 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun run ios` / `bun run android` / `bun run web` — start directly on a platform
 - `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
 - No test runner is configured yet
-- `bun run reset-project` — template script that moves the starter code aside and creates a blank `src/app/`; don't run it casually
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
 

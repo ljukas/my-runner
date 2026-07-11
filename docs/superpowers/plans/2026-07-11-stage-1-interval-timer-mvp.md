@@ -354,8 +354,9 @@ describe('NHS_PLAN', () => {
     ]);
   });
 
-  test('w1d1 totals 32.5 minutes', () => {
-    expect(sessionTotalSeconds(getSession(NHS_PLAN, 'w1d1')!)).toBe(1950);
+  test('w1d1 totals 28.5 minutes', () => {
+    // 300 warmup + 8×60 run + 7×90 walk + 300 cooldown (spec Appendix A)
+    expect(sessionTotalSeconds(getSession(NHS_PLAN, 'w1d1')!)).toBe(1710);
   });
 });
 

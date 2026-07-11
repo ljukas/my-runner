@@ -12,12 +12,14 @@ Hard constraints:
 
 # Commands
 
-- `npm install` — install dependencies
-- `npx expo start` (or `npm start`) — start the dev server; press `i`/`a`/`w` for iOS simulator, Android emulator, or web
-- `npm run ios` / `npm run android` / `npm run web` — start directly on a platform
-- `npm run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
+This project uses **Bun** as its package manager and script runner — `bun.lock` is the only lockfile, and Expo CLI/EAS Build auto-detect Bun from it. Metro and the dev server still run on Node (keep a Node LTS installed); Bun handles installing and launching.
+
+- `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
+- `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
+- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a`/`w` for iOS simulator, Android emulator, or web
+- `bun run ios` / `bun run android` / `bun run web` — start directly on a platform
+- `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
 - No test runner is configured yet
-- `npm run reset-project` — template script that moves the starter code aside and creates a blank `src/app/`; don't run it casually
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
@@ -27,5 +29,6 @@ The `/ios` and `/android` folders are gitignored — they are generated via preb
 - **Navigation:** the root layout `src/app/_layout.tsx` wraps the app in a `ThemeProvider` and renders `src/components/app-tabs.tsx`, which uses `NativeTabs` from `expo-router/unstable-native-tabs`. Adding a tab screen requires both a route file in `src/app/` and a matching `NativeTabs.Trigger` in `app-tabs.tsx`.
 - **Path aliases:** `@/*` → `src/*` and `@/assets/*` → `assets/*` (tsconfig.json). Use these instead of relative imports.
 - **Platform forks:** web-specific implementations live in `.web.tsx`/`.web.ts` siblings (e.g. `app-tabs.web.tsx`, `use-color-scheme.web.ts`); Metro picks the right file per platform.
-- **Theming:** light/dark colors are defined once in `src/constants/theme.ts` (`Colors`, `Fonts`) and consumed through `ThemedText`/`ThemedView` components and the `use-theme`/`use-color-scheme` hooks. Follow this pattern rather than hardcoding colors.
+- **Styling:** [Uniwind](https://docs.uniwind.dev) (Tailwind CSS v4 for React Native) is the main styling library — style with `className` directly on core RN components (`<View className="flex-1 bg-background">`); no Babel plugin or component wrappers needed. Metro is wired through `withUniwindConfig` in `metro.config.js` (it must stay the outermost wrapper) and auto-regenerates `src/uniwind-types.d.ts`. For third-party components without `className` support, wrap once with `withUniwind`; where an API needs a style object, use `useResolveClassNames`. Prefer `className` over `StyleSheet` in new code.
+- **Theming:** theme tokens live in `src/global.css` (imported by `src/app/_layout.tsx`) under `@variant light`/`@variant dark` blocks, producing utilities like `bg-background-element` and `text-foreground-secondary` that follow the system theme automatically. `src/constants/theme.ts` keeps a JS mirror of the palette (`Colors`) for the few places that need raw color values (`use-theme` hook) — keep it in sync with `global.css`. `ThemedText`/`ThemedView` are `className`-based wrappers over these tokens.
 - **Current state:** `src/` still contains the create-expo-app starter screens (Home/Explore demo). This is scaffolding to be replaced by the actual C25K features (training plan, run session screen with timers/audio cues, progress history), not app code to preserve.

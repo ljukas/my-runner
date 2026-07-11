@@ -55,7 +55,6 @@ export default function HomeScreen() {
             hint={<ThemedText type="code">bun expo start --clear</ThemedText>}
           />
         </View>
-
       </StyledSafeAreaView>
     </View>
   );

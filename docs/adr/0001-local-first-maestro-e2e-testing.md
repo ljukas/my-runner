@@ -19,7 +19,7 @@ how that coverage can run:
   ($0.05/job + build minutes) and is still in alpha.
 - The repo is not yet EAS-initialized: no `eas.json` and no `.eas/workflows/`.
   (Maestro flows need an appId to launch — `app.json` sets
-  `se.bovra.myrunner` as both `ios.bundleIdentifier` and `android.package`.)
+  `se.lukaslindqvist.myrunner` as both `ios.bundleIdentifier` and `android.package`.)
 - The Maestro CLI and the official Maestro MCP server are already installed
   and verified working locally.
 - Project policy is official tooling only: first-party MCP servers and vendor

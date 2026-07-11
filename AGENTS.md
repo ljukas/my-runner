@@ -47,7 +47,7 @@ to make the EAS Workflows `maestro` job the CI gate later.
 
 `.maestro/` does not exist yet — it lands with the first flows once screens have
 stable identifiers (`testID`s) and a first smoke flow is written (separate upcoming
-task). Flows launch the app via its `appId`: `se.bovra.myrunner` (set as both
+task). Flows launch the app via its `appId`: `se.lukaslindqvist.myrunner` (set as both
 `ios.bundleIdentifier` and `android.package` in `app.json`).
 
 # Architecture

@@ -8,11 +8,11 @@
     "scheme": "myrunner",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "se.bovra.myrunner",
+      "bundleIdentifier": "se.lukaslindqvist.myrunner",
       "icon": "./assets/expo.icon"
     },
     "android": {
-      "package": "se.bovra.myrunner",
+      "package": "se.lukaslindqvist.myrunner",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

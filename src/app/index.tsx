@@ -1,13 +1,15 @@
 import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { withUniwind } from 'uniwind';
 
 import { AnimatedIcon } from '@/components/animated-icon';
 import { HintRow } from '@/components/hint-row';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, Spacing } from '@/constants/theme';
+
+const StyledSafeAreaView = withUniwind(SafeAreaView);
 
 function getDevMenuHint() {
   if (Platform.OS === 'web') {
@@ -30,20 +32,23 @@ function getDevMenuHint() {
 
 export default function HomeScreen() {
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
+    <View className="flex-1 flex-row justify-center bg-background">
+      <StyledSafeAreaView
+        className="max-w-[800px] flex-1 items-center gap-4 px-6"
+        style={{ paddingBottom: BottomTabInset + Spacing.three }}
+      >
+        <View className="flex-1 items-center justify-center gap-6 px-6">
           <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
+          <ThemedText type="title" className="text-center">
             Welcome to&nbsp;Expo
           </ThemedText>
-        </ThemedView>
+        </View>
 
-        <ThemedText type="code" style={styles.code}>
+        <ThemedText type="code" className="uppercase">
           get started
         </ThemedText>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
+        <View className="gap-4 self-stretch rounded-3xl bg-background-element px-4 py-6">
           <HintRow
             title="Try editing"
             hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
@@ -51,48 +56,12 @@ export default function HomeScreen() {
           <HintRow title="Dev tools" hint={getDevMenuHint()} />
           <HintRow
             title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
+            hint={<ThemedText type="code">bun expo start --clear</ThemedText>}
           />
-        </ThemedView>
+        </View>
 
         {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      </StyledSafeAreaView>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

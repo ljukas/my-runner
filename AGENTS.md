@@ -23,6 +23,11 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
+# Git & PR conventions
+
+- Commit messages follow Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `build:`), matching the existing history.
+- **PR titles must also follow Conventional Commits** — PRs are squash-merged, so the PR title becomes the commit message in `main`'s history.
+
 # E2E tests (Maestro)
 
 E2E tests are Maestro flows in `.maestro/` at the repo root, run **locally** — see

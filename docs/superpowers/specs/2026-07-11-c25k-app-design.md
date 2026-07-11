@@ -40,6 +40,9 @@ A free, local-first Couch-to-5K app. It guides someone who can barely run throug
 | Tabs | Plan / History / Settings (NativeTabs) |
 | Live Activity | Deferred to v2 (official expo-widgets identified as the path) |
 | Data export | Deferred to v2 |
+| Delivery | **5 incremental stages, each a working app** (§13); a separate implementation plan per stage follows this spec |
+| Onboarding | Versioned first-launch flow from Stage 1; each stage that needs a permission adds a step; **primer-before-prompt** for every permission, "Not now" always available |
+| E2E | Maestro from Stage 1 (local-first via official MCP), enabled by a dev-only compressed plan; every stage ships flows for its new surface |
 
 ## 2. Packages
 
@@ -70,6 +73,7 @@ src/
 ├── db/                     # Drizzle schema, generated migrations, client, query helpers
 ├── domain/                 # PURE TypeScript — no React, no Expo imports
 │   ├── plan.ts             #   27 NHS sessions as static seed data (appendix A)
+│   │                       #   + dev-only compressed variant (seconds-long segments) for E2E/demos
 │   ├── segments.ts         #   segment derivation math (elapsed → current segment)
 │   ├── geo.ts              #   haversine distance, accuracy filter, polyline encode
 │   └── format.ts           #   km/pace/duration formatting (metric only)
@@ -84,7 +88,7 @@ src/
 
 The training plan is **static TypeScript data**, not DB rows. The DB stores only results.
 
-**State management:** no new state library. The engine exposes `subscribe`/`getSnapshot` consumed with React's `useSyncExternalStore`; settings live in `expo-sqlite/kv-store`; everything else is derived from the DB via live queries.
+**State management:** no new state library. The engine exposes `subscribe`/`getSnapshot` consumed with React's `useSyncExternalStore`; settings and onboarding progress (`completed_steps`, versioned step ids) live in `expo-sqlite/kv-store`; everything else is derived from the DB via live queries.
 
 ## 4. Data model
 
@@ -213,6 +217,7 @@ src/app/
 │   ├── index.tsx             # Plan (home)
 │   ├── history.tsx           # History
 │   └── settings.tsx          # Settings
+├── onboarding/               # versioned first-launch flow — fullScreenModal; step routes (welcome, audio, location, health)
 ├── session/[key].tsx         # pre-run detail — presentation: 'formSheet' (native detents, grabber)
 ├── run.tsx                   # active run — presentation: 'fullScreenModal', gestureEnabled: false
 ├── run-summary.tsx           # post-run — router.replace target from run.tsx (back never returns to a finished run)
@@ -243,7 +248,7 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 
 - **Unit (`bun test`):** `domain/` + run engine are pure TS: segment derivation (incl. pause/skip/resume edge cases), elapsed math, accuracy filtering + haversine, polyline encoding, plan-data integrity (27 sessions; per-session durations sum to spec; W6R3 = 25 min NHS).
 - **Milestone 0 — device spike (go/no-go before building screens):** minimal dev-client build → TestFlight/release configuration on a physical iPhone: locked-phone GPS continuity for 30+ min, TTS audibility while locked, Spotify ducking + recovery, silent switch, Bluetooth headphones, phone-call interruption. Background behavior is untestable in Expo Go and misleading in simulators — this validates the riskiest assumptions first. Failure of TTS-while-locked → switch `CueService` to pre-recorded files (decision pre-made).
-- **E2E:** Maestro flows (plan → start → short simulated session → history shows run) once screens stabilize; local-first via the official Maestro MCP, EAS `maestro` job as CI gate later (per existing project plan).
+- **E2E (every stage, not an end-phase):** Maestro set up in Stage 1, local-first via the official Maestro MCP; EAS `maestro` job as CI gate later. Automatable session flows depend on the **dev-only compressed plan** (same session structure, seconds-long segments, behind a `__DEV__`/launch-argument switch — part of `domain/plan.ts`'s contract, also useful for demos). Each stage ships flows for its new surface and its exit criteria include "stage flows pass" (§13).
 - **Manual checklist:** location permission denied path, kill-mid-run resume, HealthKit deny + retry, week-9 completion celebration, partial-run display.
 
 ## 11. Error handling
@@ -266,7 +271,75 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 4. **HealthKit lib open issues on iOS 26.x betas** — pinned version; saves wrapped and non-blocking; feature degrades gracefully.
 5. **expo-router formSheet behaviors** vary by iOS version — validate detents/grabber on device early; falling back to `presentation: 'modal'` is acceptable.
 
-## 13. Out of scope for v1 (designed-for, not built)
+## 13. Delivery stages (v1 roadmap)
+
+V1 ships in **five incremental stages. Each stage is a working, usable app** — every stage ends starter-code-free with the ports-respecting architecture intact, and each new platform surface (audio, location, maps, Health) enters only through its port. A separate implementation plan will be written per stage; no implementation accompanies this spec.
+
+**Ordering constraint:** background execution rides on GPS — the ~1 Hz location events are what keep the JS engine alive while the phone is locked (§6). Spoken cues therefore arrive first in foreground form (Stage 2), and locked-phone operation arrives together with location tracking (Stage 3).
+
+**Onboarding is a Stage-1 foundation, not a stage:** a versioned first-launch flow (`onboarding/` routes; `completed_steps` in kv-store). Steps are versioned by id, so an update that introduces a new permission shows only the pending step ("One more thing…") to existing users. Every permission follows the **gracious-ask pattern**: a primer screen in plain language (why + what you get) → the system prompt; "Not now" always available; denial respected — the feature degrades gracefully and Settings deep-links let the user change their mind. Never a cold system prompt.
+
+### Stage 1 — Interval-timer MVP (+ architecture reset)
+
+*You can complete the entire 9-week program, phone in hand.*
+
+- Architecture reset: delete create-expo-app starter screens/components; establish the layered structure (§3) with `@/*` aliases; `bun test` from day one.
+- NHS plan seed data (27 sessions) + compressed dev plan + plan-integrity unit tests.
+- Data layer: expo-sqlite + Drizzle, migrations pipeline, `runs` + `run_segments`, kv-store settings.
+- Run engine v1: full timestamp state machine (start/pause/resume/skip/end-early), foreground `setInterval` heartbeat — the GPS heartbeat slots in later without engine changes.
+- Screens: NativeTabs (Plan / History / Settings shells), Plan tab with progression + free repeat, pre-run form sheet, full-screen-modal run screen (countdown, current/next segment, controls, `useKeepAwake`), basic run summary, basic History list.
+- Onboarding: framework + steps — welcome, how C25K works, gentle "check with a doctor if unsure" note. No system permissions (the MVP needs none).
+- E2E foundation: Maestro + `.maestro/` flows — onboarding → plan browse → start → compressed session completes → History row; pause/skip/end-early variants; progression advances.
+- **Deliberately absent:** sound, GPS, distance, maps, Health, crash resume.
+- **Works when:** a full session runs screen-on with correct transitions and lands in History; progression advances; stage flows pass.
+
+### Stage 2 — Spoken coach (foreground)
+
+*The app coaches you audibly — screen on or phone unlocked in a holder.*
+
+- `CueService` port + TTS adapter: expo-audio session (`playsInSilentMode`, `duckOthers`) + expo-speech; full ~10-phrase cue script wired to engine transitions and milestones.
+- Settings become real: all-cues / milestone-cues toggles.
+- Onboarding: audio-cues intro step (no iOS permission required; explains cues + silent-switch behavior, sets preference).
+- Device verification (foreground): silent switch, Spotify dip-and-recover, Bluetooth headphones.
+- E2E: cue settings toggles; visual transition assertions during a compressed session. (Audio itself is not E2E-assertable — device checklist.)
+- **Deliberately absent:** locked-screen operation (honest limitation: cues stop if you lock — Stage 3 fixes this).
+- **Works when:** a session runs end-to-end with correct spoken cues over playing music; stage flows pass.
+
+### Stage 3 — GPS tracking + locked-phone operation (the risk stage)
+
+*Phone goes in the pocket: full tracking + cues while locked — paid-app parity.*
+
+- **Gate: Milestone-0 device spike first** — locked-phone GPS continuity + TTS audibility in a release build (§10). Fallback pre-decided: pre-recorded cue files behind `CueService`.
+- expo-location + task-manager: When-In-Use permission, `UIBackgroundModes: [location, audio]`, module-scope task; engine heartbeat switches to location events when backgrounded.
+- Distance: accuracy filter + haversine (`domain/geo.ts`), `run_points` batching, per-segment distance/pace — live, in summary, in History.
+- Crash resume: `active_run_snapshot` + "Resume run?" flow.
+- Onboarding: location primer step → When-In-Use system prompt; also asked just-in-time at first run start if skipped. Denied → timer-only sessions keep working.
+- E2E: permission primer allow/deny paths (Maestro `launchApp` permission stubs + `setLocation`); denied-path session completes; resume-after-kill flow. Real locked-phone behavior remains the physical-device gate.
+- **Deliberately absent:** map rendering.
+- **Works when:** a real 30-min outdoor run, phone locked, Spotify playing → correct cues, correct route data, correct distance; stage flows pass.
+
+### Stage 4 — Maps
+
+*Runs become visible: routes on Apple Maps.*
+
+- iOS deployment target → 18.0 (`expo-build-properties`); expo-maps pinned; `RouteMap` component port (react-native-maps fallback stays pre-approved).
+- Run summary upgraded: segment-colored polylines, start/finish markers, camera fit.
+- Run detail screen (`runs/[runId]`): map + per-segment splits table.
+- Onboarding: no new permissions.
+- E2E: run detail opens; map + splits render for a seeded run. (Polyline pixel-correctness is a visual check.)
+- **Works when:** completed runs show correctly colored routes and splits from real recorded data; stage flows pass.
+
+### Stage 5 — Apple Health + release polish
+
+*V1 complete: ecosystem integration and App Store readiness.*
+
+- `HealthAdapter` + `@kingstinct/react-native-healthkit`: write-only auth, workout + GPS route save, `healthkit_saved` flag + retry, Settings toggle.
+- Onboarding: Apple Health opt-in step (explicitly skippable).
+- Polish: glass effects/animations where they earn it, empty states, week-9 graduation celebration, app icon/splash, purpose strings + privacy policy, App Review notes (background-modes justification).
+- E2E: Health opt-in allow/skip paths; full regression suite consolidated as the release gate. (HealthKit save verified manually in the Health app.)
+- **Works when:** a TestFlight build passes the full manual checklist; a run lands in Apple Health with its route map; regression suite green.
+
+## 14. Out of scope for v1 (designed-for, not built)
 
 Live Activity / Dynamic Island (official `expo-widgets`; engine already event-driven so `update()` on segment change is a bolt-on) · explicit iCloud/Drive sync (`BackupAdapter` port + sync-agnostic schema ready) · data export (GPX/JSON) · Android (ports defined, adapters pending) · Apple Watch · aggregate stats dashboards · localization (strings centralized from day one) · auto-pause · distance-based session variants · post-C25K programs.
 

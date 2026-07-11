@@ -118,3 +118,14 @@ single time source.
   rejected: unnecessary (location events already wake JS while locked —
   forthcoming ADR 0008), and native additions fight CNG for no correctness
   gain, since ticks still couldn't be trusted as a time source.
+- **react-native-reanimated for clock behavior** — evaluated against the
+  installed 4.5.0: Reanimated 4 has no clock API (Reanimated 1's `Clock` was
+  removed long ago); its time primitive is `useFrameCallback`/`FrameInfo`,
+  driven by `requestAnimationFrame` loops on the UI thread (verified in
+  `FrameCallbackRegistryUI.ts`). Frame callbacks fire only while frames are
+  being drawn — they stop when the screen locks or the app backgrounds, and
+  reset on process death — so as an engine time source it is strictly weaker
+  than the wall-clock event log. Rejected for timing; it remains the right
+  tool for *foreground UI smoothness* (worklet-driven animation between
+  engine heartbeats) in RN-rendered elements, noting the run screen's
+  countdown and gauge are SwiftUI per ADR 0005.

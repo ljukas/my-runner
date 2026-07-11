@@ -6,15 +6,11 @@ import { withUniwind } from 'uniwind';
 import { AnimatedIcon } from '@/components/animated-icon';
 import { HintRow } from '@/components/hint-row';
 import { ThemedText } from '@/components/themed-text';
-import { WebBadge } from '@/components/web-badge';
 import { BottomTabInset, Spacing } from '@/constants/theme';
 
 const StyledSafeAreaView = withUniwind(SafeAreaView);
 
 function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
   if (Device.isDevice) {
     return (
       <ThemedText type="small">
@@ -60,7 +56,6 @@ export default function HomeScreen() {
           />
         </View>
 
-        {Platform.OS === 'web' && <WebBadge />}
       </StyledSafeAreaView>
     </View>
   );

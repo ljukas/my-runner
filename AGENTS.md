@@ -25,7 +25,7 @@ The `/ios` and `/android` folders are gitignored — they are generated via preb
 
 # Git & PR conventions
 
-- Commit messages follow Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `build:`), matching the existing history.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) (`feat:`, `fix:`, `docs:`, `chore:`, `build:`), matching the existing history.
 - **PR titles must also follow Conventional Commits** — PRs are squash-merged, so the PR title becomes the commit message in `main`'s history.
 
 # E2E tests (Maestro)

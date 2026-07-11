@@ -1022,6 +1022,11 @@ describe('createSettingsStore', () => {
     expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: false });
   });
 
+  test('corrupted persisted JSON falls back to defaults instead of throwing', () => {
+    const store = createSettingsStore(fakeStorage({ settings: 'not-json{' }));
+    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
+  });
+
   test('unsubscribe stops notifications', () => {
     const store = createSettingsStore(fakeStorage());
     let notified = 0;
@@ -1072,7 +1077,12 @@ export function createSettingsStore(storage: StringStorage) {
   function load(): SettingsValues {
     const raw = storage.getItemSync(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw) as Partial<SettingsValues>;
+    let parsed: Partial<SettingsValues>;
+    try {
+      parsed = JSON.parse(raw) as Partial<SettingsValues>;
+    } catch {
+      return { ...DEFAULTS }; // corrupted storage must never crash startup
+    }
     return {
       useCompressedPlan: parsed.useCompressedPlan ?? DEFAULTS.useCompressedPlan,
       keepScreenAwake: parsed.keepScreenAwake ?? DEFAULTS.keepScreenAwake,
@@ -2657,6 +2667,13 @@ describe('createOnboarding', () => {
     for (const step of ONBOARDING_STEPS) onboarding.completeStep(step.id);
     expect(onboarding.pendingSteps()).toEqual([]);
   });
+
+  test('corrupted persisted JSON is treated as no steps completed', () => {
+    const storage = fakeStorage();
+    storage.setItemSync('onboarding.completedSteps', 'not-json{');
+    const onboarding = createOnboarding(storage);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
+  });
 });
 ```
 
@@ -2688,7 +2705,13 @@ const STORAGE_KEY = 'onboarding.completedSteps';
 export function createOnboarding(storage: StringStorage) {
   const readCompleted = (): string[] => {
     const raw = storage.getItemSync(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return []; // corrupted storage must never crash startup — re-showing onboarding is benign
+    }
   };
 
   return {

@@ -17,9 +17,9 @@ how that coverage can run:
 - The EAS free tier includes 60 CI/CD minutes/month, and EAS Workflows'
   pre-packaged `maestro` job is only available on paid plans
   ($0.05/job + build minutes) and is still in alpha.
-- The repo is not yet EAS-initialized: no `eas.json`, no `.eas/workflows/`,
-  and no `ios.bundleIdentifier`/`android.package` in `app.json` (Maestro
-  flows need an appId to launch).
+- The repo is not yet EAS-initialized: no `eas.json` and no `.eas/workflows/`.
+  (Maestro flows need an appId to launch — `app.json` sets
+  `se.bovra.myrunner` as both `ios.bundleIdentifier` and `android.package`.)
 - The Maestro CLI and the official Maestro MCP server are already installed
   and verified working locally.
 - Project policy is official tooling only: first-party MCP servers and vendor

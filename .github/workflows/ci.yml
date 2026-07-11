@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies (frozen)
+        run: bun ci
+
+      - name: Generate expo-router typed routes
+        run: bunx expo customize tsconfig.json
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Expo doctor
+        run: bunx expo-doctor

@@ -1,9 +1,9 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * JS mirror of the app theme. The main styling mechanism is Uniwind
+ * (Tailwind classes via `className`); the theme tokens live in src/global.css.
+ * `Colors` below mirrors those tokens for the few places that need color
+ * values in JS (e.g. `useTheme`) — keep both in sync.
  */
-
-import '@/global.css';
 
 import { Platform } from 'react-native';
 

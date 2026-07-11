@@ -41,3 +41,6 @@ example
 # generated native folders
 /ios
 /android
+
+# Claude Code session worktrees
+.claude/worktrees/

@@ -6,7 +6,6 @@ node_modules/
 # Expo
 .expo/
 dist/
-web-build/
 expo-env.d.ts
 
 # Native
@@ -41,3 +40,6 @@ example
 # generated native folders
 /ios
 /android
+
+# Claude Code session worktrees
+.claude/worktrees/

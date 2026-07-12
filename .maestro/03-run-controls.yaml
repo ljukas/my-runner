@@ -2,6 +2,7 @@ appId: se.lukaslindqvist.myrunner
 ---
 - launchApp:
     clearState: true
+- runFlow: helpers/open-dev-server.yaml
 - runFlow: helpers/complete-onboarding.yaml
 - runFlow: helpers/enable-compressed-plan.yaml
 - tapOn:

@@ -1,15 +1,18 @@
 {
   "expo": {
     "name": "my-runner",
-    "slug": "my-runner",
-    "version": "1.0.0",
+    "slug": "runtastic",
+    "version": "0.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myrunner",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "se.lukaslindqvist.myrunner",
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "se.lukaslindqvist.myrunner",
@@ -36,6 +39,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c628b135-773c-4b9d-b886-db1ff910b531"
+      }
+    },
+    "owner": "lukas-apps",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c628b135-773c-4b9d-b886-db1ff910b531"
     }
   }
 }

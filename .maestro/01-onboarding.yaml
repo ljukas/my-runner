@@ -2,9 +2,17 @@ appId: se.lukaslindqvist.myrunner
 ---
 - launchApp:
     clearState: true
+- runFlow: helpers/open-dev-server.yaml
 - runFlow: helpers/complete-onboarding.yaml
 - stopApp
 - launchApp
+# State survives the relaunch, but the dev-launcher may show its home screen
+# again instead of auto-loading the last bundle — reconnect if it does.
+- runFlow:
+    when:
+      visible:
+        text: ".*8087.*"
+    file: helpers/open-dev-server.yaml
 - assertNotVisible:
     id: "onboarding-continue-welcome"
 - assertVisible:

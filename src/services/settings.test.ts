@@ -44,6 +44,11 @@ describe('createSettingsStore', () => {
     expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
   });
 
+  test('non-object persisted JSON (e.g. "null") falls back to defaults instead of throwing', () => {
+    const store = createSettingsStore(fakeStorage({ settings: 'null' }));
+    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
+  });
+
   test('unsubscribe stops notifications', () => {
     const store = createSettingsStore(fakeStorage());
     let notified = 0;

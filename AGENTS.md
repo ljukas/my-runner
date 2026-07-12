@@ -18,7 +18,7 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
 - `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a` for iOS simulator or Android emulator
 - `bun run ios` / `bun run android` — now `expo run:ios` / `expo run:android` (Expo CLI rewrote these scripts during prebuild): a full native build + install, not just a Metro attach. Use `bun expo start` when you only need to reattach Metro to an already-built app.
-- `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
+- `bun run lint` — `expo lint` against the committed `eslint.config.js`
 - `bun test` — runs the unit suites (pure-TS `domain/` and `services/`; no RN runtime needed)
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
 

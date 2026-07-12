@@ -23,6 +23,9 @@ export function createSettingsStore(storage: StringStorage) {
     } catch {
       return { ...DEFAULTS }; // corrupted storage must never crash startup
     }
+    if (typeof parsed !== 'object' || parsed === null) {
+      return { ...DEFAULTS }; // non-object JSON is corruption too
+    }
     return {
       useCompressedPlan: parsed.useCompressedPlan ?? DEFAULTS.useCompressedPlan,
       keepScreenAwake: parsed.keepScreenAwake ?? DEFAULTS.keepScreenAwake,

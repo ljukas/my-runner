@@ -37,6 +37,15 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen
+          name="session/[key]"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: [0.5, 0.95],
+            sheetInitialDetentIndex: 0,
+            sheetGrabberVisible: true,
+          }}
+        />
       </Stack>
     </ThemeProvider>
   );

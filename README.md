@@ -1,56 +1,64 @@
-# Welcome to your Expo app 👋
+# My Runner 🏃
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A free Couch-to-5K app: it guides someone who can barely run through a progressive
+walk/run program until they can run 5 km. Inspired by the paid App Store
+equivalents — but free.
 
-## Get started
+- **Private by design** — no backend, no accounts, no analytics. All your data
+  stays on your device; iCloud is the only backup/sync mechanism.
+- **Mobile only** — iOS first, Android second. There is no web version.
+- Built with [Expo](https://expo.dev) (React Native), using
+  [Bun](https://bun.sh) as the package manager.
 
-1. Install dependencies
+## Running the app in development
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+You'll need Node LTS, Bun, and Xcode (for iOS) or Android Studio (for Android).
 
 ```bash
-npm run reset-project
+bun install       # install dependencies
+bun run ios       # build + install the dev client on the iOS simulator
+bun run start     # day-to-day: start the dev server, press i / a to open the app
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+`bun run ios` (or `bun run android`) is needed on first run and again after any
+native change — the app uses a custom dev client, not Expo Go. For everyday
+JS/UI work, `bun run start` with an already-installed dev client is enough.
 
-### Other setup steps
+## Installing on your own iPhone
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+There is no Apple Developer account set up yet, so **this is currently the only
+way to get the app onto a physical iPhone**:
 
-## Learn more
+```bash
+bun expo run:ios --device --configuration Release
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+That builds a standalone release version and installs it on a connected iPhone,
+signed with a free Apple ID (Xcode "personal team"). One-time setup: sign into
+Xcode with an Apple ID, enable Developer Mode on the phone, and trust the
+developer certificate in Settings.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Things to know about free signing:
 
-## Join the community
+- The app **stops launching after 7 days**. Just run the command again — it
+  reinstalls over the top and everything keeps working.
+- Your data **survives** every install-over-the-top (newer versions included).
+  It's only lost if you delete the app.
 
-Join our community of developers creating universal apps.
+## Builds & releases
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Cloud builds run on [EAS](https://expo.dev/eas); profiles live in `eas.json`.
+The `internal` profile produces a prod-like build for personal devices, but it
+**requires a paid Apple Developer membership** (register the device with
+`eas device:create`, then `eas build -p ios --profile internal`) — blocked until
+that account exists.
+
+Store releases are fully automated: merging a release PR tags a version and
+ships it, over-the-air when possible. Don't hand-edit `CHANGELOG.md` or version
+fields — the release tooling owns them.
+
+## More documentation
+
+- [`AGENTS.md`](AGENTS.md) — contributor & agent guidance (commands, conventions, architecture)
+- [`docs/adr/`](docs/adr/) — architectural decision records
+- [`docs/superpowers/specs/`](docs/superpowers/specs/) — design specs, including the master C25K app design

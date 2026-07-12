@@ -22,13 +22,18 @@ regressions).
    ```
 2. **Simulator** — `list-devices` → prefer a booted device, else `boot-device`.
    (`list-devices` also gives the `<udid>` used below.)
-3. **Open the app** — while `expo-dev-client` is absent from package.json (the current
-   state), the app runs in **Expo Go** (`host.exp.Exponent`): argent `open-url` with
-   `exp://127.0.0.1:<port>`. If Expo Go isn't on the simulator, kill your Metro and
-   rerun the step-1 command with `--ios` appended — Expo CLI installs Expo Go and opens
-   the project; keep that server as your Metro. (Once a later stage adds
-   `expo-dev-client`, build with `bun expo run:ios` and use `launch-app` with
-   `se.lukaslindqvist.myrunner` instead.)
+3. **Open the app** — the app is an **expo-dev-client** development build
+   (`se.lukaslindqvist.myrunner`), not Expo Go. If the dev client isn't installed on
+   the simulator yet, or native config/deps changed since it was last built, build it
+   first (slow: prebuild + pods + Xcode; run in background and watch for
+   `Build Succeeded` / `error:`) — this replaces step 1, it starts its own Metro:
+   ```bash
+   EXPO_NO_TELEMETRY=1 bun expo run:ios --device <udid> --port <port>
+   ```
+   For JS-only changes with the dev client already installed: argent `launch-app`
+   with `se.lukaslindqvist.myrunner`, then `open-url` with
+   `exp+runtastic://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A<port>`
+   to point it at your Metro from step 1.
 4. **Drive & verify** — discovery tool (`describe` / `debugger-component-tree`) before
    every tap; `await-ui-element` to wait for state, never screenshot-polling;
    `screenshot` for evidence. Don't hardcode routes or screen names — the screen set

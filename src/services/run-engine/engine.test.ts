@@ -214,6 +214,27 @@ describe('completion', () => {
     expect(engine.getSnapshot().savedRunId).toBeNull();
   });
 
+  test('a slow save from a superseded run never stamps a later run', async () => {
+    let resolveSave: ((id: string) => void) | undefined;
+    const persistence: RunPersistence = {
+      saveRun: () => new Promise<string>((resolve) => (resolveSave = resolve)),
+    };
+    let now = 1_000_000;
+    const engine = new RunEngine({ persistence, clock: () => now });
+    engine.start(SESSION);
+    now += 80_000;
+    engine.heartbeat(); // completes run A; its save stays pending
+    expect(engine.getSnapshot().status).toBe('completed');
+    engine.reset();
+    engine.start({ ...SESSION, key: 'w1d2' });
+    resolveSave!('run-A');
+    await flush();
+    const s = engine.getSnapshot();
+    expect(s.savedRunId).toBeNull();
+    expect(s.sessionKey).toBe('w1d2');
+    expect(s.status).toBe('running');
+  });
+
   test('controls are inert after completion', async () => {
     const { engine, tick, saved } = makeEngine();
     engine.start(SESSION);

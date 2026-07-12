@@ -2773,21 +2773,31 @@ Expected: PASS.
 `src/services/onboarding-store.ts`:
 
 ```ts
-import { type Router } from 'expo-router';
+import { type ImperativeRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 
 import { createOnboarding, type OnboardingStepId } from './onboarding';
 
 export const onboarding = createOnboarding(Storage);
 
-/** Mark this step done, then go to the next pending step or leave onboarding. */
-export function completeAndAdvance(router: Router, id: OnboardingStepId): void {
+/**
+ * Mark this step done, then go to the next pending step or leave onboarding.
+ *
+ * Uses `replace` (not `push`) between steps so the nested onboarding Stack
+ * never accumulates history — `dismissAll`/`back` target the CLOSEST stack,
+ * so with local history they would pop back to an earlier onboarding screen
+ * instead of leaving the flow. With a single-entry nested stack, `back()` on
+ * the last step has nothing left to pop locally, bubbles to the root Stack,
+ * and dismisses the whole onboarding group, revealing the tabs underneath.
+ * (SDK 57 exports `ImperativeRouter`, not `Router`.)
+ */
+export function completeAndAdvance(router: ImperativeRouter, id: OnboardingStepId): void {
   onboarding.completeStep(id);
   const next = onboarding.pendingSteps()[0];
   if (next) {
-    router.push(next.route as Parameters<typeof router.push>[0]);
+    router.replace(next.route as Parameters<typeof router.replace>[0]);
   } else {
-    router.dismissAll();
+    router.back();
   }
 }
 ```

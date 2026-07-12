@@ -46,6 +46,7 @@ export default function RootLayout() {
             sheetGrabberVisible: true,
           }}
         />
+        <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
       </Stack>
     </ThemeProvider>
   );

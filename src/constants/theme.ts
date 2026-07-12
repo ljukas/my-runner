@@ -5,6 +5,8 @@
  * in JS (`useTheme`, @expo/ui SwiftUI islands) — keep both in sync.
  */
 
+import type { SegmentKind } from '@/domain/plan';
+
 export const Colors = {
   light: {
     text: '#000000',
@@ -25,3 +27,11 @@ export const Colors = {
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+
+/** Segment-kind accents, shared by the SegmentBar and the run screen. Same in both schemes. */
+export const SegmentColors: Record<SegmentKind, string> = {
+  warmup: '#F5A623',
+  run: '#3c87f7',
+  walk: '#8E8E93',
+  cooldown: '#5AC8FA',
+};

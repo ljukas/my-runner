@@ -1,0 +1,55 @@
+# Release flow (ADR 0012): release-please maintains a release PR from
+# Conventional Commit squash titles; merging it tags vX.Y.Z, creates the
+# GitHub Release, and dispatches the fingerprint-gated EAS deploy workflow.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          # PAT, not the default GITHUB_TOKEN: PRs opened by the default token
+          # get no CI runs, so the ruleset's required `checks` context would
+          # make the release PR unmergeable.
+          token: ${{ secrets.RELEASE_PAT }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  deploy:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies (frozen)
+        run: bun ci
+
+      - name: Dispatch EAS deploy workflow
+        run: bunx eas-cli workflow:run .eas/workflows/deploy-production.yml
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

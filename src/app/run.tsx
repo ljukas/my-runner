@@ -73,25 +73,28 @@ export default function RunScreen() {
           <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
             {paused ? 'Paused' : KIND_LABEL[kind]}
           </Text>
-          <Text
-            testID="run-countdown"
-            modifiers={[
-              font({ size: 80, weight: 'bold' }),
-              monospacedDigit(),
-              contentTransition('numericText', { countsDown: true }),
-              foregroundColor(colors.text),
-            ]}>
-            {formatClock(snapshot.segmentSecondsRemaining)}
-          </Text>
+          <HStack testID="run-countdown">
+            <Text
+              modifiers={[
+                font({ size: 80, weight: 'bold' }),
+                monospacedDigit(),
+                contentTransition('numericText', { countsDown: true }),
+                foregroundColor(colors.text),
+              ]}>
+              {formatClock(snapshot.segmentSecondsRemaining)}
+            </Text>
+          </HStack>
           <Gauge value={segmentProgress} modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]} />
           <Text modifiers={[foregroundColor(colors.textSecondary)]}>
             {snapshot.nextSegment
               ? `Next: ${KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
               : 'Last segment — finish strong!'}
           </Text>
-          <Text testID="run-elapsed" modifiers={[monospacedDigit(), foregroundColor(colors.textSecondary)]}>
-            {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
-          </Text>
+          <HStack testID="run-elapsed">
+            <Text modifiers={[monospacedDigit(), foregroundColor(colors.textSecondary)]}>
+              {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
+            </Text>
+          </HStack>
           <Spacer />
           <HStack spacing={16}>
             <Button

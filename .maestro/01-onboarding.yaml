@@ -1,0 +1,11 @@
+appId: se.lukaslindqvist.myrunner
+---
+- launchApp:
+    clearState: true
+- runFlow: helpers/complete-onboarding.yaml
+- stopApp
+- launchApp
+- assertNotVisible:
+    id: "onboarding-continue-welcome"
+- assertVisible:
+    id: "plan-row-w1d1"

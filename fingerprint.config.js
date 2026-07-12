@@ -8,8 +8,15 @@ const { SourceSkips } = require('expo/fingerprint');
 
 /** @type {import('expo/fingerprint').Config} */
 const config = {
+  // Setting sourceSkips REPLACES @expo/fingerprint's DEFAULT_SOURCE_SKIPS
+  // (PackageJsonAndroidAndIosScriptsIfNotContainRun) instead of merging, so
+  // that default must be re-added explicitly. Without it, prebuild on the EAS
+  // worker rewrites the android/ios package.json scripts and the build fails
+  // the expo-updates runtime-version (fingerprint) consistency check.
   sourceSkips:
-    SourceSkips.ExpoConfigVersions | SourceSkips.ExpoConfigRuntimeVersionIfString,
+    SourceSkips.ExpoConfigVersions |
+    SourceSkips.ExpoConfigRuntimeVersionIfString |
+    SourceSkips.PackageJsonAndroidAndIosScriptsIfNotContainRun,
 };
 
 module.exports = config;

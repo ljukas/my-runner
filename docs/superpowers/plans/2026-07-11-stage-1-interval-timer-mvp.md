@@ -2257,7 +2257,7 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import { useKeepAwake } from 'expo-keep-awake';
 import { Redirect, useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { ThemedView } from '@/components/themed-view';
 import { SegmentColors } from '@/constants/theme';
@@ -2285,6 +2285,7 @@ export default function RunScreen() {
   const router = useRouter();
   const keepAwake = useSetting('keepScreenAwake');
   const colors = useTheme();
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => runEngine.heartbeat(), 1000);
@@ -2350,12 +2351,17 @@ export default function RunScreen() {
               onPress={() => runEngine.skipSegment()}
               modifiers={[buttonStyle('bordered'), controlSize('large')]}
             />
-            <ConfirmationDialog title="End this run?">
+            <ConfirmationDialog
+              title="End this run?"
+              isPresented={endDialogOpen}
+              onIsPresentedChange={setEndDialogOpen}
+              titleVisibility="visible">
               <ConfirmationDialog.Trigger>
                 <Button
                   testID="run-end"
                   label="End"
                   role="destructive"
+                  onPress={() => setEndDialogOpen(true)}
                   modifiers={[buttonStyle('bordered'), controlSize('large')]}
                 />
               </ConfirmationDialog.Trigger>

@@ -16,8 +16,8 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 
 - `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
-- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a` for iOS simulator or Android emulator
-- `bun run ios` / `bun run android` — start directly on a platform
+- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a` to open the app in the installed dev client on the iOS simulator or Android emulator
+- `bun run ios` / `bun run android` — compile and install a dev-client build (`expo run:ios` / `expo run:android`) and start the dev server; required on first run and after any native change (new native dependency, config plugin, native app.json fields). The app uses expo-dev-client, not Expo Go.
 - `bun run lint` — `expo lint`; no ESLint config is committed yet, so the first run scaffolds one
 - No unit test runner is configured yet; E2E tests are Maestro flows — see "E2E tests (Maestro)" below
 

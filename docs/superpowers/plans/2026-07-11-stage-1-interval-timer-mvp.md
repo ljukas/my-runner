@@ -14,7 +14,7 @@ Copied from AGENTS.md, the design spec (`docs/superpowers/specs/2026-07-11-c25k-
 
 - **Do not rely on memorized Expo/RN APIs.** Verify against https://docs.expo.dev/versions/v57.0.0/ (Context7 MCP) or the installed `node_modules` source.
 - **Bun only:** `bun install`, `bun expo install <pkg>` for anything Expo touches, `bun add`/`bun add -d` for pure-JS dev tooling, `bun test`, `bunx` for CLIs.
-- **CNG:** never edit `ios/`/`android/`; everything via `app.json` + config plugins. No `app.json` changes are needed in Stage 1.
+- **CNG:** never edit `ios/`/`android/`; everything via `app.json` + config plugins. The only `app.json` change in Stage 1 is the `expo-sqlite` config plugin entry that `bun expo install expo-sqlite` adds automatically.
 - **No backend, no accounts, no analytics; no web target.** iOS is the primary target — verify everything on the iOS simulator.
 - **Official packages only** (Expo/vendor first-party). New deps in this stage: `expo-sqlite`, `expo-crypto`, `expo-keep-awake` (via `bun expo install`); `drizzle-orm` (`bun add`); `drizzle-kit`, `babel-plugin-inline-import`, `babel-preset-expo` (`bun add -d`).
 - **Styling:** RN components use Uniwind `className` (tokens from `src/global.css`); SwiftUI islands take raw colors from the `Colors` mirror in `src/constants/theme.ts` — keep the two in sync. Never NativeWind, never StyleSheet for new RN styling (exception: raw color values where dynamic per-datum, per AGENTS.md).
@@ -1027,6 +1027,11 @@ describe('createSettingsStore', () => {
     expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
   });
 
+  test('non-object persisted JSON (e.g. "null") falls back to defaults instead of throwing', () => {
+    const store = createSettingsStore(fakeStorage({ settings: 'null' }));
+    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
+  });
+
   test('unsubscribe stops notifications', () => {
     const store = createSettingsStore(fakeStorage());
     let notified = 0;
@@ -1082,6 +1087,9 @@ export function createSettingsStore(storage: StringStorage) {
       parsed = JSON.parse(raw) as Partial<SettingsValues>;
     } catch {
       return { ...DEFAULTS }; // corrupted storage must never crash startup
+    }
+    if (typeof parsed !== 'object' || parsed === null) {
+      return { ...DEFAULTS }; // non-object JSON is corruption too
     }
     return {
       useCompressedPlan: parsed.useCompressedPlan ?? DEFAULTS.useCompressedPlan,

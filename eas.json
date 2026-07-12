@@ -17,6 +17,10 @@
       "distribution": "internal",
       "channel": "preview"
     },
+    "internal": {
+      "extends": "production",
+      "distribution": "internal"
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production"

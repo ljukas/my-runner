@@ -47,6 +47,7 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+        <Stack.Screen name="run-summary" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
       </Stack>
     </ThemeProvider>
   );

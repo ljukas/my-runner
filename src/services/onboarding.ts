@@ -1,4 +1,6 @@
-import type { StringStorage } from './storage';
+import type { Href } from 'expo-router';
+
+import { readJson, type StringStorage } from './storage';
 
 /**
  * Versioned first-launch steps (spec §13). A later release that needs a new
@@ -8,7 +10,7 @@ export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },
   { id: 'how-it-works-v1', route: '/onboarding/how-it-works' },
   { id: 'health-note-v1', route: '/onboarding/health-note' },
-] as const;
+] as const satisfies readonly { id: string; route: Href }[];
 
 export type OnboardingStepId = (typeof ONBOARDING_STEPS)[number]['id'];
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -17,14 +19,9 @@ const STORAGE_KEY = 'onboarding.completedSteps';
 
 export function createOnboarding(storage: StringStorage) {
   const readCompleted = (): string[] => {
-    const raw = storage.getItemSync(STORAGE_KEY);
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return []; // corrupted storage must never crash startup — re-showing onboarding is benign
-    }
+    // Corrupt storage reads as nothing completed — re-showing onboarding is benign.
+    const parsed = readJson(storage, STORAGE_KEY);
+    return Array.isArray(parsed) ? parsed : [];
   };
 
   return {

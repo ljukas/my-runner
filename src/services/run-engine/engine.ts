@@ -55,6 +55,8 @@ export class RunEngine {
   /** Bumped by start()/reset() so a slow save from a superseded run can never stamp a later one. */
   private runGeneration = 0;
   private snapshot: RunSnapshot = IDLE_SNAPSHOT;
+  /** The timeline only changes on start/reset/skip, not per heartbeat — cache it between those. */
+  private cachedTimeline: TimelineSegment[] | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(deps: { persistence: RunPersistence; clock?: Clock }) {
@@ -66,6 +68,7 @@ export class RunEngine {
     if (this.status !== 'idle') return;
     this.session = session;
     this.events = [{ type: 'start', at: this.clock() }];
+    this.cachedTimeline = null;
     this.status = 'running';
     this.savedRunId = null;
     this.saveFailed = false;
@@ -111,6 +114,7 @@ export class RunEngine {
   reset(): void {
     this.session = null;
     this.events = [];
+    this.cachedTimeline = null;
     this.status = 'idle';
     this.savedRunId = null;
     this.saveFailed = false;
@@ -132,6 +136,7 @@ export class RunEngine {
   private append(type: RunEvent['type']): void {
     const last = this.events[this.events.length - 1];
     this.events.push({ type, at: Math.max(this.clock(), last?.at ?? 0) });
+    if (type === 'skip') this.cachedTimeline = null;
   }
 
   /** Active-elapsed seconds at each skip event, measured against the events before it. */
@@ -143,7 +148,8 @@ export class RunEngine {
   }
 
   private timeline(): TimelineSegment[] {
-    return buildTimeline(this.session?.segments ?? [], this.skipAts());
+    this.cachedTimeline ??= buildTimeline(this.session?.segments ?? [], this.skipAts());
+    return this.cachedTimeline;
   }
 
   private refresh(now: number = this.clock()): void {

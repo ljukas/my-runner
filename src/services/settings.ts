@@ -1,4 +1,4 @@
-import type { StringStorage } from './storage';
+import { readJson, type StringStorage } from './storage';
 
 export interface SettingsValues {
   /** Dev/E2E only: swap the NHS plan for the seconds-long compressed plan. */
@@ -15,20 +15,14 @@ export function createSettingsStore(storage: StringStorage) {
   const listeners = new Set<() => void>();
 
   function load(): SettingsValues {
-    const raw = storage.getItemSync(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
-    let parsed: Partial<SettingsValues>;
-    try {
-      parsed = JSON.parse(raw) as Partial<SettingsValues>;
-    } catch {
-      return { ...DEFAULTS }; // corrupted storage must never crash startup
-    }
+    const parsed = readJson(storage, STORAGE_KEY);
     if (typeof parsed !== 'object' || parsed === null) {
       return { ...DEFAULTS }; // non-object JSON is corruption too
     }
+    const values = parsed as Partial<SettingsValues>;
     return {
-      useCompressedPlan: parsed.useCompressedPlan ?? DEFAULTS.useCompressedPlan,
-      keepScreenAwake: parsed.keepScreenAwake ?? DEFAULTS.keepScreenAwake,
+      useCompressedPlan: values.useCompressedPlan ?? DEFAULTS.useCompressedPlan,
+      keepScreenAwake: values.keepScreenAwake ?? DEFAULTS.keepScreenAwake,
     };
   }
 

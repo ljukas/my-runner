@@ -20,7 +20,7 @@ function OnboardingGate() {
   useEffect(() => {
     const pending = onboarding.pendingSteps();
     if (pending.length > 0) {
-      router.push(pending[0].route as Parameters<typeof router.push>[0]);
+      router.push(pending[0].route);
     }
   }, [router]);
   return null;

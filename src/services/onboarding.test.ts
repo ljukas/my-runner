@@ -1,15 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { ONBOARDING_STEPS, createOnboarding } from './onboarding';
-import type { StringStorage } from './storage';
-
-function fakeStorage(): StringStorage {
-  const map = new Map<string, string>();
-  return {
-    getItemSync: (key) => map.get(key) ?? null,
-    setItemSync: (key, value) => void map.set(key, value),
-  };
-}
+import { fakeStorage } from './test-helpers';
 
 describe('createOnboarding', () => {
   test('all steps pending on first launch, in declared order', () => {

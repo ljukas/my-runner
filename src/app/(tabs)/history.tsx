@@ -4,14 +4,16 @@ import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 
 import { db } from '@/db/client';
+import { runNotDeleted } from '@/db/queries';
 import { runs } from '@/db/schema';
 import { formatClock, sessionTitle } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function HistoryScreen() {
   const colors = useTheme();
-  const { data } = useLiveQuery(db.select().from(runs).orderBy(desc(runs.startedAt)));
-  const visible = (data ?? []).filter((run) => !run.deletedAt);
+  const { data: visible } = useLiveQuery(
+    db.select().from(runs).where(runNotDeleted).orderBy(desc(runs.startedAt)),
+  );
 
   if (visible.length === 0) {
     return (

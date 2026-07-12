@@ -21,7 +21,7 @@ export function completeAndAdvance(router: ImperativeRouter, id: OnboardingStepI
   onboarding.completeStep(id);
   const next = onboarding.pendingSteps()[0];
   if (next) {
-    router.replace(next.route as Parameters<typeof router.replace>[0]);
+    router.replace(next.route);
   } else {
     router.back();
   }

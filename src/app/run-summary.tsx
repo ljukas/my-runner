@@ -1,36 +1,38 @@
 import { Form, Host, LabeledContent, Section, Text } from '@expo/ui/swift-ui';
 import { asc, eq } from 'drizzle-orm';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable } from 'react-native';
 
+import { PrimaryButton } from '@/components/primary-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
-import { formatClock, sessionTitle } from '@/domain/format';
+import { SEGMENT_KIND_LABEL, formatClock, sessionTitle } from '@/domain/format';
 import { runEngine } from '@/services/run-engine';
 
 type RunRow = typeof runs.$inferSelect;
 type SegmentRow = typeof runSegments.$inferSelect;
 
-const KIND_LABEL = { warmup: 'Warm up', run: 'Run', walk: 'Walk', cooldown: 'Cool down' } as const;
-
 export default function RunSummaryScreen() {
-  const { runId } = useLocalSearchParams<{ runId: string }>();
   const router = useRouter();
+  // Read once at mount: the run screen navigates here only after the save has
+  // settled, and the engine keeps the outcome until done() resets it.
+  const [runId] = useState(() => runEngine.getSnapshot().savedRunId);
   const [data, setData] = useState<{ run: RunRow; segments: SegmentRow[] } | null>(null);
 
   useEffect(() => {
     if (!runId) return;
     (async () => {
-      const [run] = await db.select().from(runs).where(eq(runs.id, runId));
+      const [[run], segments] = await Promise.all([
+        db.select().from(runs).where(eq(runs.id, runId)),
+        db
+          .select()
+          .from(runSegments)
+          .where(eq(runSegments.runId, runId))
+          .orderBy(asc(runSegments.seq)),
+      ]);
       if (!run) return;
-      const segments = await db
-        .select()
-        .from(runSegments)
-        .where(eq(runSegments.runId, runId))
-        .orderBy(asc(runSegments.seq));
       setData({ run, segments });
     })();
   }, [runId]);
@@ -40,11 +42,7 @@ export default function RunSummaryScreen() {
     router.dismissAll();
   };
 
-  const doneButton = (
-    <Pressable testID="summary-done" onPress={done} className="items-center rounded-full bg-primary py-4">
-      <ThemedText className="text-white">Done</ThemedText>
-    </Pressable>
-  );
+  const doneButton = <PrimaryButton testID="summary-done" label="Done" onPress={done} />;
 
   if (!runId || !data) {
     return (
@@ -81,7 +79,7 @@ export default function RunSummaryScreen() {
             {data.segments.map((segment) => (
               <LabeledContent
                 key={segment.id}
-                label={`${segment.seq + 1}. ${KIND_LABEL[segment.kind]}${segment.wasSkipped ? ' (skipped)' : ''}`}>
+                label={`${segment.seq + 1}. ${SEGMENT_KIND_LABEL[segment.kind]}${segment.wasSkipped ? ' (skipped)' : ''}`}>
                 <Text>{`${formatClock(segment.actualDurationS)} / ${formatClock(segment.plannedDurationS)}`}</Text>
               </LabeledContent>
             ))}

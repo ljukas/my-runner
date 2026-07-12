@@ -32,7 +32,7 @@ export function buildTimeline(segments: PlannedSegment[], skipAts: number[]): Ti
     const pos = positionAt(timeline, skipAt);
     if (pos.done) continue;
     const segment = timeline[pos.index];
-    segment.effectiveSeconds = skipAt - segment.startsAt;
+    segment.effectiveSeconds = pos.secondsInto;
     segment.wasSkipped = true;
     restack(timeline);
   }

@@ -4,6 +4,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useRouter } from 'expo-router';
 
 import { db } from '@/db/client';
+import { runCompleted } from '@/db/queries';
 import { runs } from '@/db/schema';
 import { formatMinutes } from '@/domain/format';
 import { nextSessionKey, sessionTotalSeconds, type PlanSession } from '@/domain/plan';
@@ -13,13 +14,11 @@ import { useActivePlan } from '@/services/active-plan';
 export default function PlanScreen() {
   const router = useRouter();
   const plan = useActivePlan();
-  const { data: allRuns } = useLiveQuery(db.select().from(runs));
-
-  const completedKeys = new Set(
-    (allRuns ?? [])
-      .filter((run) => run.status === 'completed' && !run.deletedAt)
-      .map((run) => run.sessionKey),
+  const { data: completedRuns } = useLiveQuery(
+    db.select({ sessionKey: runs.sessionKey }).from(runs).where(runCompleted),
   );
+
+  const completedKeys = new Set(completedRuns.map((run) => run.sessionKey));
   const nextKey = nextSessionKey(plan, completedKeys);
   const weeks = [...new Set(plan.map((session) => session.week))];
 

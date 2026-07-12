@@ -16,18 +16,10 @@ import { useEffect, useState } from 'react';
 
 import { ThemedView } from '@/components/themed-view';
 import { SegmentColors } from '@/constants/theme';
-import { formatClock } from '@/domain/format';
-import type { SegmentKind } from '@/domain/plan';
+import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
 import { runEngine, useRunEngine } from '@/services/run-engine';
 import { settingsStore, useSetting } from '@/services/settings-store';
-
-const KIND_LABEL: Record<SegmentKind, string> = {
-  warmup: 'Warm up',
-  run: 'Run',
-  walk: 'Walk',
-  cooldown: 'Cool down',
-};
 
 /** useKeepAwake is unconditional, so the toggle mounts/unmounts this child. */
 function KeepAwakeWhileMounted() {
@@ -41,23 +33,24 @@ export default function RunScreen() {
   const keepAwake = useSetting('keepScreenAwake');
   const colors = useTheme();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const paused = snapshot.status === 'paused';
 
   useEffect(() => {
+    // While paused, elapsed is frozen and nothing time-derived can change —
+    // pause/resume/skip refresh the snapshot themselves, so the ticker rests.
+    if (paused) return;
     const id = setInterval(() => runEngine.heartbeat(), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [paused]);
 
   const finished = snapshot.status === 'completed' || snapshot.status === 'endedEarly';
   const saveSettled = snapshot.savedRunId !== null || snapshot.saveFailed;
   useEffect(() => {
-    if (finished && saveSettled) {
-      router.replace({ pathname: '/run-summary', params: { runId: snapshot.savedRunId ?? '' } });
-    }
-  }, [finished, saveSettled, snapshot.savedRunId, router]);
+    // The summary reads the run id / save outcome from the engine snapshot.
+    if (finished && saveSettled) router.replace('/run-summary');
+  }, [finished, saveSettled, router]);
 
   if (snapshot.status === 'idle') return <Redirect href="/" />;
-
-  const paused = snapshot.status === 'paused';
   const kind = snapshot.segmentKind ?? 'run';
   const segmentProgress =
     snapshot.segmentSecondsTotal > 0
@@ -71,7 +64,7 @@ export default function RunScreen() {
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
           <Spacer />
           <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
-            {paused ? 'Paused' : KIND_LABEL[kind]}
+            {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
           </Text>
           <HStack testID="run-countdown">
             <Text
@@ -87,7 +80,7 @@ export default function RunScreen() {
           <Gauge value={segmentProgress} modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]} />
           <Text modifiers={[foregroundColor(colors.textSecondary)]}>
             {snapshot.nextSegment
-              ? `Next: ${KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
+              ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
               : 'Last segment — finish strong!'}
           </Text>
           <HStack testID="run-elapsed">

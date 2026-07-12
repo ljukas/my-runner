@@ -6,6 +6,7 @@ import {
   getSession,
   nextSessionKey,
   parseSessionKey,
+  sessionRunSeconds,
   sessionTotalSeconds,
 } from './plan';
 
@@ -18,9 +19,7 @@ const EXPECTED_RUN_SECONDS: Record<string, number> = {
 };
 
 function runSeconds(key: string): number {
-  return getSession(NHS_PLAN, key)!
-    .segments.filter((s) => s.kind === 'run')
-    .reduce((sum, s) => sum + s.seconds, 0);
+  return sessionRunSeconds(getSession(NHS_PLAN, key)!);
 }
 
 describe('NHS_PLAN', () => {

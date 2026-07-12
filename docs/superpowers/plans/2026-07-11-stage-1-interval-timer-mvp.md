@@ -1490,6 +1490,27 @@ describe('completion', () => {
     expect(engine.getSnapshot().savedRunId).toBeNull();
   });
 
+  test('a slow save from a superseded run never stamps a later run', async () => {
+    let resolveSave: ((id: string) => void) | undefined;
+    const persistence: RunPersistence = {
+      saveRun: () => new Promise<string>((resolve) => (resolveSave = resolve)),
+    };
+    let now = 1_000_000;
+    const engine = new RunEngine({ persistence, clock: () => now });
+    engine.start(SESSION);
+    now += 80_000;
+    engine.heartbeat(); // completes run A; its save stays pending
+    expect(engine.getSnapshot().status).toBe('completed');
+    engine.reset();
+    engine.start({ ...SESSION, key: 'w1d2' });
+    resolveSave!('run-A');
+    await flush();
+    const s = engine.getSnapshot();
+    expect(s.savedRunId).toBeNull();
+    expect(s.sessionKey).toBe('w1d2');
+    expect(s.status).toBe('running');
+  });
+
   test('controls are inert after completion', async () => {
     const { engine, tick, saved } = makeEngine();
     engine.start(SESSION);
@@ -1608,6 +1629,8 @@ export class RunEngine {
   private status: EngineStatus = 'idle';
   private savedRunId: string | null = null;
   private saveFailed = false;
+  /** Bumped by start()/reset() so a slow save from a superseded run can never stamp a later one. */
+  private runGeneration = 0;
   private snapshot: RunSnapshot = IDLE_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
 
@@ -1623,6 +1646,7 @@ export class RunEngine {
     this.status = 'running';
     this.savedRunId = null;
     this.saveFailed = false;
+    this.runGeneration += 1;
     this.refresh();
   }
 
@@ -1667,6 +1691,7 @@ export class RunEngine {
     this.status = 'idle';
     this.savedRunId = null;
     this.saveFailed = false;
+    this.runGeneration += 1;
     this.snapshot = IDLE_SNAPSHOT;
     this.emit();
   }
@@ -1767,13 +1792,16 @@ export class RunEngine {
 
     this.status = kind;
     this.refresh(endAt);
+    const generation = this.runGeneration;
     this.persistence.saveRun(record).then(
       (id) => {
+        if (generation !== this.runGeneration) return; // superseded by reset()/start()
         this.savedRunId = id;
         this.snapshot = { ...this.snapshot, savedRunId: id };
         this.emit();
       },
       () => {
+        if (generation !== this.runGeneration) return; // superseded by reset()/start()
         this.saveFailed = true;
         this.snapshot = { ...this.snapshot, saveFailed: true };
         this.emit();

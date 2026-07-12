@@ -1,7 +1,7 @@
 import '@/global.css';
 
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
@@ -10,8 +10,21 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
+import { onboarding } from '@/services/onboarding-store';
 
 SplashScreen.preventAutoHideAsync();
+
+/** Pushes the first pending onboarding step as a full-screen modal over the tabs. */
+function OnboardingGate() {
+  const router = useRouter();
+  useEffect(() => {
+    const pending = onboarding.pendingSteps();
+    if (pending.length > 0) {
+      router.push(pending[0].route as Parameters<typeof router.push>[0]);
+    }
+  }, [router]);
+  return null;
+}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -35,6 +48,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <OnboardingGate />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
@@ -48,6 +62,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
         <Stack.Screen name="run-summary" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+        <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
       </Stack>
     </ThemeProvider>
   );

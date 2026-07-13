@@ -20,20 +20,26 @@
 
     @variant light {
       --color-primary: #3c87f7;
+      --color-primary-foreground: #ffffff;
       --color-background: #ffffff;
       --color-background-element: #f0f0f3;
       --color-background-selected: #e0e1e6;
       --color-foreground: #000000;
       --color-foreground-secondary: #60646c;
+      --color-destructive: #ff3b30;
+      --color-destructive-foreground: #ffffff;
     }
 
     @variant dark {
       --color-primary: #3c87f7;
+      --color-primary-foreground: #ffffff;
       --color-background: #000000;
       --color-background-element: #212225;
       --color-background-selected: #2e3135;
       --color-foreground: #ffffff;
       --color-foreground-secondary: #b0b4ba;
+      --color-destructive: #ff453a;
+      --color-destructive-foreground: #ffffff;
     }
   }
 }

@@ -3,7 +3,7 @@ import { Image, View } from 'react-native';
 
 import { FeatureRow } from '@/components/feature-row';
 import { OnboardingStepScreen } from '@/components/onboarding-step-screen';
-import { ThemedText } from '@/components/themed-text';
+import { Text } from '@/components/ui/text';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function WelcomeScreen() {
@@ -19,10 +19,10 @@ export default function WelcomeScreen() {
             size={20}
             tintColor={colors.primary}
           />
-          <ThemedText type="footnote" themeColor="textSecondary">
+          <Text variant="footnote" tone="secondary">
             Couch to 5K is designed for beginners. If you have a health condition or an old injury,
             have a quick word with your doctor before starting — and listen to your body.
-          </ThemedText>
+          </Text>
         </View>
       }
     >
@@ -32,10 +32,10 @@ export default function WelcomeScreen() {
         style={{ borderCurve: 'continuous' } as any}
       />
       <View className="pt-9">
-        <ThemedText type="largeTitle" themeColor="primary">
+        <Text variant="largeTitle" tone="primary">
           Welcome to
-        </ThemedText>
-        <ThemedText type="largeTitle">My Runner</ThemedText>
+        </Text>
+        <Text variant="largeTitle">My Runner</Text>
       </View>
       <View className="gap-6 pt-7">
         <FeatureRow

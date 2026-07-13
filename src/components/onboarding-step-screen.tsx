@@ -4,7 +4,6 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IslandButton } from '@/components/island/button';
-import { ThemedView } from '@/components/themed-view';
 import { completeAndAdvance } from '@/services/onboarding-store';
 import type { OnboardingStepId } from '@/services/onboarding';
 
@@ -27,7 +26,10 @@ export function OnboardingStepScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   return (
-    <ThemedView className="flex-1 px-6" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
+    <View
+      className="flex-1 bg-background px-6"
+      style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+    >
       <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false}>
         <View className="pt-10 pb-6">{children}</View>
       </ScrollView>
@@ -35,6 +37,6 @@ export function OnboardingStepScreen({
         {footnote}
         <IslandButton label={buttonLabel} onPress={() => completeAndAdvance(router, stepId)} />
       </View>
-    </ThemedView>
+    </View>
   );
 }

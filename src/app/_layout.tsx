@@ -4,10 +4,9 @@ import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
 import { onboarding } from '@/services/onboarding-store';
@@ -37,12 +36,12 @@ export default function RootLayout() {
 
   if (error) {
     return (
-      <ThemedView className="flex-1 items-center justify-center px-8">
-        <ThemedText>Something went wrong preparing the database.</ThemedText>
-        <ThemedText themeColor="textSecondary" className="mt-2">
+      <View className="flex-1 items-center justify-center bg-background px-8">
+        <Text>Something went wrong preparing the database.</Text>
+        <Text tone="secondary" className="mt-2">
           {error.message}
-        </ThemedText>
-      </ThemedView>
+        </Text>
+      </View>
     );
   }
   if (!success) return null; // splash stays up

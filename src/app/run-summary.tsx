@@ -1,11 +1,14 @@
-import { Form, Host, LabeledContent, Section, Text } from '@expo/ui/swift-ui';
+// `UIText` is @expo/ui's SwiftUI Text used inside the Form island; the
+// unqualified `Text` below is the design-system primitive (ADR 0013). Both fold
+// into `Island.Text` in ADR 0013 step 3.
+import { Form, Host, LabeledContent, Section, Text as UIText } from '@expo/ui/swift-ui';
 import { asc, eq } from 'drizzle-orm';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { View } from 'react-native';
 
-import { PrimaryButton } from '@/components/primary-button';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Button } from '@/components/ui/button';
+import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
 import { SEGMENT_KIND_LABEL, formatClock, sessionTitle } from '@/domain/format';
@@ -42,36 +45,36 @@ export default function RunSummaryScreen() {
     router.dismissAll();
   };
 
-  const doneButton = <PrimaryButton label="Done" onPress={done} />;
+  const doneButton = <Button label="Done" onPress={done} />;
 
   if (!runId || !data) {
     return (
-      <ThemedView className="flex-1 justify-between px-6 pt-24 pb-16">
-        <ThemedText themeColor="textSecondary">
+      <View className="flex-1 justify-between bg-background px-6 pt-24 pb-16">
+        <Text tone="secondary">
           {runId ? 'Loading…' : 'This run could not be saved. Sorry about that.'}
-        </ThemedText>
+        </Text>
         {doneButton}
-      </ThemedView>
+      </View>
     );
   }
 
   const completed = data.run.status === 'completed';
 
   return (
-    <ThemedView className="flex-1 px-6 pt-24 pb-16">
-      <ThemedText type="subtitle">{completed ? 'Workout complete! 🎉' : 'Good effort!'}</ThemedText>
+    <View className="flex-1 bg-background px-6 pt-24 pb-16">
+      <Text variant="subtitle">{completed ? 'Workout complete! 🎉' : 'Good effort!'}</Text>
       <Host style={{ flex: 1 }} useViewportSizeMeasurement>
         <Form>
           <Section title="Session">
             <LabeledContent label="Session">
-              <Text>{sessionTitle(data.run.sessionKey)}</Text>
+              <UIText>{sessionTitle(data.run.sessionKey)}</UIText>
             </LabeledContent>
             <LabeledContent label="Active time">
-              <Text>{formatClock(data.run.activeDurationS)}</Text>
+              <UIText>{formatClock(data.run.activeDurationS)}</UIText>
             </LabeledContent>
             {!completed ? (
               <LabeledContent label="Status">
-                <Text>Partial</Text>
+                <UIText>Partial</UIText>
               </LabeledContent>
             ) : null}
           </Section>
@@ -81,13 +84,13 @@ export default function RunSummaryScreen() {
                 key={segment.id}
                 label={`${segment.seq + 1}. ${SEGMENT_KIND_LABEL[segment.kind]}${segment.wasSkipped ? ' (skipped)' : ''}`}
               >
-                <Text>{`${formatClock(segment.actualDurationS)} / ${formatClock(segment.plannedDurationS)}`}</Text>
+                <UIText>{`${formatClock(segment.actualDurationS)} / ${formatClock(segment.plannedDurationS)}`}</UIText>
               </LabeledContent>
             ))}
           </Section>
         </Form>
       </Host>
       {doneButton}
-    </ThemedView>
+    </View>
   );
 }

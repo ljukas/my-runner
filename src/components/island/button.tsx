@@ -2,7 +2,9 @@ import { Button, Host, Text } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, font, frame, padding, tint } from '@expo/ui/swift-ui/modifiers';
 import { Platform } from 'react-native';
 
-import { PrimaryButton } from '@/components/primary-button';
+// Aliased to avoid colliding with @expo/ui's SwiftUI `Button` above; this is
+// the RN pill primitive used as the Android fallback (ADR 0013).
+import { Button as PillButton } from '@/components/ui/button';
 import { useTheme } from '@/hooks/use-theme';
 import { isGlassAvailable } from '@/lib/glass';
 
@@ -15,7 +17,7 @@ import { isGlassAvailable } from '@/lib/glass';
 export function IslandButton({ label, onPress }: { label: string; onPress: () => void }) {
   const colors = useTheme();
   if (Platform.OS !== 'ios') {
-    return <PrimaryButton label={label} onPress={onPress} />;
+    return <PillButton label={label} onPress={onPress} />;
   }
   return (
     <Host style={{ width: '100%', height: 50 }}>

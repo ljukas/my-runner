@@ -6,8 +6,7 @@ import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { View } from 'react-native';
 
 import { SegmentBar } from '@/components/segment-bar';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
 import { runs } from '@/db/schema';
@@ -34,8 +33,8 @@ export default function SessionSheet() {
   if (!session) return <Redirect href="/" />;
 
   return (
-    <ThemedView className="flex-1 gap-6 px-6 pt-8">
-      <ThemedText type="subtitle">{sessionTitle(session.key)}</ThemedText>
+    <View className="flex-1 gap-6 bg-background px-6 pt-8">
+      <Text variant="subtitle">{sessionTitle(session.key)}</Text>
       <SegmentBar segments={session.segments} />
       <View className="gap-2">
         <StatRow label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
@@ -52,15 +51,15 @@ export default function SessionSheet() {
           modifiers={[buttonStyle('borderedProminent'), controlSize('large'), tint(colors.primary)]}
         />
       </Host>
-    </ThemedView>
+    </View>
   );
 }
 
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between">
-      <ThemedText themeColor="textSecondary">{label}</ThemedText>
-      <ThemedText>{value}</ThemedText>
+      <Text tone="secondary">{label}</Text>
+      <Text>{value}</Text>
     </View>
   );
 }

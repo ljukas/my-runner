@@ -1,7 +1,7 @@
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
+import { Text } from '@/components/ui/text';
 import { useTheme } from '@/hooks/use-theme';
 
 /** One tinted-symbol feature row on the onboarding welcome screen (Apple first-launch template). */
@@ -21,8 +21,8 @@ export function FeatureRow({
         <SymbolView name={symbol} size={32} tintColor={colors.primary} />
       </View>
       <View className="flex-1 gap-0.5">
-        <ThemedText className="font-semibold">{title}</ThemedText>
-        <ThemedText themeColor="textSecondary">{children}</ThemedText>
+        <Text className="font-semibold">{title}</Text>
+        <Text tone="secondary">{children}</Text>
       </View>
     </View>
   );

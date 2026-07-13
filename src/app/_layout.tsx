@@ -63,7 +63,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
         <Stack.Screen name="run-summary" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
-        <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+        <Stack.Screen name="onboarding" options={{ presentation: 'modal', gestureEnabled: false }} />
       </Stack>
     </ThemeProvider>
   );

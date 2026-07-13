@@ -1,33 +1,46 @@
 import { useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PrimaryButton } from '@/components/primary-button';
+import { IslandButton } from '@/components/island/button';
 import { ThemedView } from '@/components/themed-view';
 import { completeAndAdvance } from '@/services/onboarding-store';
 import type { OnboardingStepId } from '@/services/onboarding';
 
-/** Shared scaffold for onboarding steps: copy block on top, advance CTA pinned to the bottom. */
+/**
+ * Shared scaffold for onboarding steps, matching Apple's first-launch welcome
+ * template: scrollable content, an optional footnote block, and the advance
+ * CTA pinned to the bottom of the sheet.
+ */
 export function OnboardingStepScreen({
   stepId,
   buttonLabel,
   buttonTestID,
+  footnote,
   children,
 }: {
   stepId: OnboardingStepId;
   buttonLabel: string;
   buttonTestID: string;
+  footnote?: ReactNode;
   children: ReactNode;
 }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   return (
-    <ThemedView className="flex-1 justify-between px-6 pb-16 pt-24">
-      <View className="gap-4">{children}</View>
-      <PrimaryButton
-        testID={buttonTestID}
-        label={buttonLabel}
-        onPress={() => completeAndAdvance(router, stepId)}
-      />
+    <ThemedView className="flex-1 px-6" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false}>
+        <View className="pb-6 pt-10">{children}</View>
+      </ScrollView>
+      <View className="gap-5 pt-2">
+        {footnote}
+        <IslandButton
+          testID={buttonTestID}
+          label={buttonLabel}
+          onPress={() => completeAndAdvance(router, stepId)}
+        />
+      </View>
     </ThemedView>
   );
 }

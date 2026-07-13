@@ -200,27 +200,27 @@ git commit -m "test: rewrite onboarding flow to text-first selectors"
 
 ---
 
-### Task 4: Rewrite tests/complete-session.yaml
+### Task 4: Rewrite tests/complete-session.yaml (+ shared session-start helper)
 
 **Files:**
+- Create: `.maestro/helpers/start-first-session.yaml`
 - Modify: `.maestro/tests/complete-session.yaml`
 
 **Interfaces:**
 - Consumes: helper postconditions from Task 2.
-- Produces: the only remaining flow reference to `plan-next-w1d2` (Task 6 keeps that testID because of this line).
+- Produces: `helpers/start-first-session.yaml` — postcondition "fresh install, w1d1 compressed session just started (run screen mounting)"; Task 5 consumes it. Also the only remaining flow reference to `plan-next-w1d2` (Task 6 keeps that testID because of this line).
 
-- [ ] **Step 1: Rewrite `tests/complete-session.yaml`** to exactly:
+- [ ] **Step 1: Create `helpers/start-first-session.yaml`** (shared by both session flows; sibling runFlow paths are relative to this file) with exactly:
 
 ```yaml
 appId: se.lukaslindqvist.myrunner
-tags:
-  - session
 ---
+# Fresh install → w1d1 session just started on the compressed plan.
 - launchApp:
     clearState: true
-- runFlow: ../helpers/open-dev-server.yaml
-- runFlow: ../helpers/complete-onboarding.yaml
-- runFlow: ../helpers/enable-compressed-plan.yaml
+- runFlow: open-dev-server.yaml
+- runFlow: complete-onboarding.yaml
+- runFlow: enable-compressed-plan.yaml
 # "Day 1" repeats in every week section — the first match is Week 1's.
 - scrollUntilVisible:
     element:
@@ -231,6 +231,16 @@ tags:
     index: 0
 - assertVisible: "Week 1 · Day 1"
 - tapOn: "Start session"
+```
+
+- [ ] **Step 2: Rewrite `tests/complete-session.yaml`** to exactly:
+
+```yaml
+appId: se.lukaslindqvist.myrunner
+tags:
+  - session
+---
+- runFlow: ../helpers/start-first-session.yaml
 # Every session opens with a warm-up segment.
 - assertVisible: "Warm up"
 - extendedWaitUntil:
@@ -248,14 +258,14 @@ tags:
     id: "plan-next-w1d2"
 ```
 
-If Maestro rejects `index` inside `scrollUntilVisible`'s element, drop that first `scrollUntilVisible` block entirely (Week 1's rows are on-screen at launch) and keep the indexed `tapOn`.
+If Maestro rejects `index` inside `scrollUntilVisible`'s element, drop that `scrollUntilVisible` block from the helper entirely (Week 1's rows are on-screen at launch) and keep the indexed `tapOn`.
 
-- [ ] **Step 2: Verify.**
+- [ ] **Step 3: Verify.**
 
 Run: `maestro test .maestro/tests/complete-session.yaml`
 Expected: PASS in ~1–2 min (compressed session ≈ 40 s).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add .maestro
@@ -270,7 +280,7 @@ git commit -m "test: rewrite complete-session flow to text-first selectors"
 - Modify: `.maestro/tests/run-controls.yaml`
 
 **Interfaces:**
-- Consumes: helper postconditions from Task 2.
+- Consumes: helper postconditions from Task 2 and `helpers/start-first-session.yaml` from Task 4 (postcondition: w1d1 compressed session just started).
 
 - [ ] **Step 1: Rewrite `tests/run-controls.yaml`** to exactly:
 
@@ -279,20 +289,7 @@ appId: se.lukaslindqvist.myrunner
 tags:
   - session
 ---
-- launchApp:
-    clearState: true
-- runFlow: ../helpers/open-dev-server.yaml
-- runFlow: ../helpers/complete-onboarding.yaml
-- runFlow: ../helpers/enable-compressed-plan.yaml
-- scrollUntilVisible:
-    element:
-      text: "Day 1"
-      index: 0
-- tapOn:
-    text: "Day 1"
-    index: 0
-- assertVisible: "Week 1 · Day 1"
-- tapOn: "Start session"
+- runFlow: ../helpers/start-first-session.yaml
 - tapOn: "Pause"
 - assertVisible: "Paused"
 - tapOn: "Resume"
@@ -312,7 +309,7 @@ tags:
 - assertVisible: "Partial"
 ```
 
-(Same `scrollUntilVisible`+`index` fallback as Task 4 if the syntax is rejected. `End` is safe as text: matching is a full anchored regex, so it cannot hit `End run` or `End this run?`.)
+(`End` is safe as text: matching is a full anchored regex, so it cannot hit `End run` or `End this run?`.)
 
 - [ ] **Step 2: Verify this flow, then the whole suite** (last commit before ids disappear must prove no flow needs the testIDs about to be stripped — `grep -rn "id:" .maestro/` should list ONLY `xmark` and `plan-next-w1d2`, plus `settings-compressed-plan` iff Task 2 fell back).
 

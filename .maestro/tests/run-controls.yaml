@@ -2,34 +2,21 @@ appId: se.lukaslindqvist.myrunner
 tags:
   - session
 ---
-- launchApp:
-    clearState: true
-- runFlow: ../helpers/open-dev-server.yaml
-- runFlow: ../helpers/complete-onboarding.yaml
-- runFlow: ../helpers/enable-compressed-plan.yaml
-- tapOn:
-    id: "plan-row-w1d1"
-- tapOn:
-    id: "session-start"
-- tapOn:
-    id: "run-pause"
-- assertVisible: "Resume"
-- tapOn:
-    id: "run-pause"
-- tapOn:
-    id: "run-skip"
-- tapOn:
-    id: "run-skip"
-- tapOn:
-    id: "run-end"
+- runFlow: ../helpers/start-first-session.yaml
+- tapOn: "Pause"
+- assertVisible: "Paused"
+- tapOn: "Resume"
+- tapOn: "Skip"
+- tapOn: "Skip"
+- tapOn: "End"
 - tapOn: "End run"
 - extendedWaitUntil:
     visible:
-      id: "summary-done"
+      text: "Good effort!"
     timeout: 30000
-- tapOn:
-    id: "summary-done"
+- tapOn: "Done"
 - tapOn: "History"
-- assertVisible:
-    id: "history-row-w1d1"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
 - assertVisible: "Partial"

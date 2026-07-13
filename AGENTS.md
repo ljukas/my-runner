@@ -71,17 +71,20 @@ to make the EAS Workflows `maestro` job the CI gate later.
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
   only, commented at each use site — currently the dev-launcher sheet's
   `xmark`, the icon-only `plan-next-*` arrow, and the compressed-plan toggle's
-  `85%,27%` point tap (see the "Dev-only compressed plan" bullet). Ground every string with the
+  `settings-compressed-plan` id (see the "Dev-only compressed plan" bullet). Ground every string with the
   MCP `inspect_screen` tool against the running app; consult the MCP
   `cheat_sheet` tool and https://docs.maestro.dev/llms.txt for flow syntax.
   If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI
   `Text`, wrap it in a container (`HStack`) — the id doesn't surface otherwise.
 - **Dev-only compressed plan:** the suite swaps the real NHS plan for a
   seconds-long one via Settings → Developer → "Compressed plan" so a full
-  session finishes in seconds. The iPhone 17-profile point tap (`85%,27%`)
-  stays because the @expo/ui Toggle row only registers touches on the switch
-  glyph; the guard `assertVisible: { text: "Compressed plan", checked: true }`
-  fails loudly if layout shifts instead of silently running the real plan.
+  session finishes in seconds. `SettingsToggle` (ADR 0013) renders the label and
+  switch as separate views, so the switch is its own element and the flow taps it
+  by `id: settings-compressed-plan` — this retired the old `85%,27%` point tap
+  (a bare @expo/ui Toggle merged label+switch into one row with a dead centre).
+  The guard `assertVisible: { id: settings-compressed-plan, checked: true }`
+  fails loudly if a regression stops the switch flipping instead of silently
+  running the real (slow) plan.
 - **Policy:** run the full suite locally before merging to `main` any change touching
   `src/`, `app.json`, or dependencies; run targeted flows during development as needed.
 - **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent

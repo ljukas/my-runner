@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { IslandButton } from '@/components/island/button';
+import { Island } from '@/components/island';
 import { completeAndAdvance } from '@/services/onboarding-store';
 import type { OnboardingStepId } from '@/services/onboarding';
 
@@ -35,7 +35,11 @@ export function OnboardingStepScreen({
       </ScrollView>
       <View className="gap-5 pt-2">
         {footnote}
-        <IslandButton label={buttonLabel} onPress={() => completeAndAdvance(router, stepId)} />
+        <Island.Button
+          fill
+          label={buttonLabel}
+          onPress={() => completeAndAdvance(router, stepId)}
+        />
       </View>
     </View>
   );

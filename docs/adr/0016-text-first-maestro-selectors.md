@@ -25,7 +25,8 @@ whose only job was carrying them) onto app components.
 - Ids are escape hatches only, each commented at the use site and listed
   in AGENTS.md. Current registry: the dev-launcher sheet's `xmark`, the
   icon-only `plan-next-*` arrow, and the compressed-plan toggle's
-  `85%,27%` point-tap.
+  `settings-compressed-plan` id (a switch glyph has no text to target;
+  ADR 0013's `SettingsToggle` retired the earlier `85%,27%` point-tap).
 - A `testID` exists in app code only while a flow uses it.
 
 ## Consequences

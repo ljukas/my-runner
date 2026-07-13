@@ -1,8 +1,8 @@
-import { Button, HStack, Host, Image, List, Section, Spacer, Text } from '@expo/ui/swift-ui';
-import { foregroundColor } from '@expo/ui/swift-ui/modifiers';
+import { Button, HStack, Image, List, Section, Spacer } from '@expo/ui/swift-ui';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useRouter } from 'expo-router';
 
+import { Island } from '@/components/island';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
 import { runs } from '@/db/schema';
@@ -23,7 +23,7 @@ export default function PlanScreen() {
   const weeks = [...new Set(plan.map((session) => session.week))];
 
   return (
-    <Host style={{ flex: 1 }}>
+    <Island>
       <List>
         {weeks.map((week) => {
           const sessions = plan.filter((session) => session.week === week);
@@ -43,7 +43,7 @@ export default function PlanScreen() {
           );
         })}
       </List>
-    </Host>
+    </Island>
   );
 }
 
@@ -62,12 +62,11 @@ function SessionRow({
   return (
     <Button onPress={onPress}>
       <HStack spacing={12}>
-        <Image
-          systemName={completed ? 'checkmark.circle.fill' : 'circle'}
-          color={completed ? colors.primary : colors.textSecondary}
-          size={22}
+        <Island.Label
+          systemImage={completed ? 'checkmark.circle.fill' : 'circle'}
+          iconTone={completed ? 'primary' : 'secondary'}
+          title={`Day ${session.day}`}
         />
-        <Text modifiers={[foregroundColor(colors.text)]}>{`Day ${session.day}`}</Text>
         <Spacer />
         {isNext ? (
           // E2E escape hatch (ADR 0016): icon-only, no text to target.
@@ -78,9 +77,7 @@ function SessionRow({
             size={22}
           />
         ) : null}
-        <Text modifiers={[foregroundColor(colors.textSecondary)]}>
-          {formatMinutes(sessionTotalSeconds(session))}
-        </Text>
+        <Island.Text tone="secondary">{formatMinutes(sessionTotalSeconds(session))}</Island.Text>
       </HStack>
     </Button>
   );

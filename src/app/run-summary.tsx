@@ -1,12 +1,13 @@
-// `UIText` is @expo/ui's SwiftUI Text used inside the Form island; the
-// unqualified `Text` below is the design-system primitive (ADR 0013). Both fold
-// into `Island.Text` in ADR 0013 step 3.
-import { Form, Host, LabeledContent, Section, Text as UIText } from '@expo/ui/swift-ui';
+// `UIText` is @expo/ui's SwiftUI Text — here the value side of `LabeledContent`
+// rows, which SwiftUI styles natively (so it stays direct, not an `Island.Text`).
+// The unqualified `Text` below is the design-system RN primitive (ADR 0013).
+import { Form, LabeledContent, Section, Text as UIText } from '@expo/ui/swift-ui';
 import { asc, eq } from 'drizzle-orm';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { Island } from '@/components/island';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
@@ -63,7 +64,7 @@ export default function RunSummaryScreen() {
   return (
     <View className="flex-1 bg-background px-6 pt-24 pb-16">
       <Text variant="subtitle">{completed ? 'Workout complete! 🎉' : 'Good effort!'}</Text>
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <Island useViewportSizeMeasurement>
         <Form>
           <Section title="Session">
             <LabeledContent label="Session">
@@ -89,7 +90,7 @@ export default function RunSummaryScreen() {
             ))}
           </Section>
         </Form>
-      </Host>
+      </Island>
       {doneButton}
     </View>
   );

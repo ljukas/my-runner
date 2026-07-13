@@ -1,10 +1,12 @@
 appId: se.lukaslindqvist.myrunner
+tags:
+  - session
 ---
 - launchApp:
     clearState: true
-- runFlow: helpers/open-dev-server.yaml
-- runFlow: helpers/complete-onboarding.yaml
-- runFlow: helpers/enable-compressed-plan.yaml
+- runFlow: ../helpers/open-dev-server.yaml
+- runFlow: ../helpers/complete-onboarding.yaml
+- runFlow: ../helpers/enable-compressed-plan.yaml
 - tapOn:
     id: "plan-row-w1d1"
 - tapOn:

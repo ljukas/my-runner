@@ -13,6 +13,7 @@ import migrations from '@/db/migrations/migrations';
 import { onboarding } from '@/services/onboarding-store';
 
 SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({ duration: 400, fade: true });
 
 /** Pushes the first pending onboarding step as a full-screen modal over the tabs. */
 function OnboardingGate() {
@@ -31,7 +32,7 @@ export default function RootLayout() {
   const { success, error } = useMigrations(db, migrations);
 
   useEffect(() => {
-    if (success || error) SplashScreen.hideAsync();
+    if (success || error) SplashScreen.hide();
   }, [success, error]);
 
   if (error) {

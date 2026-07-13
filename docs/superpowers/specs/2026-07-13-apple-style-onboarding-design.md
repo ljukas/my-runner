@@ -26,7 +26,8 @@ modal.
 | Content structure | Single welcome screen; how-it-works becomes feature rows, health note becomes the footnote block. Nested `Stack` retained for future permission steps |
 | Rendering | RN body styled with Uniwind + one `@expo/ui` island for the CTA button (over full-SwiftUI screen or expo-glass-effect custom button) |
 | Presentation | `presentation: 'modal'` (iOS pageSheet full-detent: rounded top corners, status bar visible above the card), `gestureEnabled: false` so it cannot be swiped away |
-| Glass button | `@expo/ui` `Button` with `buttonStyle('glassProminent')` + primary tint on iOS 26+; `borderedProminent` below; RN pill on Android. **No new dependency** for glass |
+| Glass button | `@expo/ui` `Button` with `buttonStyle('glassProminent')` + primary tint when glass is available; `borderedProminent` below; RN pill on Android |
+| Glass availability | Own helper `isGlassAvailable()` in `src/lib/glass.ts` wrapping `isLiquidGlassAvailable()` from `expo-glass-effect` — the single place to update when Android glass support arrives |
 | Icons | New first-party dependency `expo-symbols` (`SymbolView`) with cross-platform name maps; expo-image `sf:` rejected (iOS-only, Android rows would lose icons) |
 | Step ids | Single `welcome-v1` entry remains in `ONBOARDING_STEPS`; `how-it-works-v1` / `health-note-v1` removed. Existing installs that completed `welcome-v1` never see onboarding again |
 
@@ -72,15 +73,19 @@ there — no new token up front.
 
 ## 4. Components (per ADR 0013)
 
+- **`src/lib/glass.ts`** — `isGlassAvailable()`: the app's single glass
+  capability gate, today delegating to `isLiquidGlassAvailable()` from
+  `expo-glass-effect` (native check on iOS: component availability across OS
+  version, toolchain, and Info.plist opt-outs; `false` elsewhere). When Android
+  glass support arrives, this one function changes — no call-site edits.
 - **`src/components/island/button.tsx`** — starts the `island/` layer:
   `IslandButton`, the one named home for the @expo/ui CTA idiom. iOS: `Host` +
-  `Button` with `buttonStyle('glassProminent')` + primary `tint` when the iOS
-  major version is ≥ 26 (plain `Platform.Version` check — no expo-glass-effect
-  import), `borderedProminent` below. Android: renders the existing RN
-  `PrimaryButton` (the inline platform fork ADR 0005 §4 expects at this seam).
-  Carries `testID` — it is what Maestro taps. Exported as `IslandButton` for
-  now; folds into the ADR 0013 `Island.*` compound when the island layer is
-  fully adopted.
+  `Button` with `buttonStyle('glassProminent')` + primary `tint` when
+  `isGlassAvailable()`, `borderedProminent` otherwise. Android: renders the
+  existing RN `PrimaryButton` (the inline platform fork ADR 0005 §4 expects at
+  this seam). Carries `testID` — it is what Maestro taps. Exported as
+  `IslandButton` for now; folds into the ADR 0013 `Island.*` compound when the
+  island layer is fully adopted.
 - **`src/components/feature-row.tsx`** — domain component: SF Symbol name map +
   title + description, Uniwind-styled, `SymbolView` used directly (no `ui/`
   symbol wrapper — YAGNI).
@@ -94,12 +99,16 @@ there — no new token up front.
 
 ## 5. Dependencies
 
-One new first-party dependency: **`expo-symbols`**, installed with
-`bun expo install expo-symbols`. Verify Android Material Symbols support at
-implementation time; if absent on SDK 57, rows render icon-less on Android
-(secondary target) rather than pulling another dependency.
+Two first-party packages added to `package.json` via `bun expo install`:
 
-`expo-glass-effect` is **not** needed — `@expo/ui` covers the glass button.
+- **`expo-symbols`** — genuinely new. Verify Android Material Symbols support
+  at implementation time; if absent on SDK 57, rows render icon-less on
+  Android (secondary target) rather than pulling another dependency.
+- **`expo-glass-effect`** — declared as a direct dependency because
+  `src/lib/glass.ts` imports it, but it is already in the tree (required peer
+  of expo-router, which calls `isLiquidGlassAvailable()` itself), so this adds
+  no native footprint. Only the availability function is used — no `GlassView`
+  (the glass button itself comes from `@expo/ui`).
 
 ## 6. Services & data
 

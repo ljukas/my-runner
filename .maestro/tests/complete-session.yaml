@@ -2,26 +2,19 @@ appId: se.lukaslindqvist.myrunner
 tags:
   - session
 ---
-- launchApp:
-    clearState: true
-- runFlow: ../helpers/open-dev-server.yaml
-- runFlow: ../helpers/complete-onboarding.yaml
-- runFlow: ../helpers/enable-compressed-plan.yaml
-- tapOn:
-    id: "plan-row-w1d1"
-- tapOn:
-    id: "session-start"
-- assertVisible:
-    id: "run-countdown"
+- runFlow: ../helpers/start-first-session.yaml
+# Every session opens with a warm-up segment.
+- assertVisible: "Warm up"
 - extendedWaitUntil:
     visible:
-      id: "summary-done"
+      text: "Workout complete.*"
     timeout: 120000
-- tapOn:
-    id: "summary-done"
+- tapOn: "Done"
 - tapOn: "History"
-- assertVisible:
-    id: "history-row-w1d1"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
 - tapOn: "Plan"
+# The next-session marker is an icon-only arrow — no text to target (ADR 0014).
 - assertVisible:
     id: "plan-next-w1d2"

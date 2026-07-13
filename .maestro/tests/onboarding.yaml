@@ -15,7 +15,7 @@ tags:
       visible:
         text: ".*8087.*"
     file: ../helpers/open-dev-server.yaml
-- assertNotVisible:
-    id: "onboarding-continue-welcome"
-- assertVisible:
-    id: "plan-row-w1d1"
+# Onboarding must not restart after a relaunch: no welcome screen, plan list shows.
+- assertNotVisible: "Welcome to" # welcome-marker
+- assertVisible: "Week 1 ·.*"
+- assertVisible: "Day 1"

@@ -190,7 +190,12 @@ describe('completion', () => {
     expect(record.activeDurationS).toBe(12);
     expect(record.segments).toHaveLength(2);
     expect(record.segments[0]).toMatchObject({ seq: 0, kind: 'warmup', actualDurationS: 10 });
-    expect(record.segments[1]).toMatchObject({ seq: 1, kind: 'run', actualDurationS: 2, wasSkipped: false });
+    expect(record.segments[1]).toMatchObject({
+      seq: 1,
+      kind: 'run',
+      actualDurationS: 2,
+      wasSkipped: false,
+    });
   });
 
   test('skipped segments are recorded with their truncated duration and flag', async () => {
@@ -201,7 +206,12 @@ describe('completion', () => {
     tick(60); // active 75 ≥ total 60 → completed
     await flush();
     const record = saved[0];
-    expect(record.segments[1]).toMatchObject({ kind: 'run', plannedDurationS: 20, actualDurationS: 5, wasSkipped: true });
+    expect(record.segments[1]).toMatchObject({
+      kind: 'run',
+      plannedDurationS: 20,
+      actualDurationS: 5,
+      wasSkipped: true,
+    });
   });
 
   test('a failed save surfaces saveFailed', async () => {

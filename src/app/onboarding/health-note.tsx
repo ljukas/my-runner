@@ -6,12 +6,13 @@ export default function HealthNoteScreen() {
     <OnboardingStepScreen
       stepId="health-note-v1"
       buttonLabel="Let's go"
-      buttonTestID="onboarding-continue-health-note">
+      buttonTestID="onboarding-continue-health-note"
+    >
       <ThemedText type="subtitle">One gentle note</ThemedText>
       <ThemedText themeColor="textSecondary">
         Couch to 5K is designed for beginners, but if you have a health condition, an old injury, or
-        you&apos;re just unsure — have a quick word with your doctor before starting. Take it easy and
-        listen to your body.
+        you&apos;re just unsure — have a quick word with your doctor before starting. Take it easy
+        and listen to your body.
       </ThemedText>
     </OnboardingStepScreen>
   );

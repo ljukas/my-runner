@@ -13,7 +13,11 @@ export function PrimaryButton({
   testID?: string;
 }) {
   return (
-    <Pressable testID={testID} onPress={onPress} className="items-center rounded-full bg-primary py-4">
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      className="bg-primary items-center rounded-full py-4"
+    >
       <ThemedText className="text-white">{label}</ThemedText>
     </Pressable>
   );

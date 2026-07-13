@@ -1,4 +1,14 @@
-import { Button, ConfirmationDialog, Gauge, HStack, Host, Spacer, Text, Toggle, VStack } from '@expo/ui/swift-ui';
+import {
+  Button,
+  ConfirmationDialog,
+  Gauge,
+  HStack,
+  Host,
+  Spacer,
+  Text,
+  Toggle,
+  VStack,
+} from '@expo/ui/swift-ui';
 import {
   buttonStyle,
   contentTransition,
@@ -73,11 +83,15 @@ export default function RunScreen() {
                 monospacedDigit(),
                 contentTransition('numericText', { countsDown: true }),
                 foregroundColor(colors.text),
-              ]}>
+              ]}
+            >
               {formatClock(snapshot.segmentSecondsRemaining)}
             </Text>
           </HStack>
-          <Gauge value={segmentProgress} modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]} />
+          <Gauge
+            value={segmentProgress}
+            modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]}
+          />
           <Text modifiers={[foregroundColor(colors.textSecondary)]}>
             {snapshot.nextSegment
               ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
@@ -94,7 +108,11 @@ export default function RunScreen() {
               testID="run-pause"
               label={paused ? 'Resume' : 'Pause'}
               onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
-              modifiers={[buttonStyle('borderedProminent'), controlSize('large'), tint(colors.primary)]}
+              modifiers={[
+                buttonStyle('borderedProminent'),
+                controlSize('large'),
+                tint(colors.primary),
+              ]}
             />
             <Button
               testID="run-skip"
@@ -106,7 +124,8 @@ export default function RunScreen() {
               title="End this run?"
               isPresented={endDialogOpen}
               onIsPresentedChange={setEndDialogOpen}
-              titleVisibility="visible">
+              titleVisibility="visible"
+            >
               <ConfirmationDialog.Trigger>
                 <Button
                   testID="run-end"

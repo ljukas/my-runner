@@ -23,7 +23,7 @@ export default function RunSummaryScreen() {
 
   useEffect(() => {
     if (!runId) return;
-    (async () => {
+    void (async () => {
       const [[run], segments] = await Promise.all([
         db.select().from(runs).where(eq(runs.id, runId)),
         db
@@ -46,7 +46,7 @@ export default function RunSummaryScreen() {
 
   if (!runId || !data) {
     return (
-      <ThemedView className="flex-1 justify-between px-6 pb-16 pt-24">
+      <ThemedView className="flex-1 justify-between px-6 pt-24 pb-16">
         <ThemedText themeColor="textSecondary">
           {runId ? 'Loading…' : 'This run could not be saved. Sorry about that.'}
         </ThemedText>
@@ -58,7 +58,7 @@ export default function RunSummaryScreen() {
   const completed = data.run.status === 'completed';
 
   return (
-    <ThemedView className="flex-1 px-6 pb-16 pt-24">
+    <ThemedView className="flex-1 px-6 pt-24 pb-16">
       <ThemedText type="subtitle">{completed ? 'Workout complete! 🎉' : 'Good effort!'}</ThemedText>
       <Host style={{ flex: 1 }} useViewportSizeMeasurement>
         <Form>
@@ -79,7 +79,8 @@ export default function RunSummaryScreen() {
             {data.segments.map((segment) => (
               <LabeledContent
                 key={segment.id}
-                label={`${segment.seq + 1}. ${SEGMENT_KIND_LABEL[segment.kind]}${segment.wasSkipped ? ' (skipped)' : ''}`}>
+                label={`${segment.seq + 1}. ${SEGMENT_KIND_LABEL[segment.kind]}${segment.wasSkipped ? ' (skipped)' : ''}`}
+              >
                 <Text>{`${formatClock(segment.actualDurationS)} / ${formatClock(segment.plannedDurationS)}`}</Text>
               </LabeledContent>
             ))}

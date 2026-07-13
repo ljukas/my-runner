@@ -12,7 +12,7 @@ import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
 import { onboarding } from '@/services/onboarding-store';
 
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 400, fade: true });
 
 /** Pushes the first pending onboarding step as a full-screen modal over the tabs. */
@@ -61,9 +61,18 @@ export default function RootLayout() {
             sheetGrabberVisible: true,
           }}
         />
-        <Stack.Screen name="run" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
-        <Stack.Screen name="run-summary" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
-        <Stack.Screen name="onboarding" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+        <Stack.Screen
+          name="run"
+          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+        />
+        <Stack.Screen
+          name="run-summary"
+          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+        />
+        <Stack.Screen
+          name="onboarding"
+          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+        />
       </Stack>
     </ThemeProvider>
   );

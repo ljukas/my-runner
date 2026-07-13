@@ -141,7 +141,7 @@ needs a Metro-connect step that a release build cannot share.)
   filter** — a required check with a paths filter leaves non-matching PRs stuck
   on "Expected — waiting for status" (learned in the ci-checks spec).
 - **One job, id `e2e-ios`** (the required-check context — no `name:` override so
-  the context stays stable), `runs-on: macos-15`, `permissions: contents: read`,
+  the context stays stable), `runs-on: macos-26`, `permissions: contents: read`,
   `timeout-minutes: 45`, `concurrency` group per ref with `cancel-in-progress`.
 - **Docs-only short-circuit (default to running):** an early step computes the
   changed-file list (`git diff` against the PR base / push before-SHA). The

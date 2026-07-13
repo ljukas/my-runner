@@ -4,7 +4,7 @@
 
 **Goal:** Add a free, required iOS E2E status check on this public repo that runs the Maestro suite against a Metro-free `e2e-simulator` build.
 
-**Architecture:** A new `eas.json` build profile (`e2e-simulator`) produces a release-style simulator app with `EXPO_PUBLIC_E2E=1` inlined. A tiny product-code helper makes the compressed (fast) plan reachable and default-on only when that flag (or `__DEV__`) is set, so store builds are unaffected. The Maestro flows drop the dev-launcher/Metro steps and target that build. A GitHub Actions workflow builds it locally on a free `macos-15` runner (zero EAS cloud minutes) and runs the suite; it becomes a required check on the `protect-main` ruleset.
+**Architecture:** A new `eas.json` build profile (`e2e-simulator`) produces a release-style simulator app with `EXPO_PUBLIC_E2E=1` inlined. A tiny product-code helper makes the compressed (fast) plan reachable and default-on only when that flag (or `__DEV__`) is set, so store builds are unaffected. The Maestro flows drop the dev-launcher/Metro steps and target that build. A GitHub Actions workflow builds it locally on a free `macos-26` runner (zero EAS cloud minutes) and runs the suite; it becomes a required check on the `protect-main` ruleset.
 
 **Tech Stack:** Expo SDK 57, React Native 0.86, React 19.2, TypeScript ~6.0, Bun 1.3.14, EAS CLI (`--local`), Maestro, GitHub Actions.
 
@@ -17,7 +17,7 @@
 - `EXPO_PUBLIC_E2E` is set **only** by the `e2e-simulator` build profile — never in `app.json`, `.env`, or any other profile.
 - `bun test` runs pure-TS `src/domain/` + `src/services/` with **no** React Native runtime: nothing they import may reference `__DEV__` at module top level (keep `__DEV__` inside function bodies only).
 - Maestro selectors are text-first (ADR 0016); ids are commented escape hatches only.
-- iOS only this stage. Runner is `macos-15` (standard → free/unlimited on public repos).
+- iOS only this stage. Runner is `macos-26` (standard → free/unlimited on public repos).
 - `EXPO_TOKEN` is already a repo secret; `protect-main` ruleset id is `18800808`; the `e2e-ios` required context is added **after** the PR's first green run.
 - PR title must be Conventional Commits (squash-merged, drives release-please). This PR is user-facing tooling: use a `ci:` title (e.g. `ci: add GitHub Actions Maestro E2E gate`).
 
@@ -408,7 +408,7 @@ permissions:
 
 jobs:
   e2e-ios:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -520,7 +520,7 @@ Expected: `readable`; actionlint clean if installed.
 
 ```bash
 git add .github/workflows/e2e.yml
-git commit -m "ci: add GitHub Actions Maestro E2E workflow (macos-15, local build)"
+git commit -m "ci: add GitHub Actions Maestro E2E workflow (macos-26, local build)"
 ```
 
 **First-CI-run verification notes** (validate on the PR, adjust if needed — these are the empirically-uncertain spots):

@@ -4,33 +4,29 @@ import { ONBOARDING_STEPS, createOnboarding } from './onboarding';
 import { fakeStorage } from './test-helpers';
 
 describe('createOnboarding', () => {
-  test('all steps pending on first launch, in declared order', () => {
+  test('the welcome step is pending on first launch', () => {
     const onboarding = createOnboarding(fakeStorage());
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1']);
   });
 
-  test('completing steps removes them from pending, idempotently', () => {
+  test('completing the welcome step empties pending, idempotently', () => {
     const onboarding = createOnboarding(fakeStorage());
     onboarding.completeStep('welcome-v1');
     onboarding.completeStep('welcome-v1');
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
-      'how-it-works-v1',
-      'health-note-v1',
-    ]);
+    expect(onboarding.pendingSteps()).toEqual([]);
   });
 
-  test('versioned resume: a partially-complete user sees only pending steps', () => {
+  test('completion persists across instances over the same storage', () => {
     const storage = fakeStorage();
     createOnboarding(storage).completeStep('welcome-v1');
-    // fresh instance over the same storage — e.g. an app update adding a step
-    const later = createOnboarding(storage);
-    expect(later.pendingSteps()[0].id).toBe('how-it-works-v1');
+    expect(createOnboarding(storage).pendingSteps()).toEqual([]);
   });
 
-  test('nothing pending once all steps are complete', () => {
+  test('reset makes every step pending again', () => {
     const onboarding = createOnboarding(fakeStorage());
     for (const step of ONBOARDING_STEPS) onboarding.completeStep(step.id);
-    expect(onboarding.pendingSteps()).toEqual([]);
+    onboarding.reset();
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
   });
 
   test('corrupted persisted JSON is treated as no steps completed', () => {

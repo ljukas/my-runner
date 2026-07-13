@@ -1,14 +1,15 @@
 appId: se.lukaslindqvist.myrunner
 ---
-# The Toggle's accessibility identifier spans the whole List row (label + switch merged
-# into one element), but a real touch only registers over the switch glyph itself —
-# `tapOn: { id: ... }` taps the row's geometric center (over the label) and silently
-# does NOT flip it. Tap the switch glyph directly (top-right of the row) and assert the
-# checked state so a future geometry change fails loudly instead of running the wrong plan.
+# The Toggle's accessibility element spans the whole List row (label + switch
+# merged), but a real touch only registers over the switch glyph itself —
+# tapping the element's center (over the label) silently does NOT flip it.
+# Tap the glyph directly (top-right of the row) and assert the checked state
+# so a layout shift fails loudly instead of silently running the real (slow) plan.
 - tapOn: "Settings"
+- assertVisible: "Compressed plan"
 - tapOn:
     point: "85%,27%"
 - assertVisible:
-    id: "settings-compressed-plan"
+    text: "Compressed plan"
     checked: true
 - tapOn: "Plan"

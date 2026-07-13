@@ -1,0 +1,18 @@
+appId: se.lukaslindqvist.myrunner
+tags:
+  - onboarding
+---
+- runFlow: ../helpers/launch-and-onboard.yaml
+- stopApp
+- launchApp
+# State survives the relaunch, but the dev-launcher may show its home screen
+# again instead of auto-loading the last bundle — reconnect if it does.
+- runFlow:
+    when:
+      visible:
+        text: ".*8087.*"
+    file: ../helpers/open-dev-server.yaml
+# Onboarding must not restart after a relaunch: no welcome screen, plan list shows.
+- assertNotVisible: "Welcome to" # welcome-marker
+- assertVisible: "Week 1 ·.*"
+- assertVisible: "Day 1"

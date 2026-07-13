@@ -1,0 +1,8 @@
+appId: se.lukaslindqvist.myrunner
+---
+# Fresh launch through onboarding: clear state, reconnect the dev server, and
+# complete the single welcome step. Ends on the plan list ("Week 1 ·.*").
+- launchApp:
+    clearState: true
+- runFlow: open-dev-server.yaml
+- runFlow: complete-onboarding.yaml

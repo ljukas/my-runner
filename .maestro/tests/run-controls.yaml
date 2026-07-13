@@ -1,0 +1,22 @@
+appId: se.lukaslindqvist.myrunner
+tags:
+  - session
+---
+- runFlow: ../helpers/start-first-session.yaml
+- tapOn: "Pause"
+- assertVisible: "Paused"
+- tapOn: "Resume"
+- tapOn: "Skip"
+- tapOn: "Skip"
+- tapOn: "End"
+- tapOn: "End run"
+- extendedWaitUntil:
+    visible:
+      text: "Good effort!"
+    timeout: 30000
+- tapOn: "Done"
+- tapOn: "History"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertVisible: "Partial"

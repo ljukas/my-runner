@@ -8,8 +8,6 @@ import { readJson, type StringStorage } from './storage';
  */
 export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },
-  { id: 'how-it-works-v1', route: '/onboarding/how-it-works' },
-  { id: 'health-note-v1', route: '/onboarding/health-note' },
 ] as const satisfies readonly { id: string; route: Href }[];
 
 export type OnboardingStepId = (typeof ONBOARDING_STEPS)[number]['id'];
@@ -34,6 +32,9 @@ export function createOnboarding(storage: StringStorage) {
       if (!completed.includes(id)) {
         storage.setItemSync(STORAGE_KEY, JSON.stringify([...completed, id]));
       }
+    },
+    reset(): void {
+      storage.setItemSync(STORAGE_KEY, JSON.stringify([]));
     },
   };
 }

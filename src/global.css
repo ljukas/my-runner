@@ -9,8 +9,6 @@
  */
 @layer theme {
   :root {
-    --color-primary: #3c87f7;
-
     /* Native needs a single font family, not a stack */
     @variant ios {
       --font-mono: ui-monospace;
@@ -21,6 +19,7 @@
     }
 
     @variant light {
+      --color-primary: #3c87f7;
       --color-background: #ffffff;
       --color-background-element: #f0f0f3;
       --color-background-selected: #e0e1e6;
@@ -29,6 +28,7 @@
     }
 
     @variant dark {
+      --color-primary: #3c87f7;
       --color-background: #000000;
       --color-background-element: #212225;
       --color-background-selected: #2e3135;

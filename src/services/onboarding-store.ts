@@ -1,7 +1,7 @@
 import { type ImperativeRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 
-import { createOnboarding, type OnboardingStepId } from './onboarding';
+import { createOnboarding, ONBOARDING_STEPS, type OnboardingStepId } from './onboarding';
 
 export const onboarding = createOnboarding(Storage);
 
@@ -25,4 +25,13 @@ export function completeAndAdvance(router: ImperativeRouter, id: OnboardingStepI
   } else {
     router.back();
   }
+}
+
+/**
+ * Dev-only: clear all completion state and re-enter the flow from the first
+ * step, mirroring what `OnboardingGate` does on a fresh launch.
+ */
+export function resetAndRestart(router: ImperativeRouter): void {
+  onboarding.reset();
+  router.push(ONBOARDING_STEPS[0].route);
 }

@@ -1,0 +1,20 @@
+appId: se.lukaslindqvist.myrunner
+tags:
+  - session
+---
+- runFlow: ../helpers/start-first-session.yaml
+# Every session opens with a warm-up segment.
+- assertVisible: "Warm up"
+- extendedWaitUntil:
+    visible:
+      text: "Workout complete.*"
+    timeout: 120000
+- tapOn: "Done"
+- tapOn: "History"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- tapOn: "Plan"
+# The next-session marker is an icon-only arrow — no text to target (ADR 0016).
+- assertVisible:
+    id: "plan-next-w1d2"

@@ -14,7 +14,7 @@
 
 - Selector policy (ADR 0014, created in Task 7): taps/asserts target visible copy; `text` matching is an **anchored full-match regex**; assert a screen's unique heading before tapping its CTA; `index` for repeated text; `scrollUntilVisible` around scrollable-list targets; ids only as escape hatches with a comment at the use site.
 - Escape hatches that survive: `id: xmark` (dev-launcher sheet), `plan-next-*` testID (icon-only arrow), `point: "85%,27%"` (toggle glyph), `settings-compressed-plan` testID **only if** Task 2's live check shows `text` cannot carry `checked: true`.
-- Never guess a visible string — confirm against the running app with Maestro MCP `inspect_screen` before relying on it. Exact expected strings (from source): `My Runner`, `Continue`, `How it works`, `One gentle note`, `Let's go`, `Week 1 · 0/3`, `Day 1`, `Week 1 · Day 1`, `Start session`, `Warm up`, `Pause`, `Paused`, `Resume`, `Skip`, `End`, `End run`, `Workout complete! 🎉`, `Good effort!`, `Done`, `Partial`, `Compressed plan`, tabs `Plan`/`History`/`Settings`. The `·` is U+00B7.
+- Never guess a visible string — confirm against the running app with Maestro MCP `inspect_screen` before relying on it. Onboarding is a SINGLE welcome step (collapsed 2026-07-13): headings `Welcome to` + `My Runner`, feature rows `From Couch to 5 km` / `Guided Intervals` / `Private and Free`, one CTA `Continue`. Other exact strings (from source): `Week 1 · 0/3`, `Day 1`, `Week 1 · Day 1`, `Start session`, `Warm up`, `Pause`, `Paused`, `Resume`, `Skip`, `End`, `End run`, `Workout complete! 🎉`, `Good effort!`, `Done`, `Partial`, `Compressed plan`, tabs `Plan`/`History`/`Settings`. The `·` is U+00B7.
 - Environment for every Maestro run: booted iPhone 17 simulator, dev-client build installed (`bun run ios` if missing), Metro started with `bun expo start --port 8087` (never kill processes on 8081/8082 — other projects own them).
 - Commits follow Conventional Commits; suite must be green (3/3 flows) at every commit.
 - The compressed plan makes segments 2–5 s long; w1d1 completes in ~40 s. Timeouts in flows already account for this — don't shrink them.
@@ -91,21 +91,16 @@ git commit -m "test: restructure Maestro suite into tagged journey flows"
 **Interfaces:**
 - Produces: `complete-onboarding.yaml` ends with the plan list visible (`Week 1 ·.*` asserted); `enable-compressed-plan.yaml` ends back on the Plan tab with the toggle verified on. Tasks 3–5 rely on those postconditions.
 
-- [ ] **Step 1: Ground the strings live.** With the app freshly launched (`clearState`), use Maestro MCP `inspect_screen` on the welcome screen and confirm: heading `My Runner`, CTA `Continue`, and how the `Let's go` apostrophe renders on the health-note screen (source has ASCII `'`; if the tree shows U+2019 `’`, use the rendered form in YAML).
+- [ ] **Step 1: Ground the strings live.** With the app freshly launched (`clearState`), use Maestro MCP `inspect_screen` on the welcome screen and confirm the headings `Welcome to` / `My Runner` and the CTA `Continue` appear as separate accessible elements. NOTE: the suite is currently RED at this helper (the app collapsed onboarding to one step after the flows were written; the old step ids are gone) — your rewrite is what turns it green. If the JS bundle fails to load with a missing-native-module error (expo-glass-effect / expo-symbols were added recently), rebuild the dev client with `bun run ios` (several minutes is normal), then retry.
 
 - [ ] **Step 2: Rewrite `helpers/complete-onboarding.yaml`** to exactly:
 
 ```yaml
 appId: se.lukaslindqvist.myrunner
 ---
-# Each step asserts the screen's own heading before tapping its CTA — the CTA
-# labels repeat ("Continue"), the headings don't.
-- assertVisible: "My Runner"
+# Onboarding is a single welcome step: assert its unique copy, tap the one CTA.
+- assertVisible: "Welcome to"
 - tapOn: "Continue"
-- assertVisible: "How it works"
-- tapOn: "Continue"
-- assertVisible: "One gentle note"
-- tapOn: "Let's go"
 - assertVisible: "Week 1 ·.*"
 ```
 
@@ -158,7 +153,7 @@ git commit -m "test: rewrite Maestro helpers to text-first selectors"
 **Interfaces:**
 - Consumes: helper postconditions from Task 2.
 
-- [ ] **Step 1: Check the relaunch assertion live.** After completing onboarding (app on the plan list), `inspect_screen`: is `My Runner` visible anywhere (nav header, dev-launcher chrome)? If NO → use `assertNotVisible: "My Runner"` below. If YES → replace both asserts marked `# welcome-marker` with the welcome body copy pattern `"From the couch.*"` (add `assertVisible: "From the couch.*"` to the helper's welcome step in Task 2's file so the marker is guaranteed meaningful, and `assertNotVisible: "From the couch.*"` here).
+- [ ] **Step 1: Check the relaunch assertion live.** After completing onboarding (app on the plan list), `inspect_screen`: is `Welcome to` visible anywhere (nav header, dev-launcher chrome)? If NO → use `assertNotVisible: "Welcome to"` below. If YES → replace the assert marked `# welcome-marker` with `assertNotVisible: "Guided Intervals"` (a feature-row title unique to the welcome screen; Task 2's helper already guarantees the marker string is real by asserting the welcome screen before tapping).
 
 - [ ] **Step 2: Rewrite `tests/onboarding.yaml`** to exactly:
 
@@ -181,7 +176,7 @@ tags:
         text: ".*8087.*"
     file: ../helpers/open-dev-server.yaml
 # Onboarding must not restart after a relaunch: no welcome screen, plan list shows.
-- assertNotVisible: "My Runner" # welcome-marker
+- assertNotVisible: "Welcome to" # welcome-marker
 - assertVisible: "Week 1 ·.*"
 - assertVisible: "Day 1"
 ```
@@ -329,7 +324,7 @@ git commit -m "test: rewrite run-controls flow to text-first selectors"
 
 **Files:**
 - Modify: `src/components/primary-button.tsx`, `src/components/onboarding-step-screen.tsx`, `src/components/segment-bar.tsx`
-- Modify: `src/app/onboarding/index.tsx`, `src/app/onboarding/how-it-works.tsx`, `src/app/onboarding/health-note.tsx`
+- Modify: `src/app/onboarding/index.tsx` (the only onboarding screen — the other two were removed when onboarding collapsed to one step)
 - Modify: `src/app/run.tsx`, `src/app/run-summary.tsx`, `src/app/session/[key].tsx`
 - Modify: `src/app/(tabs)/index.tsx`, `src/app/(tabs)/history.tsx`, `src/app/(tabs)/settings.tsx`
 
@@ -340,7 +335,7 @@ git commit -m "test: rewrite run-controls flow to text-first selectors"
 
 - [ ] **Step 2: Remove the dead props and testIDs.**
 
-`primary-button.tsx`: delete the `testID` prop from the signature, type, and `<Pressable>`. `onboarding-step-screen.tsx`: delete `buttonTestID` (prop + type + pass-through). The three onboarding screens: delete their `buttonTestID="…"` attributes. `segment-bar.tsx`: delete the `testID` prop; `session/[key].tsx`: drop `testID="session-segment-bar"` and `testID="session-start"`. `run-summary.tsx`: drop `testID="summary-done"`. `(tabs)/index.tsx`: drop `testID={`plan-row-${session.key}`}` from the row `<Button>` — KEEP the `testID={`plan-next-${session.key}`}` on the arrow `<Image>` and add above it:
+`primary-button.tsx`: delete the `testID` prop from the signature, type, and `<Pressable>`. `onboarding-step-screen.tsx`: delete `buttonTestID` (prop + type + pass-through). The welcome screen (`src/app/onboarding/index.tsx`): delete its `buttonTestID="onboarding-continue-welcome"` attribute. `segment-bar.tsx`: delete the `testID` prop; `session/[key].tsx`: drop `testID="session-segment-bar"` and `testID="session-start"`. `run-summary.tsx`: drop `testID="summary-done"`. `(tabs)/index.tsx`: drop `testID={`plan-row-${session.key}`}` from the row `<Button>` — KEEP the `testID={`plan-next-${session.key}`}` on the arrow `<Image>` and add above it:
 
 ```tsx
 {/* E2E escape hatch (ADR 0014): icon-only, no text to target. */}

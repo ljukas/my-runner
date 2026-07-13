@@ -26,7 +26,7 @@ export function IslandButton({
     return <PrimaryButton testID={testID} label={label} onPress={onPress} />;
   }
   return (
-    <Host matchContents style={{ width: '100%' }}>
+    <Host style={{ width: '100%', height: 50 }}>
       <Button
         testID={testID}
         onPress={onPress}

@@ -52,7 +52,7 @@ Releases are automated per [ADR 0012](docs/adr/0012-release-please-fingerprint-g
 
 # E2E tests (Maestro)
 
-E2E tests are Maestro flows in `.maestro/` at the repo root, run **locally** — see
+E2E tests are Maestro flows in `.maestro/tests/`, run **locally** — see
 `docs/adr/0001-local-first-maestro-e2e-testing.md` for the rationale and the plan
 to make the EAS Workflows `maestro` job the CI gate later.
 
@@ -61,20 +61,25 @@ to make the EAS Workflows `maestro` job the CI gate later.
   (set as both `ios.bundleIdentifier` and `android.package` in `app.json`).
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).
-- **Authoring:** use the MCP `inspect_screen` tool to read real element IDs from the
-  running app instead of guessing selectors; consult the MCP `cheat_sheet` tool and
-  https://docs.maestro.dev/llms.txt for flow syntax. A `testID` on a bare `@expo/ui`
-  SwiftUI `Text` does not surface as an accessibility identifier — wrap it in an
-  `HStack` (or similar container) and put the `testID` there instead (see the
-  countdown/elapsed rows in `src/app/run.tsx`).
-- **Dev-only compressed plan:** the suite swaps the real NHS plan for a seconds-long
-  one via Settings → Developer → "Compressed plan" so a full session finishes in
-  seconds instead of minutes. The suite currently assumes the iPhone 17 simulator
-  profile: `.maestro/helpers/enable-compressed-plan.yaml` flips the toggle with a
-  screen-percentage point tap (`85%,27%`) rather than tapping by id — the @expo/ui
-  SwiftUI Toggle's accessibility id spans the whole row, but only the switch glyph
-  (top-right) registers a real touch — guarded by a `checked: true` assertion so a
-  layout shift fails loudly instead of silently running the real (slow) plan.
+- **Layout:** journey flows live in `.maestro/tests/` (tagged `onboarding` /
+  `session`), shared steps in `.maestro/helpers/`; `config.yaml` discovers
+  `tests/*.yaml`. Targeted runs: `maestro test --include-tags session .maestro/`.
+- **Selectors ([ADR 0014](docs/adr/0014-text-first-maestro-selectors.md)):**
+  target user-visible text (anchored regex — `Week 1 ·.*`); assert a screen's
+  unique heading before tapping its CTA; disambiguate repeats with `index`;
+  wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
+  only, commented at each use site — currently the dev-launcher sheet's
+  `xmark` and the icon-only `plan-next-*` arrow. Ground every string with the
+  MCP `inspect_screen` tool against the running app; consult the MCP
+  `cheat_sheet` tool and https://docs.maestro.dev/llms.txt for flow syntax.
+  If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI
+  `Text`, wrap it in a container (`HStack`) — the id doesn't surface otherwise.
+- **Dev-only compressed plan:** the suite swaps the real NHS plan for a
+  seconds-long one via Settings → Developer → "Compressed plan" so a full
+  session finishes in seconds. The iPhone 17-profile point tap (`85%,27%`)
+  stays because the @expo/ui Toggle row only registers touches on the switch
+  glyph; the guard `assertVisible: { text: "Compressed plan", checked: true }`
+  fails loudly if layout shifts instead of silently running the real plan.
 - **Policy:** run the full suite locally before merging to `main` any change touching
   `src/`, `app.json`, or dependencies; run targeted flows during development as needed.
 - **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent
@@ -112,3 +117,4 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0011 — Apple Health writes via @kingstinct/react-native-healthkit](docs/adr/0011-apple-health-kingstinct-healthkit.md)
 - [ADR 0012 — Release flow: release-please with fingerprint-gated EAS deploys](docs/adr/0012-release-please-fingerprint-gated-releases.md)
 - [ADR 0013 — Component design: variant-carrying primitives and compound modules](docs/adr/0013-component-design-conventions.md)
+- [ADR 0014 — Text-first Maestro selectors](docs/adr/0014-text-first-maestro-selectors.md)

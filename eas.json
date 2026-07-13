@@ -21,6 +21,12 @@
       "extends": "production",
       "distribution": "internal"
     },
+    "e2e-simulator": {
+      "extends": "preview",
+      "ios": { "simulator": true },
+      "autoIncrement": false,
+      "env": { "EXPO_PUBLIC_E2E": "1" }
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production"

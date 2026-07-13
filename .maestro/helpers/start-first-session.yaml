@@ -1,8 +1,8 @@
 appId: se.lukaslindqvist.myrunner
 ---
-# Fresh install → w1d1 session just started on the compressed plan.
+# Fresh install → w1d1 session just started. The E2E build runs the compressed
+# plan by default (EXPO_PUBLIC_E2E), so no Developer toggle step is needed.
 - runFlow: launch-and-onboard.yaml
-- runFlow: enable-compressed-plan.yaml
 # "Day 1" repeats in every week section — the first match is Week 1's.
 - scrollUntilVisible:
     element:

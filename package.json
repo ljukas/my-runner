@@ -4,6 +4,8 @@
   "version": "0.0.1",
   "dependencies": {
     "@expo/ui": "~57.0.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "expo": "~57.0.4",
     "expo-constants": "~57.0.3",
@@ -25,6 +27,7 @@
     "react-native-gesture-handler": "~2.32.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
+    "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.2",
     "uniwind": "^1.10.0"
   },

@@ -23,8 +23,8 @@ import {
 import { useKeepAwake } from 'expo-keep-awake';
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { View } from 'react-native';
 
-import { ThemedView } from '@/components/themed-view';
 import { SegmentColors } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
@@ -68,7 +68,7 @@ export default function RunScreen() {
       : 0;
 
   return (
-    <ThemedView className="flex-1">
+    <View className="flex-1 bg-background">
       {keepAwake ? <KeepAwakeWhileMounted /> : null}
       <Host style={{ flex: 1 }} useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
@@ -143,6 +143,6 @@ export default function RunScreen() {
           />
         </VStack>
       </Host>
-    </ThemedView>
+    </View>
   );
 }

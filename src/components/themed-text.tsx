@@ -14,6 +14,7 @@ const colorClasses: Record<ThemeColor, string> = {
   background: 'text-background',
   backgroundElement: 'text-background-element',
   backgroundSelected: 'text-background-selected',
+  primary: 'text-primary',
 };
 
 const typeClasses: Record<NonNullable<ThemedTextProps['type']>, string> = {

@@ -1,0 +1,24 @@
+appId: se.lukaslindqvist.myrunner
+---
+# The app is an expo-dev-client build (PR #19): `launchApp` with `clearState: true`
+# wipes the dev-launcher's stored bundle URL, so the app opens on the launcher's
+# home screen instead of the JS bundle. Pick the Metro that serves this repo —
+# port 8087 by convention (see AGENTS.md "Commands"). Revisit when the EAS CI
+# gate (ADR 0001) runs these flows against release builds with no dev-launcher.
+- extendedWaitUntil:
+    visible:
+      text: ".*8087.*"
+    timeout: 15000
+- tapOn:
+    text: ".*8087.*"
+# clearState also wipes the "seen the developer menu intro" flag, so once the
+# bundle loads the dev-client overlays its one-time intro sheet. Close it via
+# its unique id — its "Continue" button collides with the onboarding CTA's
+# label behind the sheet. Generous timeout: the sheet only appears after the
+# first (possibly cold) Metro bundle build.
+- extendedWaitUntil:
+    visible:
+      id: "xmark"
+    timeout: 30000
+- tapOn:
+    id: "xmark"

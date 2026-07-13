@@ -1,0 +1,12 @@
+appId: se.lukaslindqvist.myrunner
+---
+- assertVisible:
+    id: "onboarding-continue-welcome"
+- tapOn:
+    id: "onboarding-continue-welcome"
+- tapOn:
+    id: "onboarding-continue-how-it-works"
+- tapOn:
+    id: "onboarding-continue-health-note"
+- assertVisible:
+    id: "plan-row-w1d1"

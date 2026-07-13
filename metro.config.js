@@ -3,6 +3,8 @@ const { withUniwindConfig } = require('uniwind/metro');
 
 const config = getDefaultConfig(__dirname);
 
+config.resolver.sourceExts.push('sql');
+
 // withUniwindConfig must stay the outermost wrapper
 module.exports = withUniwindConfig(config, {
   cssEntryFile: './src/global.css',

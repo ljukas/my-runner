@@ -13,6 +13,7 @@ const backgroundClasses: Record<ThemeColor, string> = {
   backgroundSelected: 'bg-background-selected',
   text: 'bg-foreground',
   textSecondary: 'bg-foreground-secondary',
+  primary: 'bg-primary',
 };
 
 export function ThemedView({ type, className, ...otherProps }: ThemedViewProps) {

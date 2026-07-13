@@ -49,4 +49,16 @@ describe('createSettingsStore', () => {
     store.set('keepScreenAwake', false);
     expect(notified).toBe(0);
   });
+
+  test('useCompressedPlan defaults to true in the E2E build', () => {
+    const original = process.env.EXPO_PUBLIC_E2E;
+    process.env.EXPO_PUBLIC_E2E = '1';
+    try {
+      const store = createSettingsStore(fakeStorage());
+      expect(store.getSnapshot().useCompressedPlan).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.EXPO_PUBLIC_E2E;
+      else process.env.EXPO_PUBLIC_E2E = original;
+    }
+  });
 });

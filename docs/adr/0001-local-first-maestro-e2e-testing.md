@@ -62,3 +62,24 @@ record/replay feature is a dev-loop convenience, not a second E2E layer.
 - **Maestro Cloud** — rejected: subscription cost.
 - **Third-party Maestro MCP wrappers** — rejected: unofficial, against
   project tooling policy.
+
+## Amendment (2026-07-13): GitHub Actions is the CI gate
+
+The repo is public, so GitHub-hosted **standard macOS runners are free with
+unlimited minutes** — the cost objection to a server-side gate no longer holds,
+while the EAS Workflows `maestro` job still requires a paid plan. The E2E CI gate
+is therefore a GitHub Actions workflow (`.github/workflows/e2e.yml`,
+`e2e-ios` job), enforced as a required status check.
+
+To run without Metro or the dev launcher, the suite targets a Metro-free
+`e2e-simulator` build (an EAS build profile that sets `EXPO_PUBLIC_E2E=1`). The
+compressed plan — previously `__DEV__`-only — is reachable via that flag
+(`src/services/e2e.ts`) and default-on in the E2E build, so the flows no longer
+drive the Developer toggle or the dev server. The dev-launcher helpers
+(`open-dev-server.yaml`, `enable-compressed-plan.yaml`) are removed. Local
+regression runs now build the `e2e-simulator` app; interactive dev-loop work
+still uses the dev client + argent (the tool-split is unchanged). iOS only for
+now; Android E2E on free Linux runners is a possible follow-up.
+
+Design: `docs/superpowers/specs/2026-07-13-github-actions-maestro-e2e-design.md`.
+The EAS `maestro` job remains the option to revisit if a paid EAS plan is adopted.

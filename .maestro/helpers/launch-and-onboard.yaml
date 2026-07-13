@@ -1,8 +1,7 @@
 appId: se.lukaslindqvist.myrunner
 ---
-# Fresh launch through onboarding: clear state, reconnect the dev server, and
-# complete the single welcome step. Ends on the plan list ("Week 1 ·.*").
+# E2E build launches straight to the app (no dev launcher). Clear state for a
+# fresh install, then complete the single welcome step. Ends on the plan list.
 - launchApp:
     clearState: true
-- runFlow: open-dev-server.yaml
 - runFlow: complete-onboarding.yaml

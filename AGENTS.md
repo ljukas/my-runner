@@ -53,13 +53,15 @@ Releases are automated per [ADR 0012](docs/adr/0012-release-please-fingerprint-g
 
 # E2E tests (Maestro)
 
-E2E tests are Maestro flows in `.maestro/tests/`, run **locally** — see
-`docs/adr/0001-local-first-maestro-e2e-testing.md` for the rationale and the plan
-to make the EAS Workflows `maestro` job the CI gate later.
+E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
+`e2e-simulator` build** and enforced in CI by `.github/workflows/e2e.yml` (the
+`e2e-ios` required check) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
 
-- **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the app
-  built onto it via `bun run ios`. Flows launch via `appId` `se.lukaslindqvist.myrunner`
-  (set as both `ios.bundleIdentifier` and `android.package` in `app.json`).
+- **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
+  app built via `eas build --local -p ios -e e2e-simulator` and installed onto
+  it — the suite no longer needs Metro or the dev client. Flows launch via
+  `appId` `se.lukaslindqvist.myrunner` (set as both `ios.bundleIdentifier` and
+  `android.package` in `app.json`).
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).
 - **Layout:** journey flows live in `.maestro/tests/` (tagged `onboarding` /
@@ -69,19 +71,16 @@ to make the EAS Workflows `maestro` job the CI gate later.
   target user-visible text (anchored regex — `Week 1 ·.*`); assert a screen's
   unique heading before tapping its CTA; disambiguate repeats with `index`;
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
-  only, commented at each use site — currently the dev-launcher sheet's
-  `xmark`, the icon-only `plan-next-*` arrow, and the compressed-plan toggle's
-  `85%,27%` point tap (see the "Dev-only compressed plan" bullet). Ground every string with the
-  MCP `inspect_screen` tool against the running app; consult the MCP
-  `cheat_sheet` tool and https://docs.maestro.dev/llms.txt for flow syntax.
+  only, commented at each use site — currently the icon-only `plan-next-*`
+  arrow. Ground every string with the MCP `inspect_screen` tool against the
+  running app; consult the MCP `cheat_sheet` tool and
+  https://docs.maestro.dev/llms.txt for flow syntax.
   If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI
   `Text`, wrap it in a container (`HStack`) — the id doesn't surface otherwise.
-- **Dev-only compressed plan:** the suite swaps the real NHS plan for a
-  seconds-long one via Settings → Developer → "Compressed plan" so a full
-  session finishes in seconds. The iPhone 17-profile point tap (`85%,27%`)
-  stays because the @expo/ui Toggle row only registers touches on the switch
-  glyph; the guard `assertVisible: { text: "Compressed plan", checked: true }`
-  fails loudly if layout shifts instead of silently running the real plan.
+- **Compressed plan:** the `e2e-simulator` build sets `EXPO_PUBLIC_E2E=1`,
+  which makes the seconds-long compressed plan reachable (`src/services/e2e.ts`)
+  and default-on, so a full session finishes in seconds with no toggle
+  interaction.
 - **Policy:** run the full suite locally before merging to `main` any change touching
   `src/`, `app.json`, or dependencies; run targeted flows during development as needed.
 - **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent

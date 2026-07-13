@@ -19,11 +19,7 @@ export default function SettingsScreen() {
         </Section>
         {__DEV__ ? (
           <Section title="Developer">
-            <SettingsToggle
-              label="Compressed plan"
-              settingKey="useCompressedPlan"
-              testID="settings-compressed-plan"
-            />
+            <SettingsToggle label="Compressed plan" settingKey="useCompressedPlan" />
             <Button label="Reset onboarding" onPress={() => resetAndRestart(router)} />
           </Section>
         ) : null}

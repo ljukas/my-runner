@@ -52,12 +52,12 @@ docs.maestro.dev.
 
 Exact visible strings, from the screens' source:
 
-- Onboarding: `My Runner` → `Continue` → `How it works` → `Continue` →
-  `One gentle note` → `Let's go`; landing asserted via the `Week 1 ·.*`
-  section header.
-- Relaunch persistence (onboarding flow): `assertNotVisible` on the welcome
-  screen's unique copy (heading or `From the couch.*` body — verified live),
-  `assertVisible: Week 1 ·.*`.
+- Onboarding: a single welcome step (collapsed to one screen after this spec
+  was drafted) — assert `Welcome to`, tap the one `Continue`; landing asserted
+  via the `Week 1 ·.*` section header.
+- Relaunch persistence (onboarding flow): `assertNotVisible: "Welcome to"`
+  (the welcome screen's unique heading — verified live), `assertVisible:
+  Week 1 ·.*`.
 - Plan → session: `scrollUntilVisible` + `tapOn: { text: "Day 1", index: 0 }`;
   session sheet asserted via `Week 1 · Day 1`, started via `Start session`.
 - Run screen: first-segment label (`Warm up` — verified live against the

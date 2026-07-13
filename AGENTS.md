@@ -69,7 +69,8 @@ to make the EAS Workflows `maestro` job the CI gate later.
   unique heading before tapping its CTA; disambiguate repeats with `index`;
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
   only, commented at each use site — currently the dev-launcher sheet's
-  `xmark` and the icon-only `plan-next-*` arrow. Ground every string with the
+  `xmark`, the icon-only `plan-next-*` arrow, and the compressed-plan toggle's
+  `85%,27%` point tap (see the "Dev-only compressed plan" bullet). Ground every string with the
   MCP `inspect_screen` tool against the running app; consult the MCP
   `cheat_sheet` tool and https://docs.maestro.dev/llms.txt for flow syntax.
   If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI

@@ -64,6 +64,10 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   `android.package` in `app.json`).
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).
+- **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
+  by `@expo/fingerprint` hash — JS-only PRs skip the build and repack the JS via
+  `@expo/repack-app` (~5–7 min); native changes trigger a full `eas build
+  --local` and re-cache. See the fingerprint-reuse design spec.
 - **Layout:** journey flows live in `.maestro/tests/` (tagged `onboarding` /
   `session`), shared steps in `.maestro/helpers/`; `config.yaml` discovers
   `tests/*.yaml`. Targeted runs: `maestro test --include-tags session .maestro/`.

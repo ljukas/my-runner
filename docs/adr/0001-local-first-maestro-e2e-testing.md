@@ -83,3 +83,12 @@ now; Android E2E on free Linux runners is a possible follow-up.
 
 Design: `docs/superpowers/specs/2026-07-13-github-actions-maestro-e2e-design.md`.
 The EAS `maestro` job remains the option to revisit if a paid EAS plan is adopted.
+
+The `e2e-ios` job caches the built native simulator `.app` in `actions/cache`
+keyed by the `@expo/fingerprint` hash (the same hash that drives
+`runtimeVersion`). On a fingerprint hit — a PR that changes only JS — it skips
+the native build and refreshes the JS with `@expo/repack-app` (which also
+regenerates the expo-updates embedded manifest), cutting a run from ~25 min to
+~5–7 min; a fingerprint miss (a native change) does the full `eas build --local`
+and re-primes the cache. Design:
+`docs/superpowers/specs/2026-07-13-e2e-fingerprint-app-reuse-design.md`.

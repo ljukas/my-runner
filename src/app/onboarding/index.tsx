@@ -20,7 +20,7 @@ export default function WelcomeScreen() {
             size={20}
             tintColor={colors.primary}
           />
-          <ThemedText type="small" themeColor="textSecondary">
+          <ThemedText type="footnote" themeColor="textSecondary">
             Couch to 5K is designed for beginners. If you have a health condition or an old
             injury, have a quick word with your doctor before starting — and listen to your body.
           </ThemedText>

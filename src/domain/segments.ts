@@ -10,8 +10,7 @@ export interface TimelineSegment {
 }
 
 export type SegmentPosition =
-  | { done: false; index: number; secondsInto: number; secondsRemaining: number }
-  | { done: true };
+  { done: false; index: number; secondsInto: number; secondsRemaining: number } | { done: true };
 
 /**
  * The session timeline: prefix sums over planned durations, adjusted by skip

@@ -21,7 +21,7 @@ export function OnboardingStepScreen({
 }) {
   const router = useRouter();
   return (
-    <ThemedView className="flex-1 justify-between px-6 pb-16 pt-24">
+    <ThemedView className="flex-1 justify-between px-6 pt-24 pb-16">
       <View className="gap-4">{children}</View>
       <PrimaryButton
         testID={buttonTestID}

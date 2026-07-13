@@ -7,7 +7,10 @@ export function SegmentBar({ segments, testID }: { segments: PlannedSegment[]; t
   return (
     <View testID={testID} className="h-3 flex-row overflow-hidden rounded-full">
       {segments.map((segment, index) => (
-        <View key={index} style={{ flex: segment.seconds, backgroundColor: SegmentColors[segment.kind] }} />
+        <View
+          key={index}
+          style={{ flex: segment.seconds, backgroundColor: SegmentColors[segment.kind] }}
+        />
       ))}
     </View>
   );

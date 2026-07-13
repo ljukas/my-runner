@@ -12,10 +12,19 @@ import {
 
 // Run totals (seconds) from the design spec Appendix A.
 const EXPECTED_RUN_SECONDS: Record<string, number> = {
-  w1: 480, w2: 540, w3: 540, w4: 960,
-  w5d1: 900, w5d2: 960, w5d3: 1200,
-  w6d1: 1080, w6d2: 1200, w6d3: 1500,
-  w7: 1500, w8: 1680, w9: 1800,
+  w1: 480,
+  w2: 540,
+  w3: 540,
+  w4: 960,
+  w5d1: 900,
+  w5d2: 960,
+  w5d3: 1200,
+  w6d1: 1080,
+  w6d2: 1200,
+  w6d3: 1500,
+  w7: 1500,
+  w8: 1680,
+  w9: 1800,
 };
 
 function runSeconds(key: string): number {

@@ -13,7 +13,10 @@ describe('createOnboarding', () => {
     const onboarding = createOnboarding(fakeStorage());
     onboarding.completeStep('welcome-v1');
     onboarding.completeStep('welcome-v1');
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['how-it-works-v1', 'health-note-v1']);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
+      'how-it-works-v1',
+      'health-note-v1',
+    ]);
   });
 
   test('versioned resume: a partially-complete user sees only pending steps', () => {

@@ -6,7 +6,8 @@ export default function HowItWorksScreen() {
     <OnboardingStepScreen
       stepId="how-it-works-v1"
       buttonLabel="Continue"
-      buttonTestID="onboarding-continue-how-it-works">
+      buttonTestID="onboarding-continue-how-it-works"
+    >
       <ThemedText type="subtitle">How it works</ThemedText>
       <ThemedText themeColor="textSecondary">
         Three short sessions a week for nine weeks. Each one mixes walking and running — the app

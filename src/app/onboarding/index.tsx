@@ -20,11 +20,12 @@ export default function WelcomeScreen() {
             tintColor={colors.primary}
           />
           <ThemedText type="footnote" themeColor="textSecondary">
-            Couch to 5K is designed for beginners. If you have a health condition or an old
-            injury, have a quick word with your doctor before starting — and listen to your body.
+            Couch to 5K is designed for beginners. If you have a health condition or an old injury,
+            have a quick word with your doctor before starting — and listen to your body.
           </ThemedText>
         </View>
-      }>
+      }
+    >
       <Image
         source={require('@/assets/images/icon.png')}
         className="mt-6 h-[88px] w-[88px] self-center rounded-[20px]"
@@ -37,9 +38,12 @@ export default function WelcomeScreen() {
         <ThemedText type="largeTitle">My Runner</ThemedText>
       </View>
       <View className="gap-6 pt-7">
-        <FeatureRow symbol={{ ios: 'figure.run', android: 'directions_run' }} title="From Couch to 5 km">
-          Three short sessions a week for nine weeks — walking at first, running 30 minutes
-          straight by the end.
+        <FeatureRow
+          symbol={{ ios: 'figure.run', android: 'directions_run' }}
+          title="From Couch to 5 km"
+        >
+          Three short sessions a week for nine weeks — walking at first, running 30 minutes straight
+          by the end.
         </FeatureRow>
         <FeatureRow symbol={{ ios: 'timer', android: 'timer' }} title="Guided Intervals">
           The app times every walk and run and tells you exactly when to switch.

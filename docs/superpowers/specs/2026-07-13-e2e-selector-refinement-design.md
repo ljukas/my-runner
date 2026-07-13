@@ -116,7 +116,7 @@ Strip every testID no test uses after the rewrite:
   testID-on-bare-`Text` quirk as a general note (it still governs future
   escape hatches); update the compressed-plan bullet for the text-based
   `checked` assertion.
-- **ADR 0014 — Text-first Maestro selectors:** short ADR recording the policy,
+- **ADR 0016 — Text-first Maestro selectors:** short ADR recording the policy,
   added to the AGENTS.md ADR list.
 - ADR 0001 is untouched (it governs where/when tests run, not selectors).
 

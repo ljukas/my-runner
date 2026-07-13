@@ -15,6 +15,6 @@ tags:
     element:
       text: "Week 1 · Day 1"
 - tapOn: "Plan"
-# The next-session marker is an icon-only arrow — no text to target (ADR 0014).
+# The next-session marker is an icon-only arrow — no text to target (ADR 0016).
 - assertVisible:
     id: "plan-next-w1d2"

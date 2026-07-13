@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Selector policy (ADR 0014, created in Task 7): taps/asserts target visible copy; `text` matching is an **anchored full-match regex**; assert a screen's unique heading before tapping its CTA; `index` for repeated text; `scrollUntilVisible` around scrollable-list targets; ids only as escape hatches with a comment at the use site.
+- Selector policy (ADR 0016, created in Task 7): taps/asserts target visible copy; `text` matching is an **anchored full-match regex**; assert a screen's unique heading before tapping its CTA; `index` for repeated text; `scrollUntilVisible` around scrollable-list targets; ids only as escape hatches with a comment at the use site.
 - Escape hatches that survive: `id: xmark` (dev-launcher sheet), `plan-next-*` testID (icon-only arrow), `point: "85%,27%"` (toggle glyph), `settings-compressed-plan` testID **only if** Task 2's live check shows `text` cannot carry `checked: true`.
 - Never guess a visible string — confirm against the running app with Maestro MCP `inspect_screen` before relying on it. Onboarding is a SINGLE welcome step (collapsed 2026-07-13): headings `Welcome to` + `My Runner`, feature rows `From Couch to 5 km` / `Guided Intervals` / `Private and Free`, one CTA `Continue`. Other exact strings (from source): `Week 1 · 0/3`, `Day 1`, `Week 1 · Day 1`, `Start session`, `Warm up`, `Pause`, `Paused`, `Resume`, `Skip`, `End`, `End run`, `Workout complete! 🎉`, `Good effort!`, `Done`, `Partial`, `Compressed plan`, tabs `Plan`/`History`/`Settings`. The `·` is U+00B7.
 - Environment for every Maestro run: booted iPhone 17 simulator, dev-client build installed (`bun run ios` if missing), Metro started with `bun expo start --port 8087` (never kill processes on 8081/8082 — other projects own them).
@@ -248,7 +248,7 @@ tags:
     element:
       text: "Week 1 · Day 1"
 - tapOn: "Plan"
-# The next-session marker is an icon-only arrow — no text to target (ADR 0014).
+# The next-session marker is an icon-only arrow — no text to target (ADR 0016).
 - assertVisible:
     id: "plan-next-w1d2"
 ```
@@ -338,7 +338,7 @@ git commit -m "test: rewrite run-controls flow to text-first selectors"
 `primary-button.tsx`: delete the `testID` prop from the signature, type, and `<Pressable>`. `onboarding-step-screen.tsx`: delete `buttonTestID` (prop + type + pass-through). The welcome screen (`src/app/onboarding/index.tsx`): delete its `buttonTestID="onboarding-continue-welcome"` attribute. `segment-bar.tsx`: delete the `testID` prop; `session/[key].tsx`: drop `testID="session-segment-bar"` and `testID="session-start"`. `run-summary.tsx`: drop `testID="summary-done"`. `(tabs)/index.tsx`: drop `testID={`plan-row-${session.key}`}` from the row `<Button>` — KEEP the `testID={`plan-next-${session.key}`}` on the arrow `<Image>` and add above it:
 
 ```tsx
-{/* E2E escape hatch (ADR 0014): icon-only, no text to target. */}
+{/* E2E escape hatch (ADR 0016): icon-only, no text to target. */}
 ```
 
 `(tabs)/history.tsx`: drop `testID={`history-row-${run.sessionKey}`}` (the HStack itself stays — it's real layout). `(tabs)/settings.tsx`: drop `testID="settings-reset-onboarding"`; drop `testID="settings-compressed-plan"` unless Task 2 fell back to id (then keep it with the same escape-hatch comment).
@@ -383,16 +383,16 @@ git commit -m "refactor: strip testIDs no longer used by E2E flows"
 
 ---
 
-### Task 7: Docs — ADR 0014 + AGENTS.md rewrite
+### Task 7: Docs — ADR 0016 + AGENTS.md rewrite
 
 **Files:**
-- Create: `docs/adr/0014-text-first-maestro-selectors.md`
+- Create: `docs/adr/0016-text-first-maestro-selectors.md`
 - Modify: `AGENTS.md` (E2E section + ADR list)
 
 - [ ] **Step 1: Write the ADR** with this content (adjust the registry line iff `settings-compressed-plan` was kept):
 
 ```markdown
-# 14. Text-first Maestro selectors
+# 16. Text-first Maestro selectors
 
 Date: 2026-07-13
 
@@ -438,7 +438,7 @@ whose only job was carrying them) onto app components.
 - **Layout:** journey flows live in `.maestro/tests/` (tagged `onboarding` /
   `session`), shared steps in `.maestro/helpers/`; `config.yaml` discovers
   `tests/*.yaml`. Targeted runs: `maestro test --include-tags session .maestro/`.
-- **Selectors ([ADR 0014](docs/adr/0014-text-first-maestro-selectors.md)):**
+- **Selectors ([ADR 0016](docs/adr/0016-text-first-maestro-selectors.md)):**
   target user-visible text (anchored regex — `Week 1 ·.*`); assert a screen's
   unique heading before tapping its CTA; disambiguate repeats with `index`;
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
@@ -459,7 +459,7 @@ whose only job was carrying them) onto app components.
 Also update the intro line's flow location if it says flows live "at the repo root", and add to the ADR list at the bottom of AGENTS.md:
 
 ```markdown
-- [ADR 0014 — Text-first Maestro selectors](docs/adr/0014-text-first-maestro-selectors.md)
+- [ADR 0016 — Text-first Maestro selectors](docs/adr/0016-text-first-maestro-selectors.md)
 ```
 
 - [ ] **Step 3: Final full verification.**
@@ -471,5 +471,5 @@ Run: `maestro test .maestro/` → 3/3 PASS
 
 ```bash
 git add docs/adr AGENTS.md
-git commit -m "docs: adopt ADR 0014 — text-first Maestro selectors"
+git commit -m "docs: adopt ADR 0016 — text-first Maestro selectors"
 ```

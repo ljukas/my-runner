@@ -18,8 +18,9 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
 - `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a` to open the app in the installed dev client on the iOS simulator or Android emulator
 - `bun run ios` / `bun run android` — compile and install a dev-client build (`expo run:ios` / `expo run:android`) and start the dev server; required on first run and after any native change (new native dependency, config plugin, native app.json fields). The app uses expo-dev-client, not Expo Go.
-- `bun run lint` — `expo lint` against the committed `eslint.config.js`
+- `bun run lint` — `expo lint` against the committed `eslint.config.js` (ADR 0014: includes Prettier formatting + Uniwind class sorting as lint errors, and type-aware `no-floating-promises` in `src/`; `bun run lint --fix` auto-formats)
 - `bun test` — runs the unit suites (pure-TS `domain/` and `services/`; no RN runtime needed)
+- `bun run typecheck` — `tsc --noEmit`. Depends on two **gitignored generated files**: `expo-env.d.ts` and `.expo/types/router.d.ts` (typed routes). In a fresh clone or worktree it fails (`TS2882` on `@/global.css`, then route-typing errors) until you start the dev server once — `bun expo start` on any free port, kill it as soon as `.expo/types/router.d.ts` appears. Never copy `.expo/types/router.d.ts` from another checkout: it encodes that branch's route files and produces misleading type errors on this one.
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
 
 The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
@@ -64,7 +65,7 @@ to make the EAS Workflows `maestro` job the CI gate later.
 - **Layout:** journey flows live in `.maestro/tests/` (tagged `onboarding` /
   `session`), shared steps in `.maestro/helpers/`; `config.yaml` discovers
   `tests/*.yaml`. Targeted runs: `maestro test --include-tags session .maestro/`.
-- **Selectors ([ADR 0014](docs/adr/0014-text-first-maestro-selectors.md)):**
+- **Selectors ([ADR 0016](docs/adr/0016-text-first-maestro-selectors.md)):**
   target user-visible text (anchored regex — `Week 1 ·.*`); assert a screen's
   unique heading before tapping its CTA; disambiguate repeats with `index`;
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
@@ -118,4 +119,6 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0011 — Apple Health writes via @kingstinct/react-native-healthkit](docs/adr/0011-apple-health-kingstinct-healthkit.md)
 - [ADR 0012 — Release flow: release-please with fingerprint-gated EAS deploys](docs/adr/0012-release-please-fingerprint-gated-releases.md)
 - [ADR 0013 — Component design: variant-carrying primitives and compound modules](docs/adr/0013-component-design-conventions.md)
-- [ADR 0014 — Text-first Maestro selectors](docs/adr/0014-text-first-maestro-selectors.md)
+- [ADR 0014 — Linting: hardened ESLint via `expo lint`, Prettier as the formatter](docs/adr/0014-eslint-prettier-linting-stack.md)
+- [ADR 0015 — Run elevation: on-device barometer-first behind an Elevation port](docs/adr/0015-run-elevation-on-device-barometer.md)
+- [ADR 0016 — Text-first Maestro selectors](docs/adr/0016-text-first-maestro-selectors.md)

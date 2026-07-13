@@ -1,4 +1,12 @@
-import { ContentUnavailableView, HStack, Host, List, Spacer, Text, VStack } from '@expo/ui/swift-ui';
+import {
+  ContentUnavailableView,
+  HStack,
+  Host,
+  List,
+  Spacer,
+  Text,
+  VStack,
+} from '@expo/ui/swift-ui';
 import { font, foregroundColor, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
@@ -34,13 +42,17 @@ export default function HistoryScreen() {
           <HStack key={run.id} spacing={12}>
             <VStack alignment="leading" spacing={2}>
               <Text modifiers={[foregroundColor(colors.text)]}>{sessionTitle(run.sessionKey)}</Text>
-              <Text modifiers={[font({ textStyle: 'footnote' }), foregroundColor(colors.textSecondary)]}>
+              <Text
+                modifiers={[font({ textStyle: 'footnote' }), foregroundColor(colors.textSecondary)]}
+              >
                 {new Date(run.startedAt).toLocaleDateString()}
               </Text>
             </VStack>
             <Spacer />
             {run.status === 'partial' ? (
-              <Text modifiers={[font({ textStyle: 'footnote' }), foregroundColor(colors.textSecondary)]}>
+              <Text
+                modifiers={[font({ textStyle: 'footnote' }), foregroundColor(colors.textSecondary)]}
+              >
                 Partial
               </Text>
             ) : null}

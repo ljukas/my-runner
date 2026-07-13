@@ -52,15 +52,30 @@ describe('positionAt', () => {
   const t = buildTimeline(SEGMENTS, []);
 
   test('start of session', () => {
-    expect(positionAt(t, 0)).toEqual({ done: false, index: 0, secondsInto: 0, secondsRemaining: 10 });
+    expect(positionAt(t, 0)).toEqual({
+      done: false,
+      index: 0,
+      secondsInto: 0,
+      secondsRemaining: 10,
+    });
   });
 
   test('mid-segment', () => {
-    expect(positionAt(t, 12)).toEqual({ done: false, index: 1, secondsInto: 2, secondsRemaining: 18 });
+    expect(positionAt(t, 12)).toEqual({
+      done: false,
+      index: 1,
+      secondsInto: 2,
+      secondsRemaining: 18,
+    });
   });
 
   test('an exact boundary belongs to the next segment', () => {
-    expect(positionAt(t, 30)).toEqual({ done: false, index: 2, secondsInto: 0, secondsRemaining: 15 });
+    expect(positionAt(t, 30)).toEqual({
+      done: false,
+      index: 2,
+      secondsInto: 0,
+      secondsRemaining: 15,
+    });
   });
 
   test('exhaustion', () => {

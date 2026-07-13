@@ -1,4 +1,4 @@
-# 14. Text-first Maestro selectors
+# 16. Text-first Maestro selectors
 
 Date: 2026-07-13
 

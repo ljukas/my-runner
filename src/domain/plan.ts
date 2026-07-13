@@ -60,7 +60,10 @@ export const NHS_PLAN: PlanSession[] = [
  */
 export const COMPRESSED_PLAN: PlanSession[] = NHS_PLAN.map((s) => ({
   ...s,
-  segments: s.segments.map((seg) => ({ ...seg, seconds: Math.max(2, Math.round(seg.seconds / 60)) })),
+  segments: s.segments.map((seg) => ({
+    ...seg,
+    seconds: Math.max(2, Math.round(seg.seconds / 60)),
+  })),
 }));
 
 export function getSession(plan: PlanSession[], key: string): PlanSession | undefined {
@@ -72,13 +75,14 @@ export function sessionTotalSeconds(session: PlanSession): number {
 }
 
 export function sessionRunSeconds(session: PlanSession): number {
-  return session.segments
-    .filter((s) => s.kind === 'run')
-    .reduce((sum, s) => sum + s.seconds, 0);
+  return session.segments.filter((s) => s.kind === 'run').reduce((sum, s) => sum + s.seconds, 0);
 }
 
 /** First session in plan order without a completed run — free repeats need no special-casing. */
-export function nextSessionKey(plan: PlanSession[], completedKeys: ReadonlySet<string>): string | null {
+export function nextSessionKey(
+  plan: PlanSession[],
+  completedKeys: ReadonlySet<string>,
+): string | null {
   return plan.find((s) => !completedKeys.has(s.key))?.key ?? null;
 }
 

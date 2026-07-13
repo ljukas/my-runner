@@ -29,7 +29,7 @@ export function OnboardingStepScreen({
   return (
     <ThemedView className="flex-1 px-6" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
       <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false}>
-        <View className="pb-6 pt-10">{children}</View>
+        <View className="pt-10 pb-6">{children}</View>
       </ScrollView>
       <View className="gap-5 pt-2">
         {footnote}

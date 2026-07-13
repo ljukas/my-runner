@@ -70,7 +70,7 @@ function SessionRow({
         <Text modifiers={[foregroundColor(colors.text)]}>{`Day ${session.day}`}</Text>
         <Spacer />
         {isNext ? (
-          // E2E escape hatch (ADR 0014): icon-only, no text to target.
+          // E2E escape hatch (ADR 0016): icon-only, no text to target.
           <Image
             testID={`plan-next-${session.key}`}
             systemName="arrow.forward.circle.fill"

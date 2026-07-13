@@ -12,13 +12,7 @@ import { isGlassAvailable } from '@/lib/glass';
  * until the compose side of the seam lands (ADR 0005 §4). Becomes
  * `Island.Button` when the ADR 0013 island layer is fully adopted.
  */
-export function IslandButton({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}) {
+export function IslandButton({ label, onPress }: { label: string; onPress: () => void }) {
   const colors = useTheme();
   if (Platform.OS !== 'ios') {
     return <PrimaryButton label={label} onPress={onPress} />;
@@ -31,7 +25,8 @@ export function IslandButton({
           buttonStyle(isGlassAvailable() ? 'glassProminent' : 'borderedProminent'),
           controlSize('large'),
           tint(colors.primary),
-        ]}>
+        ]}
+      >
         {/* SwiftUI sizes a button by its label — the maxWidth frame on the
             label (not the button) is what makes the capsule span the screen. */}
         <Text
@@ -39,7 +34,8 @@ export function IslandButton({
             font({ textStyle: 'body', weight: 'semibold' }),
             frame({ maxWidth: 10000 }),
             padding({ vertical: 2 }),
-          ]}>
+          ]}
+        >
           {label}
         </Text>
       </Button>

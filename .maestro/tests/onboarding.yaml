@@ -2,10 +2,7 @@ appId: se.lukaslindqvist.myrunner
 tags:
   - onboarding
 ---
-- launchApp:
-    clearState: true
-- runFlow: ../helpers/open-dev-server.yaml
-- runFlow: ../helpers/complete-onboarding.yaml
+- runFlow: ../helpers/launch-and-onboard.yaml
 - stopApp
 - launchApp
 # State survives the relaunch, but the dev-launcher may show its home screen

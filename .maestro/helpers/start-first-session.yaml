@@ -1,10 +1,7 @@
 appId: se.lukaslindqvist.myrunner
 ---
 # Fresh install → w1d1 session just started on the compressed plan.
-- launchApp:
-    clearState: true
-- runFlow: open-dev-server.yaml
-- runFlow: complete-onboarding.yaml
+- runFlow: launch-and-onboard.yaml
 - runFlow: enable-compressed-plan.yaml
 # "Day 1" repeats in every week section — the first match is Week 1's.
 - scrollUntilVisible:

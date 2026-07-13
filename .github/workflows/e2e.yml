@@ -69,26 +69,60 @@ jobs:
         if: steps.decide.outputs.run == 'true'
         run: bun ci
 
-      - name: Build E2E simulator app (local — zero EAS cloud minutes)
+      - name: Compute native fingerprint
         if: steps.decide.outputs.run == 'true'
+        id: fp
+        run: |
+          HASH=$(npx expo-updates fingerprint:generate --platform ios 2>/dev/null | jq -r '.hash')
+          if [ -z "$HASH" ] || [ "$HASH" = "null" ]; then
+            echo "::error::fingerprint generation failed"; exit 1
+          fi
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Native fingerprint: $HASH"
+
+      - name: Restore cached native .app (keyed by fingerprint)
+        if: steps.decide.outputs.run == 'true'
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/native-app
+          key: e2e-native-app-ios-${{ steps.fp.outputs.hash }}
+
+      - name: Build E2E simulator app (cache miss — full native build, zero EAS cloud minutes)
+        if: steps.decide.outputs.run == 'true' && steps.cache.outputs.cache-hit != 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: bash .github/scripts/build-e2e-sim-app.sh "$RUNNER_TEMP/native-app"
+
+      - name: Repack cached .app with current JS (cache hit — no native build)
+        if: steps.decide.outputs.run == 'true' && steps.cache.outputs.cache-hit == 'true'
+        id: repack
+        continue-on-error: true
+        run: |
+          npx @expo/repack-app --platform ios \
+            --source-app "$RUNNER_TEMP/native-app/app.app" \
+            -o "$RUNNER_TEMP/repacked.app"
+
+      - name: Fallback to a full build (repack failed)
+        if: steps.decide.outputs.run == 'true' && steps.cache.outputs.cache-hit == 'true' && steps.repack.outcome == 'failure'
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          bunx eas-cli build \
-            --platform ios \
-            --profile e2e-simulator \
-            --local \
-            --non-interactive \
-            --output "$RUNNER_TEMP/app.tar.gz"
+          echo "::warning::@expo/repack-app failed; falling back to a full native build"
+          bash .github/scripts/build-e2e-sim-app.sh "$RUNNER_TEMP/fallback"
 
-      - name: Extract app and boot a simulator
+      - name: Boot simulator and install app
         if: steps.decide.outputs.run == 'true'
         id: sim
         run: |
-          mkdir -p "$RUNNER_TEMP/app"
-          tar -xzf "$RUNNER_TEMP/app.tar.gz" -C "$RUNNER_TEMP/app"
-          APP_PATH=$(find "$RUNNER_TEMP/app" -maxdepth 3 -name '*.app' -type d | head -1)
-          echo "App: $APP_PATH"
+          if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ] && [ "${{ steps.repack.outcome }}" != "failure" ]; then
+            APP_PATH="$RUNNER_TEMP/repacked.app"
+          elif [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+            APP_PATH="$RUNNER_TEMP/fallback/app.app"
+          else
+            APP_PATH="$RUNNER_TEMP/native-app/app.app"
+          fi
+          echo "Installing: $APP_PATH"
           UDID=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[][] | select(.name | test("^iPhone"))] | last | .udid')
           echo "Simulator UDID: $UDID"

@@ -30,6 +30,13 @@ describe('createOnboarding', () => {
     expect(onboarding.pendingSteps()).toEqual([]);
   });
 
+  test('reset makes every step pending again', () => {
+    const onboarding = createOnboarding(fakeStorage());
+    for (const step of ONBOARDING_STEPS) onboarding.completeStep(step.id);
+    onboarding.reset();
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
+  });
+
   test('corrupted persisted JSON is treated as no steps completed', () => {
     const storage = fakeStorage();
     storage.setItemSync('onboarding.completedSteps', 'not-json{');

@@ -35,5 +35,8 @@ export function createOnboarding(storage: StringStorage) {
         storage.setItemSync(STORAGE_KEY, JSON.stringify([...completed, id]));
       }
     },
+    reset(): void {
+      storage.setItemSync(STORAGE_KEY, JSON.stringify([]));
+    },
   };
 }

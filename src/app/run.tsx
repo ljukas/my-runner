@@ -66,38 +66,32 @@ export default function RunScreen() {
           <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
             {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
           </Text>
-          <HStack testID="run-countdown">
-            <Text
-              modifiers={[
-                font({ size: 80, weight: 'bold' }),
-                monospacedDigit(),
-                contentTransition('numericText', { countsDown: true }),
-                foregroundColor(colors.text),
-              ]}>
-              {formatClock(snapshot.segmentSecondsRemaining)}
-            </Text>
-          </HStack>
+          <Text
+            modifiers={[
+              font({ size: 80, weight: 'bold' }),
+              monospacedDigit(),
+              contentTransition('numericText', { countsDown: true }),
+              foregroundColor(colors.text),
+            ]}>
+            {formatClock(snapshot.segmentSecondsRemaining)}
+          </Text>
           <Gauge value={segmentProgress} modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]} />
           <Text modifiers={[foregroundColor(colors.textSecondary)]}>
             {snapshot.nextSegment
               ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
               : 'Last segment — finish strong!'}
           </Text>
-          <HStack testID="run-elapsed">
-            <Text modifiers={[monospacedDigit(), foregroundColor(colors.textSecondary)]}>
-              {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
-            </Text>
-          </HStack>
+          <Text modifiers={[monospacedDigit(), foregroundColor(colors.textSecondary)]}>
+            {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
+          </Text>
           <Spacer />
           <HStack spacing={16}>
             <Button
-              testID="run-pause"
               label={paused ? 'Resume' : 'Pause'}
               onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
               modifiers={[buttonStyle('borderedProminent'), controlSize('large'), tint(colors.primary)]}
             />
             <Button
-              testID="run-skip"
               label="Skip"
               onPress={() => runEngine.skipSegment()}
               modifiers={[buttonStyle('bordered'), controlSize('large')]}
@@ -109,7 +103,6 @@ export default function RunScreen() {
               titleVisibility="visible">
               <ConfirmationDialog.Trigger>
                 <Button
-                  testID="run-end"
                   label="End"
                   role="destructive"
                   onPress={() => setEndDialogOpen(true)}
@@ -125,7 +118,6 @@ export default function RunScreen() {
             </ConfirmationDialog>
           </HStack>
           <Toggle
-            testID="run-keep-awake"
             label="Keep screen awake"
             isOn={keepAwake}
             onIsOnChange={(value) => settingsStore.set('keepScreenAwake', value)}

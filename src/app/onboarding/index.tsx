@@ -12,7 +12,6 @@ export default function WelcomeScreen() {
     <OnboardingStepScreen
       stepId="welcome-v1"
       buttonLabel="Continue"
-      buttonTestID="onboarding-continue-welcome"
       footnote={
         <View className="gap-2">
           <SymbolView

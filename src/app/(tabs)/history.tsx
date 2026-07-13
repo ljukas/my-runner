@@ -31,7 +31,7 @@ export default function HistoryScreen() {
     <Host style={{ flex: 1 }}>
       <List>
         {visible.map((run) => (
-          <HStack key={run.id} testID={`history-row-${run.sessionKey}`} spacing={12}>
+          <HStack key={run.id} spacing={12}>
             <VStack alignment="leading" spacing={2}>
               <Text modifiers={[foregroundColor(colors.text)]}>{sessionTitle(run.sessionKey)}</Text>
               <Text modifiers={[font({ textStyle: 'footnote' }), foregroundColor(colors.textSecondary)]}>

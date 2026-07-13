@@ -36,7 +36,7 @@ export default function SessionSheet() {
   return (
     <ThemedView className="flex-1 gap-6 px-6 pt-8">
       <ThemedText type="subtitle">{sessionTitle(session.key)}</ThemedText>
-      <SegmentBar segments={session.segments} testID="session-segment-bar" />
+      <SegmentBar segments={session.segments} />
       <View className="gap-2">
         <StatRow label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
         <StatRow label="Running" value={formatMinutes(sessionRunSeconds(session))} />
@@ -44,7 +44,6 @@ export default function SessionSheet() {
       </View>
       <Host matchContents>
         <Button
-          testID="session-start"
           label="Start session"
           onPress={() => {
             runEngine.start(session);

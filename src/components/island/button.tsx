@@ -15,20 +15,17 @@ import { isGlassAvailable } from '@/lib/glass';
 export function IslandButton({
   label,
   onPress,
-  testID,
 }: {
   label: string;
   onPress: () => void;
-  testID?: string;
 }) {
   const colors = useTheme();
   if (Platform.OS !== 'ios') {
-    return <PrimaryButton testID={testID} label={label} onPress={onPress} />;
+    return <PrimaryButton label={label} onPress={onPress} />;
   }
   return (
     <Host style={{ width: '100%', height: 50 }}>
       <Button
-        testID={testID}
         onPress={onPress}
         modifiers={[
           buttonStyle(isGlassAvailable() ? 'glassProminent' : 'borderedProminent'),

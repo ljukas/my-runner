@@ -16,13 +16,11 @@ import type { OnboardingStepId } from '@/services/onboarding';
 export function OnboardingStepScreen({
   stepId,
   buttonLabel,
-  buttonTestID,
   footnote,
   children,
 }: {
   stepId: OnboardingStepId;
   buttonLabel: string;
-  buttonTestID: string;
   footnote?: ReactNode;
   children: ReactNode;
 }) {
@@ -35,11 +33,7 @@ export function OnboardingStepScreen({
       </ScrollView>
       <View className="gap-5 pt-2">
         {footnote}
-        <IslandButton
-          testID={buttonTestID}
-          label={buttonLabel}
-          onPress={() => completeAndAdvance(router, stepId)}
-        />
+        <IslandButton label={buttonLabel} onPress={() => completeAndAdvance(router, stepId)} />
       </View>
     </ThemedView>
   );

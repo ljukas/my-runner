@@ -20,16 +20,11 @@ export default function SettingsScreen() {
         {__DEV__ ? (
           <Section title="Developer">
             <Toggle
-              testID="settings-compressed-plan"
               label="Compressed plan"
               isOn={compressed}
               onIsOnChange={(value) => settingsStore.set('useCompressedPlan', value)}
             />
-            <Button
-              testID="settings-reset-onboarding"
-              label="Reset onboarding"
-              onPress={() => resetAndRestart(router)}
-            />
+            <Button label="Reset onboarding" onPress={() => resetAndRestart(router)} />
           </Section>
         ) : null}
       </Form>

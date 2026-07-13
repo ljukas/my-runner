@@ -42,7 +42,7 @@ export default function RunSummaryScreen() {
     router.dismissAll();
   };
 
-  const doneButton = <PrimaryButton testID="summary-done" label="Done" onPress={done} />;
+  const doneButton = <PrimaryButton label="Done" onPress={done} />;
 
   if (!runId || !data) {
     return (

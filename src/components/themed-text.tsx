@@ -3,7 +3,16 @@ import { Platform, Text, type TextProps } from 'react-native';
 import { ThemeColor } from '@/constants/theme';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
+  type?:
+    | 'default'
+    | 'title'
+    | 'largeTitle'
+    | 'small'
+    | 'smallBold'
+    | 'subtitle'
+    | 'link'
+    | 'linkPrimary'
+    | 'code';
   themeColor?: ThemeColor;
   className?: string;
 };
@@ -20,6 +29,7 @@ const colorClasses: Record<ThemeColor, string> = {
 const typeClasses: Record<NonNullable<ThemedTextProps['type']>, string> = {
   default: 'text-base leading-6 font-medium',
   title: 'text-5xl leading-[52px] font-semibold',
+  largeTitle: 'text-[34px] leading-[41px] font-bold',
   small: 'text-sm leading-5 font-medium',
   smallBold: 'text-sm leading-5 font-bold',
   subtitle: 'text-[32px] leading-[44px] font-semibold',

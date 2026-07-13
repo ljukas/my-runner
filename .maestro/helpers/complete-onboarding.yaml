@@ -1,8 +1,6 @@
 appId: se.lukaslindqvist.myrunner
 ---
-- assertVisible:
-    id: "onboarding-continue-welcome"
-- tapOn:
-    id: "onboarding-continue-welcome"
-- assertVisible:
-    id: "plan-row-w1d1"
+# Onboarding is a single welcome step: assert its unique copy, tap the one CTA.
+- assertVisible: "Welcome to"
+- tapOn: "Continue"
+- assertVisible: "Week 1 ·.*"

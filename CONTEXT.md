@@ -29,3 +29,14 @@ lazily — add a term when a module gets named after it.
   context (`RadioToggle.Group` / `RadioToggle.Item`).
 - **Token pair** — a surface color and its `-foreground` partner
   (`bg-primary` / `text-primary-foreground`); the palette's unit of growth.
+
+## Support
+
+- **Tip** — an optional, repeatable payment a user makes to support the
+  developer. Grants **nothing** (no feature unlock); that invariant is what keeps
+  the tip jar local-first and its port interface narrow (ADR 0017). A
+  StoreKit / Play Billing **consumable**.
+- **Tip jar** — the capability that offers tips: the `services/tip-jar` port
+  (ADR 0003) plus its `expo-iap` adapter, surfaced as a "Support" section in
+  settings. The user-facing label is **"Support the app"**, never "Donate" — the
+  latter routes App Review into the charity/nonprofit lane (ADR 0017).

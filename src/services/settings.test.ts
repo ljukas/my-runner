@@ -6,7 +6,24 @@ import { fakeStorage } from './test-helpers';
 describe('createSettingsStore', () => {
   test('starts from defaults', () => {
     const store = createSettingsStore(fakeStorage());
-    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
+    expect(store.getSnapshot()).toEqual({
+      useCompressedPlan: false,
+      keepScreenAwake: true,
+      intervalCuesEnabled: true,
+      milestoneCuesEnabled: true,
+    });
+  });
+
+  test('cue toggles default on and persist independently', () => {
+    const storage = fakeStorage();
+    const store = createSettingsStore(storage);
+    expect(store.getSnapshot().intervalCuesEnabled).toBe(true);
+    expect(store.getSnapshot().milestoneCuesEnabled).toBe(true);
+
+    store.set('intervalCuesEnabled', false);
+    expect(store.getSnapshot().intervalCuesEnabled).toBe(false);
+    expect(store.getSnapshot().milestoneCuesEnabled).toBe(true);
+    expect(createSettingsStore(storage).getSnapshot().intervalCuesEnabled).toBe(false);
   });
 
   test('set persists, replaces the snapshot object, and notifies subscribers', () => {
@@ -28,17 +45,32 @@ describe('createSettingsStore', () => {
   test('unknown persisted keys are ignored, missing ones defaulted', () => {
     const storage = fakeStorage({ settings: JSON.stringify({ keepScreenAwake: false, junk: 1 }) });
     const store = createSettingsStore(storage);
-    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: false });
+    expect(store.getSnapshot()).toEqual({
+      useCompressedPlan: false,
+      keepScreenAwake: false,
+      intervalCuesEnabled: true,
+      milestoneCuesEnabled: true,
+    });
   });
 
   test('corrupted persisted JSON falls back to defaults instead of throwing', () => {
     const store = createSettingsStore(fakeStorage({ settings: 'not-json{' }));
-    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
+    expect(store.getSnapshot()).toEqual({
+      useCompressedPlan: false,
+      keepScreenAwake: true,
+      intervalCuesEnabled: true,
+      milestoneCuesEnabled: true,
+    });
   });
 
   test('non-object persisted JSON (e.g. "null") falls back to defaults instead of throwing', () => {
     const store = createSettingsStore(fakeStorage({ settings: 'null' }));
-    expect(store.getSnapshot()).toEqual({ useCompressedPlan: false, keepScreenAwake: true });
+    expect(store.getSnapshot()).toEqual({
+      useCompressedPlan: false,
+      keepScreenAwake: true,
+      intervalCuesEnabled: true,
+      milestoneCuesEnabled: true,
+    });
   });
 
   test('unsubscribe stops notifications', () => {

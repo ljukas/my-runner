@@ -1,5 +1,7 @@
-import type { PlanSession } from '@/domain/plan';
+import { SEGMENT_ENTRY_CUE } from '@/domain/cues';
+import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
+import type { CueService } from '@/services/cue-service/port';
 import type {
   Clock,
   CompletedRunRecord,
@@ -46,6 +48,7 @@ function activeElapsedMs(events: RunEvent[], now: number): number {
 export class RunEngine {
   private readonly clock: Clock;
   private readonly persistence: RunPersistence;
+  private readonly cue: CueService;
 
   private session: PlanSession | null = null;
   private events: RunEvent[] = [];
@@ -59,8 +62,17 @@ export class RunEngine {
   private cachedTimeline: TimelineSegment[] | null = null;
   private readonly listeners = new Set<() => void>();
 
-  constructor(deps: { persistence: RunPersistence; clock?: Clock }) {
+  // Cue firing (ADR 0007 §4 / ADR 0009): a transition cue fires only when the
+  // derived segment changes; milestones fire once each. All are computed at
+  // start() and reset on start()/reset().
+  private lastAnnouncedIndex = -1;
+  private halfwayFired = false;
+  private plannedTotalS = 0;
+  private lastRunIndex = -1;
+
+  constructor(deps: { persistence: RunPersistence; cue: CueService; clock?: Clock }) {
     this.persistence = deps.persistence;
+    this.cue = deps.cue;
     this.clock = deps.clock ?? Date.now;
   }
 
@@ -73,6 +85,12 @@ export class RunEngine {
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
+    this.lastAnnouncedIndex = -1;
+    this.halfwayFired = false;
+    this.plannedTotalS = sessionTotalSeconds(session);
+    // The final run is announced as "last run", not a generic "start running".
+    this.lastRunIndex = session.segments.reduce((last, s, i) => (s.kind === 'run' ? i : last), -1);
+    this.cue.prepare();
     this.refresh();
   }
 
@@ -81,6 +99,7 @@ export class RunEngine {
     this.append('pause');
     this.status = 'paused';
     this.refresh();
+    this.cue.announce('paused');
   }
 
   resume(): void {
@@ -88,6 +107,7 @@ export class RunEngine {
     this.append('resume');
     this.status = 'running';
     this.refresh();
+    this.cue.announce('resumed');
   }
 
   skipSegment(): void {
@@ -119,7 +139,10 @@ export class RunEngine {
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
+    this.lastAnnouncedIndex = -1;
+    this.halfwayFired = false;
     this.snapshot = IDLE_SNAPSHOT;
+    this.cue.release();
     this.emit();
   }
 
@@ -187,8 +210,24 @@ export class RunEngine {
         segmentSecondsTotal: segment.effectiveSeconds,
         nextSegment: next ? { kind: next.kind, seconds: next.effectiveSeconds } : null,
       };
+      // Cues fire on live running refreshes only — never on pause/resume/finalize
+      // (whose status is already non-running here).
+      if (this.status === 'running') this.announceProgress(pos.index, segment.kind, elapsed);
     }
     this.emit();
+  }
+
+  /** Fires the transition cue on a derived-segment change and the halfway
+   * milestone once (ADR 0007 §4). The final run announces `lastRun`. */
+  private announceProgress(index: number, kind: SegmentKind, elapsed: number): void {
+    if (index !== this.lastAnnouncedIndex) {
+      this.lastAnnouncedIndex = index;
+      this.cue.announce(index === this.lastRunIndex ? 'lastRun' : SEGMENT_ENTRY_CUE[kind]);
+    }
+    if (!this.halfwayFired && this.plannedTotalS > 0 && elapsed >= this.plannedTotalS / 2) {
+      this.halfwayFired = true;
+      this.cue.announce('halfway');
+    }
   }
 
   private finalize(kind: 'completed' | 'endedEarly'): void {
@@ -221,6 +260,11 @@ export class RunEngine {
 
     this.status = kind;
     this.refresh(endAt);
+    // A completed run speaks its congratulations, then self-releases the audio
+    // session when that utterance finishes — calling release() here would cut it
+    // off. Ending early has no cue, so tear the session down immediately.
+    if (kind === 'completed') this.cue.announce('complete');
+    else this.cue.release();
     const generation = this.runGeneration;
     this.persistence.saveRun(record).then(
       (id) => {

@@ -1,8 +1,28 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { CueId } from '@/domain/cues';
 import type { PlanSession } from '@/domain/plan';
+import type { CueService } from '@/services/cue-service/port';
 import { RunEngine } from './engine';
 import type { CompletedRunRecord, RunPersistence } from './types';
+
+/** A recording fake so cue firing can be asserted without expo-speech/audio. */
+function makeFakeCue() {
+  const cues: CueId[] = [];
+  let prepared = 0;
+  let released = 0;
+  const cue: CueService = {
+    prepare: () => void prepared++,
+    announce: (c) => void cues.push(c),
+    release: () => void released++,
+  };
+  return {
+    cue,
+    cues,
+    prepareCount: () => prepared,
+    releaseCount: () => released,
+  };
+}
 
 const SESSION: PlanSession = {
   key: 'w1d1',
@@ -28,10 +48,14 @@ function makeEngine() {
       return 'run-1';
     },
   };
-  const engine = new RunEngine({ persistence, clock: () => now });
+  const fakeCue = makeFakeCue();
+  const engine = new RunEngine({ persistence, clock: () => now, cue: fakeCue.cue });
   return {
     engine,
     saved,
+    cues: fakeCue.cues,
+    prepareCount: fakeCue.prepareCount,
+    releaseCount: fakeCue.releaseCount,
     setFailSave: (v: boolean) => (failSave = v),
     tick: (seconds: number) => {
       now += seconds * 1000;
@@ -230,7 +254,7 @@ describe('completion', () => {
       saveRun: () => new Promise<string>((resolve) => (resolveSave = resolve)),
     };
     let now = 1_000_000;
-    const engine = new RunEngine({ persistence, clock: () => now });
+    const engine = new RunEngine({ persistence, clock: () => now, cue: makeFakeCue().cue });
     engine.start(SESSION);
     now += 80_000;
     engine.heartbeat(); // completes run A; its save stays pending
@@ -297,5 +321,94 @@ describe('subscription', () => {
     const { engine } = makeEngine();
     engine.start(SESSION);
     expect(engine.getSnapshot()).toBe(engine.getSnapshot());
+  });
+});
+
+describe('cues (ADR 0007/0009)', () => {
+  test('start prepares the session and announces the warm-up', () => {
+    const { engine, cues, prepareCount } = makeEngine();
+    engine.start(SESSION);
+    expect(prepareCount()).toBe(1);
+    expect(cues).toEqual(['warmupStart']);
+  });
+
+  test('each segment transition announces the entered segment cue', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start(SESSION); // warmupStart @ index 0
+    tick(10); // → run   (index 1)
+    tick(20); // → walk  (index 2, now 30)
+    expect(cues).toEqual(['warmupStart', 'startRun', 'startWalk']);
+  });
+
+  test('a transition is announced once, not on every heartbeat in the segment', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(12); // into run → startRun
+    tick(1);
+    tick(1);
+    expect(cues.filter((c) => c === 'startRun')).toHaveLength(1);
+  });
+
+  test('the final run is announced as lastRun, not a generic startRun', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(10); // run   (index 1) → startRun
+    tick(20); // walk  (index 2)
+    tick(15); // run   (index 3, the last run) → lastRun
+    expect(cues).toContain('lastRun');
+    expect(cues.filter((c) => c === 'startRun')).toHaveLength(1);
+  });
+
+  test('halfway fires exactly once when elapsed crosses 50% of planned total', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start(SESSION); // planned total 75 → halfway at 37.5s
+    tick(37);
+    expect(cues).not.toContain('halfway');
+    tick(1); // 38 ≥ 37.5
+    tick(1); // 39
+    expect(cues.filter((c) => c === 'halfway')).toHaveLength(1);
+  });
+
+  test('a skip into a new segment announces the entered segment', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(12); // 2s into run → startRun
+    engine.skipSegment(); // truncates run → walk
+    expect(cues).toContain('startWalk');
+  });
+
+  test('pause and resume announce their cues', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(12);
+    engine.pause();
+    expect(cues).toContain('paused');
+    engine.resume();
+    expect(cues).toContain('resumed');
+  });
+
+  test('completion announces complete and does not hard-release (lets it speak)', async () => {
+    const { engine, cues, releaseCount, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(80); // timeline exhausted → completed
+    await flush();
+    expect(cues).toContain('complete');
+    expect(releaseCount()).toBe(0);
+  });
+
+  test('ending early releases the session and announces no completion cue', () => {
+    const { engine, cues, releaseCount, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(12);
+    engine.endEarly();
+    expect(cues).not.toContain('complete');
+    expect(releaseCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  test('reset releases the session', () => {
+    const { engine, releaseCount } = makeEngine();
+    engine.start(SESSION);
+    engine.reset();
+    expect(releaseCount()).toBeGreaterThanOrEqual(1);
   });
 });

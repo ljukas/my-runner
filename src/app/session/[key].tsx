@@ -5,13 +5,19 @@ import { View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { SegmentBar } from '@/components/segment-bar';
+import { SegmentLegend } from '@/components/segment-legend';
 import { StatList } from '@/components/stat-list';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
 import { runs } from '@/db/schema';
-import { formatMinutes, sessionTitle } from '@/domain/format';
-import { getSession, sessionRunSeconds, sessionTotalSeconds } from '@/domain/plan';
+import { formatMinutes, sessionSummary, sessionTitle } from '@/domain/format';
+import {
+  getSession,
+  sessionRunSeconds,
+  sessionTotalSeconds,
+  sessionWalkSeconds,
+} from '@/domain/plan';
 import { useActivePlan } from '@/services/active-plan';
 import { runEngine } from '@/services/run-engine';
 
@@ -31,15 +37,26 @@ export default function SessionSheet() {
   if (!session) return <Redirect href="/" />;
 
   return (
-    <View className="flex-1 gap-6 bg-background px-6 pt-8">
-      <Text variant="subtitle">{sessionTitle(session.key)}</Text>
-      <SegmentBar segments={session.segments} />
-      <StatList>
-        <StatList.Row label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
-        <StatList.Row label="Running" value={formatMinutes(sessionRunSeconds(session))} />
-        <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
-      </StatList>
+    <View className="gap-6 bg-background px-6 pt-8 pb-8">
+      <View className="gap-1.5">
+        <Text variant="subtitle">{sessionTitle(session.key)}</Text>
+        <Text variant="footnote" tone="secondary">
+          {sessionSummary(session)}
+        </Text>
+      </View>
+      <View className="bg-background-element gap-4 rounded-2xl p-4">
+        <SegmentBar segments={session.segments} />
+        <SegmentLegend segments={session.segments} />
+        <View className="bg-background-selected h-px" />
+        <StatList>
+          <StatList.Row label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
+          <StatList.Row label="Running" value={formatMinutes(sessionRunSeconds(session))} />
+          <StatList.Row label="Walking" value={formatMinutes(sessionWalkSeconds(session))} />
+          <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
+        </StatList>
+      </View>
       <Island.Button
+        fill
         label="Start session"
         onPress={() => {
           runEngine.start(session);

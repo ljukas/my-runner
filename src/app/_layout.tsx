@@ -55,8 +55,7 @@ export default function RootLayout() {
           name="session/[key]"
           options={{
             presentation: 'formSheet',
-            sheetAllowedDetents: [0.5, 0.95],
-            sheetInitialDetentIndex: 0,
+            sheetAllowedDetents: 'fitToContents',
             sheetGrabberVisible: true,
           }}
         />

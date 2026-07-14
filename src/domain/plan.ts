@@ -78,6 +78,10 @@ export function sessionRunSeconds(session: PlanSession): number {
   return session.segments.filter((s) => s.kind === 'run').reduce((sum, s) => sum + s.seconds, 0);
 }
 
+export function sessionWalkSeconds(session: PlanSession): number {
+  return session.segments.filter((s) => s.kind === 'walk').reduce((sum, s) => sum + s.seconds, 0);
+}
+
 /** First session in plan order without a completed run — free repeats need no special-casing. */
 export function nextSessionKey(
   plan: PlanSession[],

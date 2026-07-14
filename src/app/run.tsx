@@ -8,13 +8,7 @@ import {
   Text,
   VStack,
 } from '@expo/ui/swift-ui';
-import {
-  font,
-  foregroundColor,
-  frame,
-  monospacedDigit,
-  padding,
-} from '@expo/ui/swift-ui/modifiers';
+import { font, frame, monospacedDigit, padding } from '@expo/ui/swift-ui/modifiers';
 import { useKeepAwake } from 'expo-keep-awake';
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -79,13 +73,14 @@ export default function RunScreen() {
           {/* Icon stacked above the label so each is centred on its own line: a
               lone centred icon and centred text keep a fixed centre and only
               breathe in width — the phase header never translates sideways
-              between segments the way the inline row did. Segment accent is a
-              domain color (SegmentColors), not a theme tone. */}
+              between segments the way the inline row did. The coloured SF Symbol
+              carries the segment-colour cue; the label stays on the theme
+              foreground so it's legible regardless of palette (main #32). */}
           <VStack spacing={6} modifiers={[frame({ height: 62 })]}>
             <Image systemName={SegmentSymbols[kind]} size={26} color={SegmentColors[kind]} />
-            <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
+            <Island.Text modifiers={[font({ textStyle: 'title2' })]}>
               {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
-            </Text>
+            </Island.Text>
           </VStack>
           {/* Both RN elements on this SwiftUI screen (ADR 0005), each hosted via
               RNHostView with a plain-View root (a bare RN leaf as the direct

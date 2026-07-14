@@ -8,6 +8,7 @@ import {
   parseSessionKey,
   sessionRunSeconds,
   sessionTotalSeconds,
+  sessionWalkSeconds,
 } from './plan';
 
 // Run totals (seconds) from the design spec Appendix A.
@@ -113,5 +114,14 @@ describe('progression', () => {
   test('parseSessionKey', () => {
     expect(parseSessionKey('w6d3')).toEqual({ week: 6, day: 3 });
     expect(parseSessionKey('nonsense')).toBeNull();
+  });
+});
+
+describe('sessionWalkSeconds', () => {
+  test('sums only walk segments', () => {
+    expect(sessionWalkSeconds(getSession(NHS_PLAN, 'w2d1')!)).toBe(600); // 5 × 120s
+  });
+  test('is zero for a single continuous run', () => {
+    expect(sessionWalkSeconds(getSession(NHS_PLAN, 'w5d3')!)).toBe(0);
   });
 });

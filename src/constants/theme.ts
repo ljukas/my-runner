@@ -38,12 +38,12 @@ export const Colors = {
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
-/** Segment-kind accents, shared by the SegmentBar and the run screen. Same in both schemes. */
+/** Segment-kind accents (Beacon palette), shared by the SegmentBar, legend, and run screen. */
 export const SegmentColors: Record<SegmentKind, string> = {
-  warmup: '#F5A623',
+  warmup: '#FF7A00',
   run: PRIMARY,
-  walk: '#8E8E93',
-  cooldown: '#5AC8FA',
+  walk: '#FFC400',
+  cooldown: '#00B39A',
 };
 
 /** Segment-kind SF Symbols for the run screen phase label. Warm-up/cool-down are

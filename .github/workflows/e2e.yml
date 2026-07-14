@@ -13,7 +13,31 @@ permissions:
   contents: read
 
 jobs:
+  precheck:
+    # Decide whether the change is app-affecting (run E2E) or provably docs-only
+    # (skip). Always runs, and is a REQUIRED check — so a failure here blocks the
+    # PR and can't let e2e-ios skip-to-success without testing. A job skipped by
+    # `if:` (docs-only) reports success and satisfies its required check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Decide whether app-affecting files changed
+        id: decide
+        run: bun .github/scripts/decide-run.ts
+
   e2e-ios:
+    needs: precheck
+    if: needs.precheck.outputs.run == 'true'
     # macos-26 (default Xcode 26.x) — Expo SDK 57 / RN 0.86 require Xcode 26;
     # macos-15 tops out at Xcode 16.4 and fails building the ExpoModulesJSI
     # xcframework. Still a standard runner → free/unlimited on public repos.
@@ -24,71 +48,77 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Required-check-safe short-circuit: default to RUNNING; skip the heavy
-      # build only when a PR/push is provably docs-only. The job always reports a
-      # conclusion, so it never hangs a required check (ci-checks spec learning).
-      - name: Decide whether app-affecting files changed
-        id: decide
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE="${{ github.event.before }}"
-          fi
-          if ! git rev-parse --quiet --verify "${BASE}^{commit}" >/dev/null 2>&1; then
-            echo "Unknown base ($BASE) — running to be safe."
-            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          FILES=$(git diff --name-only "$BASE" "${{ github.sha }}")
-          echo "Changed files:"; echo "$FILES"
-          run=false
-          while IFS= read -r f; do
-            [ -z "$f" ] && continue
-            case "$f" in
-              docs/*|*.md|.claude/*|LICENSE|.github/ISSUE_TEMPLATE/*) ;;
-              *) run=true; break ;;
-            esac
-          done <<< "$FILES"
-          [ -z "$FILES" ] && run=true
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
       - name: Set up Bun
-        if: steps.decide.outputs.run == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
 
       - name: Set up Java (Maestro requires a JDK)
-        if: steps.decide.outputs.run == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Install dependencies (frozen)
-        if: steps.decide.outputs.run == 'true'
         run: bun ci
 
-      - name: Build E2E simulator app (local — zero EAS cloud minutes)
-        if: steps.decide.outputs.run == 'true'
+      - name: Compute native fingerprint
+        id: fp
+        run: |
+          HASH=$(npx expo-updates fingerprint:generate --platform ios 2>/dev/null | jq -r '.hash')
+          if [ -z "$HASH" ] || [ "$HASH" = "null" ]; then
+            echo "::error::fingerprint generation failed"; exit 1
+          fi
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Native fingerprint: $HASH"
+
+      - name: Restore cached native .app (keyed by fingerprint)
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/native-app
+          key: e2e-native-app-ios-${{ steps.fp.outputs.hash }}
+
+      - name: Build E2E simulator app (cache miss — full native build, zero EAS cloud minutes)
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: bash .github/scripts/build-e2e-sim-app.sh "$RUNNER_TEMP/native-app"
+
+      - name: Repack cached .app with current JS (cache hit — no native build)
+        if: steps.cache.outputs.cache-hit == 'true'
+        id: repack
+        continue-on-error: true
+        env:
+          # Must mirror the e2e-simulator profile's `env` in eas.json: repack
+          # re-bundles JS via `expo export:embed`, which inlines EXPO_PUBLIC_* at
+          # bundle time. Without this the repacked app runs the real NHS plan
+          # (not the compressed one) and full-session flows time out.
+          EXPO_PUBLIC_E2E: '1'
+        run: |
+          npx @expo/repack-app --platform ios \
+            --source-app "$RUNNER_TEMP/native-app/app.app" \
+            -o "$RUNNER_TEMP/repacked.app"
+
+      - name: Fallback to a full build (repack failed)
+        if: steps.cache.outputs.cache-hit == 'true' && steps.repack.outcome == 'failure'
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          bunx eas-cli build \
-            --platform ios \
-            --profile e2e-simulator \
-            --local \
-            --non-interactive \
-            --output "$RUNNER_TEMP/app.tar.gz"
+          echo "::warning::@expo/repack-app failed; falling back to a full native build"
+          bash .github/scripts/build-e2e-sim-app.sh "$RUNNER_TEMP/fallback"
 
-      - name: Extract app and boot a simulator
-        if: steps.decide.outputs.run == 'true'
+      - name: Boot simulator and install app
         id: sim
         run: |
-          mkdir -p "$RUNNER_TEMP/app"
-          tar -xzf "$RUNNER_TEMP/app.tar.gz" -C "$RUNNER_TEMP/app"
-          APP_PATH=$(find "$RUNNER_TEMP/app" -maxdepth 3 -name '*.app' -type d | head -1)
-          echo "App: $APP_PATH"
+          if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ] && [ "${{ steps.repack.outcome }}" != "failure" ]; then
+            APP_PATH="$RUNNER_TEMP/repacked.app"
+          elif [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+            APP_PATH="$RUNNER_TEMP/fallback/app.app"
+          else
+            APP_PATH="$RUNNER_TEMP/native-app/app.app"
+          fi
+          echo "Installing: $APP_PATH"
           UDID=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[][] | select(.name | test("^iPhone"))] | last | .udid')
           echo "Simulator UDID: $UDID"
@@ -98,17 +128,15 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Install Maestro
-        if: steps.decide.outputs.run == 'true'
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
       - name: Run Maestro suite
-        if: steps.decide.outputs.run == 'true'
         run: maestro --device "${{ steps.sim.outputs.udid }}" test .maestro/
 
       - name: Upload Maestro artifacts on failure
-        if: failure() && steps.decide.outputs.run == 'true'
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: maestro-output

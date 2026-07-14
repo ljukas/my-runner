@@ -9,7 +9,7 @@ import { runNotDeleted } from '@/db/queries';
 import { runs } from '@/db/schema';
 import { formatClock, sessionTitle } from '@/domain/format';
 
-export default function HistoryScreen() {
+export default function LogScreen() {
   const { data: visible } = useLiveQuery(
     db.select().from(runs).where(runNotDeleted).orderBy(desc(runs.startedAt)),
   );

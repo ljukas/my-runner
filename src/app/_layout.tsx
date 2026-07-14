@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { useColorScheme, View } from 'react-native';
 
 import { Text } from '@/components/ui/text';
+import { Colors } from '@/constants/theme';
 import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
 import { onboarding } from '@/services/onboarding-store';
@@ -57,6 +58,11 @@ export default function RootLayout() {
             presentation: 'formSheet',
             sheetAllowedDetents: 'fitToContents',
             sheetGrabberVisible: true,
+            // Paint the whole sheet container (incl. the bottom safe-area inset the
+            // content view no longer covers under fitToContents) with the theme background.
+            contentStyle: {
+              backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].background,
+            },
           }}
         />
         <Stack.Screen

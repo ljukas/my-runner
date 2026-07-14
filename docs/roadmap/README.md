@@ -29,6 +29,7 @@ A feature's status is literally how far down the pipeline it has travelled.
 | Feature | Status | Feasibility | Local-first | Research | ADR |
 |---|---|---|---|---|---|
 | Run elevation on the map | Researched | Feasible (iOS); caveats (Android) | Fully local | [2026-07-13](../superpowers/research/2026-07-13-run-elevation-data.md) | [0015 (proposed)](../adr/0015-run-elevation-on-device-barometer.md) |
+| In-app donations (tip jar) | Researched | Feasible (iOS + Android) | Fully local (client-only IAP) | [2026-07-14](../superpowers/research/2026-07-14-in-app-donations.md) | — |
 
 <!--
   Add new ideas as `Idea` rows. The project owner decides when one gets

@@ -2,5 +2,13 @@ appId: se.lukaslindqvist.myrunner
 ---
 # Onboarding is a single welcome step: assert its unique copy, tap the one CTA.
 - assertVisible: "Welcome to"
-- tapOn: "Continue"
-- assertVisible: "Week 1 ·.*"
+# Retry the tap + its landing assertion together: the E2E build's larger binary
+# (Skia/Reanimated) launches slowly, so the welcome screen can be on screen but
+# not yet interactive when Maestro taps — the tap silently no-ops and we stay on
+# "Welcome to". Re-tapping until the plan list ("Week 1 · …") appears absorbs
+# that transient miss instead of failing the whole flow.
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Continue"
+      - assertVisible: "Week 1 ·.*"

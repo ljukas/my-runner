@@ -89,6 +89,12 @@ jobs:
         if: steps.cache.outputs.cache-hit == 'true'
         id: repack
         continue-on-error: true
+        env:
+          # Must mirror the e2e-simulator profile's `env` in eas.json: repack
+          # re-bundles JS via `expo export:embed`, which inlines EXPO_PUBLIC_* at
+          # bundle time. Without this the repacked app runs the real NHS plan
+          # (not the compressed one) and full-session flows time out.
+          EXPO_PUBLIC_E2E: '1'
         run: |
           npx @expo/repack-app --platform ios \
             --source-app "$RUNNER_TEMP/native-app/app.app" \

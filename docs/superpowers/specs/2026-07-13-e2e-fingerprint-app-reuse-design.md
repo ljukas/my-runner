@@ -124,6 +124,12 @@ loss versus a full build.
 - **Release-mode bundle** — `repack-app` infers build type from the source
   `.app` (a release/preview build) and should emit a production JS bundle;
   verify the repacked app runs a non-dev bundle.
+- **Repack must inline the profile's `EXPO_PUBLIC_*` vars** — repack re-bundles
+  JS via `expo export:embed`, which reads `EXPO_PUBLIC_*` from *its own* env, not
+  from the eas.json profile. The repack step must set the same vars the
+  `e2e-simulator` profile does (currently `EXPO_PUBLIC_E2E=1`) or the repacked
+  app runs the real NHS plan and full-session flows time out. (Caught on the
+  first cache-hit CI run.)
 - **Cache churn/eviction** — many distinct fingerprints or 7-day idle eviction
   cause occasional full builds; correct, just slower.
 - **expo-updates fetch on launch** — unchanged from today: the built app already

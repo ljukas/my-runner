@@ -60,7 +60,11 @@ export default function SessionSheet() {
         label="Start session"
         onPress={() => {
           runEngine.start(session);
-          router.push('/run');
+          // Replace, not push: the run screen is a full-screen modal, so the
+          // session sheet must leave the stack — otherwise the lingering
+          // formSheet bleeds into the accessibility tree behind the run/summary
+          // modals and occludes their controls (e.g. the summary's "Done").
+          router.replace('/run');
         }}
       />
     </View>

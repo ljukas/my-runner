@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
-import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
@@ -46,7 +45,12 @@ export default function RunSummaryScreen() {
     router.dismissAll();
   };
 
-  const doneButton = <Button label="Done" onPress={done} />;
+  // SwiftUI Island.Button, not the RN pill: a plain RN Pressable placed below
+  // this screen's `useViewportSizeMeasurement` Island host is painted but
+  // dropped from the accessibility tree (host a11y frame occludes it), leaving
+  // "Done" invisible to VoiceOver and Maestro. A SwiftUI button lives in the
+  // host's own a11y tree, like the run screen's transport controls.
+  const doneButton = <Island.Button fill label="Done" onPress={done} />;
 
   if (!runId || !data) {
     return (

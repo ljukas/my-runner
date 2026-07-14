@@ -127,6 +127,20 @@ jobs:
           xcrun simctl install "$UDID" "$APP_PATH"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
+      - name: Enable Reduce Motion (so Maestro can settle on the animated run screen)
+        run: |
+          # The run screen animates continuously (Skia countdown + Reanimated
+          # progress bar), so Maestro's screenshot-based "wait for animation to
+          # end" never settles — each interaction stalls ~40s, long enough for the
+          # seconds-long compressed session to finish underneath the run-controls
+          # flow. Reduce Motion collapses both animations to instant (the app
+          # honours it by default: Reanimated withTiming and number-flow both
+          # respect the system setting), so the screen settles and Maestro
+          # interacts reliably. Maestro's own disableAnimations flag is cloud-only,
+          # so set it on the simulator directly. Maestro cold-launches the app for
+          # each flow, so it is read at launch.
+          xcrun simctl spawn "${{ steps.sim.outputs.udid }}" defaults write com.apple.Accessibility ReduceMotionEnabled -int 1
+
       - name: Install Maestro
         run: |
           curl -fsSL "https://get.maestro.mobile.dev" | bash

@@ -62,4 +62,7 @@ describe('sessionSummary', () => {
   test('irregular fallback (W6D1)', () => {
     expect(summary('w6d1')).toBe('3 run intervals with walk recovery · 18 min running.');
   });
+  test('irregular fallback (W4) — non-uniform runs, 16 min total', () => {
+    expect(summary('w4d1')).toBe('4 run intervals with walk recovery · 16 min running.');
+  });
 });

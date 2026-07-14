@@ -100,7 +100,7 @@ sentence stays focused on the core intervals.
 | W5D3 | run 1200 | `One continuous 20-minute run.` |
 | W6D2 | run600/walk180 ×2 | `Alternates 10-minute runs with 3-minute walks, 2 times.` |
 | W3 | run 90/180/90/180 | `4 run intervals with walk recovery · 9 min running.` |
-| W4 | run 180/300/180/300 | `4 run intervals with walk recovery · 18 min running.` |
+| W4 | run 180/300/180/300 | `4 run intervals with walk recovery · 16 min running.` |
 | W6D1 | run 300/480/300 | `3 run intervals with walk recovery · 18 min running.` |
 | W7–9 | run 1500/1680/1800 | `One continuous 25-/28-/30-minute run.` |
 

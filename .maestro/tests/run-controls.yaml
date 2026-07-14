@@ -3,9 +3,23 @@ tags:
   - session
 ---
 - runFlow: ../helpers/start-first-session.yaml
+# Pause first. Pausing freezes the engine clock (elapsed stops), so the
+# seconds-long compressed session can no longer complete underneath the test —
+# the old "drive the controls while the timer keeps running" flow raced that
+# clock and was flaky. Skip and End both work while paused, so every step below
+# runs on a frozen screen with no timing dependence.
+#
+# (The E2E run also enables Reduce Motion — see .github/workflows/e2e.yml — which
+# collapses the run screen's Skia countdown + Reanimated progress-bar animations
+# to instant. Without it Maestro's screenshot-based settle detection never
+# resolves on the continuously-repainting screen.)
 - tapOn: "Pause"
 - assertVisible: "Paused"
+# Resume returns to running and relabels the control Resume -> Pause; the next
+# "Pause" tap only resolves if Resume took effect, then re-freezes the clock.
 - tapOn: "Resume"
+- tapOn: "Pause"
+- assertVisible: "Paused"
 - tapOn: "Skip"
 - tapOn: "Skip"
 - tapOn: "End"

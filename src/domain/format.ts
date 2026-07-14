@@ -32,7 +32,8 @@ export function durationWords(seconds: number): string {
 export function sessionSummary(session: PlanSession): string {
   const { segments } = session;
   const from = segments[0]?.kind === 'warmup' ? 1 : 0;
-  const to = segments[segments.length - 1]?.kind === 'cooldown' ? segments.length - 1 : segments.length;
+  const to =
+    segments[segments.length - 1]?.kind === 'cooldown' ? segments.length - 1 : segments.length;
   const core = segments.slice(from, to);
 
   if (core.length === 1 && core[0].kind === 'run') {

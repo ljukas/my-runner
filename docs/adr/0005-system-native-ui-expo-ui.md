@@ -58,6 +58,26 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
    self-contained subtrees; RN embedded inside SwiftUI only through coarse
    `RNHostView` boundaries, and **never per-row inside a SwiftUI `List`**
    (hence no map thumbnails in the v1 History list).
+   - *Realized 2026-07-14 (run screen):* two elements are the first concrete
+     `RNHostView` boundaries — `number-flow-react-native`'s `SkiaTimeFlow`
+     countdown (a Skia `Canvas`, edge-fade digit roll) and a Reanimated progress
+     bar — while the phase label, phase-icon, and transport buttons stay SwiftUI.
+     This is the sanctioned "mix on one screen" pattern: keep the SwiftUI
+     `VStack` and swap only the elements an RN renderer earns; *coarse* per-element
+     boundaries, not per-glyph mixing. Why the bar went RN: the SwiftUI `Gauge`
+     needed a per-segment `key` remount to reset its fill without a backward
+     sweep, and that remount bounced the centred layout on every segment change;
+     the Reanimated bar resets imperatively (no remount → no shift) and gives a
+     smoother `withTiming` fill. Gotchas found on-device: (a) each hosted RN tree
+     needs a plain RN `View` at its root — a bare RN/Skia leaf as the *direct*
+     `RNHostView` child mounts and measures but never paints; (b) RN content
+     inside SwiftUI is opaque to SwiftUI `testID`s *and* to the AX tree, so the
+     icon-only transport controls carry an `accessibilityLabel` (doubling as the
+     Maestro text selector, ADR 0016) and the Skia canvas gets one on its wrapper
+     `View` for VoiceOver; (c) SF Symbols render at slightly different heights at
+     the same point size, so a centred phase icon+label wobbles the whole
+     Spacer-centred column a few px per segment — the phase-label block is given a
+     fixed `frame({ height })` to hold the layout still.
 2. **E2E rule.** Every SwiftUI element a Maestro flow taps or asserts carries
    a `testID`; flows match on `id:` (falling back to visible text where
    natural). The source-level mapping is verified; **Stage 1's exit criteria

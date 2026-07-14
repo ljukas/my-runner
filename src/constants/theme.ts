@@ -5,6 +5,8 @@
  * in JS (`useTheme`, @expo/ui SwiftUI islands) — keep both in sync.
  */
 
+import type { SFSymbol } from 'sf-symbols-typescript';
+
 import type { SegmentKind } from '@/domain/plan';
 
 const PRIMARY = '#3c87f7';
@@ -42,4 +44,13 @@ export const SegmentColors: Record<SegmentKind, string> = {
   run: PRIMARY,
   walk: '#8E8E93',
   cooldown: '#5AC8FA',
+};
+
+/** Segment-kind SF Symbols for the run screen phase label. Warm-up/cool-down are
+ * walking phases in the plan; only the run intervals get the running figure. */
+export const SegmentSymbols: Record<SegmentKind, SFSymbol> = {
+  warmup: 'figure.walk',
+  run: 'figure.run',
+  walk: 'figure.walk',
+  cooldown: 'figure.cooldown',
 };

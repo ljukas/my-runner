@@ -1,12 +1,19 @@
-import { Button, ConfirmationDialog, Gauge, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
-  contentTransition,
+  Button,
+  ConfirmationDialog,
+  HStack,
+  Image,
+  RNHostView,
+  Spacer,
+  Text,
+  VStack,
+} from '@expo/ui/swift-ui';
+import {
   font,
   foregroundColor,
-  gaugeStyle,
+  frame,
   monospacedDigit,
   padding,
-  tint,
 } from '@expo/ui/swift-ui/modifiers';
 import { useKeepAwake } from 'expo-keep-awake';
 import { Redirect, useRouter } from 'expo-router';
@@ -14,9 +21,12 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
+import { RunProgressBar } from '@/components/run-progress-bar';
 import { SettingsToggle } from '@/components/settings-toggle';
-import { SegmentColors } from '@/constants/theme';
+import { SkiaCountdown } from '@/components/skia-countdown';
+import { SegmentColors, SegmentSymbols } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
+import { useTheme } from '@/hooks/use-theme';
 import { runEngine, useRunEngine } from '@/services/run-engine';
 import { useSetting } from '@/services/settings-store';
 
@@ -29,6 +39,7 @@ function KeepAwakeWhileMounted() {
 export default function RunScreen() {
   const snapshot = useRunEngine();
   const router = useRouter();
+  const colors = useTheme();
   const keepAwake = useSetting('keepScreenAwake');
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const paused = snapshot.status === 'paused';
@@ -54,6 +65,10 @@ export default function RunScreen() {
     snapshot.segmentSecondsTotal > 0
       ? Math.min(1, 1 - snapshot.segmentSecondsRemaining / snapshot.segmentSecondsTotal)
       : 0;
+  // Whole-second countdown split into MM:SS for TimeFlow (hours omitted).
+  const secondsLeft = Math.max(0, Math.ceil(snapshot.segmentSecondsRemaining));
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = secondsLeft % 60;
 
   return (
     <View className="flex-1 bg-background">
@@ -61,44 +76,33 @@ export default function RunScreen() {
       <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
           <Spacer />
-          {/* Segment accent is a domain color (SegmentColors), not a theme tone — direct Text. */}
-          <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
-            {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
-          </Text>
-          <Island.Text
-            modifiers={[
-              font({ size: 80, weight: 'bold' }),
-              monospacedDigit(),
-              contentTransition('numericText', { countsDown: true }),
-            ]}
-          >
-            {formatClock(snapshot.segmentSecondsRemaining)}
-          </Island.Text>
-          <Gauge
-            value={segmentProgress}
-            modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]}
-          />
-          <Island.Text tone="secondary">
-            {snapshot.nextSegment
-              ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
-              : 'Last segment — finish strong!'}
-          </Island.Text>
-          <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
-            {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
-          </Island.Text>
-          <Spacer />
-          <HStack spacing={16}>
-            <Island.Button
-              inline
-              label={paused ? 'Resume' : 'Pause'}
-              onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
+          {/* Icon stacked above the label so each is centred on its own line: a
+              lone centred icon and centred text keep a fixed centre and only
+              breathe in width — the phase header never translates sideways
+              between segments the way the inline row did. Segment accent is a
+              domain color (SegmentColors), not a theme tone. */}
+          <VStack spacing={6} modifiers={[frame({ height: 62 })]}>
+            <Image systemName={SegmentSymbols[kind]} size={26} color={SegmentColors[kind]} />
+            <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
+              {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
+            </Text>
+          </VStack>
+          {/* Both RN elements on this SwiftUI screen (ADR 0005), each hosted via
+              RNHostView with a plain-View root (a bare RN leaf as the direct
+              RNHostView child mounts but never paints): number-flow's Skia
+              digit-roll countdown, and the Reanimated progress bar. */}
+          <RNHostView matchContents>
+            <SkiaCountdown minutes={minutes} seconds={seconds} color={colors.text} />
+          </RNHostView>
+          <RNHostView matchContents>
+            <RunProgressBar
+              progress={segmentProgress}
+              color={SegmentColors[kind]}
+              segmentIndex={snapshot.segmentIndex}
             />
-            <Island.Button
-              inline
-              variant="secondary"
-              label="Skip"
-              onPress={() => runEngine.skipSegment()}
-            />
+          </RNHostView>
+          {/* Transport row, music-player order: End · Pause/Resume · Skip. */}
+          <HStack spacing={40}>
             <ConfirmationDialog
               title="End this run?"
               isPresented={endDialogOpen}
@@ -106,9 +110,10 @@ export default function RunScreen() {
               titleVisibility="visible"
             >
               <ConfirmationDialog.Trigger>
-                <Island.Button
-                  inline
-                  variant="destructive"
+                <Island.IconButton
+                  systemName="stop.fill"
+                  size={30}
+                  color={colors.textSecondary}
                   label="End"
                   onPress={() => setEndDialogOpen(true)}
                 />
@@ -120,7 +125,30 @@ export default function RunScreen() {
                 <Text>Progress so far is saved as a partial run.</Text>
               </ConfirmationDialog.Message>
             </ConfirmationDialog>
+            <Island.IconButton
+              systemName={paused ? 'play.fill' : 'pause.fill'}
+              size={48}
+              color={SegmentColors[kind]}
+              label={paused ? 'Resume' : 'Pause'}
+              onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
+            />
+            <Island.IconButton
+              systemName="forward.fill"
+              size={30}
+              color={colors.textSecondary}
+              label="Skip"
+              onPress={() => runEngine.skipSegment()}
+            />
           </HStack>
+          <Island.Text tone="secondary">
+            {snapshot.nextSegment
+              ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
+              : 'Last segment — finish strong!'}
+          </Island.Text>
+          <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
+            {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
+          </Island.Text>
+          <Spacer />
           <SettingsToggle label="Keep screen awake" settingKey="keepScreenAwake" />
         </VStack>
       </Island>

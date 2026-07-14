@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import { formatClock, formatMinutes, sessionTitle } from './format';
+import { durationWords, formatClock, formatMinutes, sessionSummary, sessionTitle } from './format';
+import { NHS_PLAN, getSession } from './plan';
 
 describe('formatClock', () => {
   test('zero and simple values', () => {
@@ -30,5 +31,35 @@ describe('sessionTitle', () => {
   test('formats plan keys and falls back to the raw key', () => {
     expect(sessionTitle('w1d2')).toBe('Week 1 · Day 2');
     expect(sessionTitle('unknown')).toBe('unknown');
+  });
+});
+
+describe('durationWords', () => {
+  test('whole minutes read as minutes', () => {
+    expect(durationWords(120)).toBe('2-minute');
+    expect(durationWords(300)).toBe('5-minute');
+    expect(durationWords(60)).toBe('1-minute');
+  });
+  test('sub-minute reads as seconds', () => {
+    expect(durationWords(90)).toBe('90-second');
+  });
+});
+
+describe('sessionSummary', () => {
+  const summary = (key: string) => sessionSummary(getSession(NHS_PLAN, key)!);
+  test('uniform alternating (W2)', () => {
+    expect(summary('w2d1')).toBe('Alternates 90-second runs with 2-minute walks, 6 times.');
+  });
+  test('uniform alternating (W1)', () => {
+    expect(summary('w1d1')).toBe('Alternates 1-minute runs with 90-second walks, 8 times.');
+  });
+  test('single continuous run (W5D3)', () => {
+    expect(summary('w5d3')).toBe('One continuous 20-minute run.');
+  });
+  test('irregular fallback (W3)', () => {
+    expect(summary('w3d1')).toBe('4 run intervals with walk recovery · 9 min running.');
+  });
+  test('irregular fallback (W6D1)', () => {
+    expect(summary('w6d1')).toBe('3 run intervals with walk recovery · 18 min running.');
   });
 });

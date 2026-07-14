@@ -2,7 +2,6 @@ import { Button, ConfirmationDialog, Gauge, HStack, Spacer, Text, VStack } from 
 import {
   contentTransition,
   font,
-  foregroundColor,
   gaugeStyle,
   monospacedDigit,
   padding,
@@ -61,10 +60,11 @@ export default function RunScreen() {
       <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
           <Spacer />
-          {/* Segment accent is a domain color (SegmentColors), not a theme tone — direct Text. */}
-          <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
+          {/* Segment name uses the theme foreground — segment colour would be illegible as text
+              (e.g. walk-yellow on white). The gauge below carries the segment colour cue. */}
+          <Island.Text modifiers={[font({ textStyle: 'title2' })]}>
             {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
-          </Text>
+          </Island.Text>
           <Island.Text
             modifiers={[
               font({ size: 80, weight: 'bold' }),

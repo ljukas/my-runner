@@ -1,16 +1,16 @@
-import { Button, Form, Host, LabeledContent, Section, Text, Toggle } from '@expo/ui/swift-ui';
+import { Button, Form, LabeledContent, Section, Text } from '@expo/ui/swift-ui';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 
+import { Island } from '@/components/island';
+import { SettingsToggle } from '@/components/settings-toggle';
 import { resetAndRestart } from '@/services/onboarding-store';
-import { settingsStore, useSetting } from '@/services/settings-store';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const compressed = useSetting('useCompressedPlan');
 
   return (
-    <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+    <Island useViewportSizeMeasurement>
       <Form>
         <Section title="About">
           <LabeledContent label="Version">
@@ -19,15 +19,11 @@ export default function SettingsScreen() {
         </Section>
         {__DEV__ ? (
           <Section title="Developer">
-            <Toggle
-              label="Compressed plan"
-              isOn={compressed}
-              onIsOnChange={(value) => settingsStore.set('useCompressedPlan', value)}
-            />
+            <SettingsToggle label="Compressed plan" settingKey="useCompressedPlan" />
             <Button label="Reset onboarding" onPress={() => resetAndRestart(router)} />
           </Section>
         ) : null}
       </Form>
-    </Host>
+    </Island>
   );
 }

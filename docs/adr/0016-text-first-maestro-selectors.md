@@ -23,9 +23,10 @@ whose only job was carrying them) onto app components.
 - Repeated text is disambiguated with `index` (or relational selectors);
   targets inside scrollable lists are wrapped in `scrollUntilVisible`.
 - Ids are escape hatches only, each commented at the use site and listed
-  in AGENTS.md. Current registry: the dev-launcher sheet's `xmark`, the
-  icon-only `plan-next-*` arrow, and the compressed-plan toggle's
-  `85%,27%` point-tap.
+  in AGENTS.md. Current registry: the icon-only `plan-next-*` arrow. (The
+  dev-launcher `xmark` and the compressed-plan toggle tap are gone — the
+  `e2e-simulator` build defaults the compressed plan on, so flows launch
+  straight into the app with no dev-server or Developer-toggle step.)
 - A `testID` exists in app code only while a flow uses it.
 
 ## Consequences

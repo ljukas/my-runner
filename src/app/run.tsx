@@ -1,18 +1,6 @@
+import { Button, ConfirmationDialog, Gauge, HStack, Spacer, Text, VStack } from '@expo/ui/swift-ui';
 import {
-  Button,
-  ConfirmationDialog,
-  Gauge,
-  HStack,
-  Host,
-  Spacer,
-  Text,
-  Toggle,
-  VStack,
-} from '@expo/ui/swift-ui';
-import {
-  buttonStyle,
   contentTransition,
-  controlSize,
   font,
   foregroundColor,
   gaugeStyle,
@@ -25,11 +13,12 @@ import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { Island } from '@/components/island';
+import { SettingsToggle } from '@/components/settings-toggle';
 import { SegmentColors } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
-import { useTheme } from '@/hooks/use-theme';
 import { runEngine, useRunEngine } from '@/services/run-engine';
-import { settingsStore, useSetting } from '@/services/settings-store';
+import { useSetting } from '@/services/settings-store';
 
 /** useKeepAwake is unconditional, so the toggle mounts/unmounts this child. */
 function KeepAwakeWhileMounted() {
@@ -41,7 +30,6 @@ export default function RunScreen() {
   const snapshot = useRunEngine();
   const router = useRouter();
   const keepAwake = useSetting('keepScreenAwake');
-  const colors = useTheme();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const paused = snapshot.status === 'paused';
 
@@ -70,49 +58,46 @@ export default function RunScreen() {
   return (
     <View className="flex-1 bg-background">
       {keepAwake ? <KeepAwakeWhileMounted /> : null}
-      <Host style={{ flex: 1 }} useViewportSizeMeasurement>
+      <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
           <Spacer />
+          {/* Segment accent is a domain color (SegmentColors), not a theme tone — direct Text. */}
           <Text modifiers={[font({ textStyle: 'title2' }), foregroundColor(SegmentColors[kind])]}>
             {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
           </Text>
-          <Text
+          <Island.Text
             modifiers={[
               font({ size: 80, weight: 'bold' }),
               monospacedDigit(),
               contentTransition('numericText', { countsDown: true }),
-              foregroundColor(colors.text),
             ]}
           >
             {formatClock(snapshot.segmentSecondsRemaining)}
-          </Text>
+          </Island.Text>
           <Gauge
             value={segmentProgress}
             modifiers={[gaugeStyle('linearCapacity'), tint(SegmentColors[kind])]}
           />
-          <Text modifiers={[foregroundColor(colors.textSecondary)]}>
+          <Island.Text tone="secondary">
             {snapshot.nextSegment
               ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
               : 'Last segment — finish strong!'}
-          </Text>
-          <Text modifiers={[monospacedDigit(), foregroundColor(colors.textSecondary)]}>
+          </Island.Text>
+          <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
             {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
-          </Text>
+          </Island.Text>
           <Spacer />
           <HStack spacing={16}>
-            <Button
+            <Island.Button
+              inline
               label={paused ? 'Resume' : 'Pause'}
               onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
-              modifiers={[
-                buttonStyle('borderedProminent'),
-                controlSize('large'),
-                tint(colors.primary),
-              ]}
             />
-            <Button
+            <Island.Button
+              inline
+              variant="secondary"
               label="Skip"
               onPress={() => runEngine.skipSegment()}
-              modifiers={[buttonStyle('bordered'), controlSize('large')]}
             />
             <ConfirmationDialog
               title="End this run?"
@@ -121,11 +106,11 @@ export default function RunScreen() {
               titleVisibility="visible"
             >
               <ConfirmationDialog.Trigger>
-                <Button
+                <Island.Button
+                  inline
+                  variant="destructive"
                   label="End"
-                  role="destructive"
                   onPress={() => setEndDialogOpen(true)}
-                  modifiers={[buttonStyle('bordered'), controlSize('large')]}
                 />
               </ConfirmationDialog.Trigger>
               <ConfirmationDialog.Actions>
@@ -136,13 +121,9 @@ export default function RunScreen() {
               </ConfirmationDialog.Message>
             </ConfirmationDialog>
           </HStack>
-          <Toggle
-            label="Keep screen awake"
-            isOn={keepAwake}
-            onIsOnChange={(value) => settingsStore.set('keepScreenAwake', value)}
-          />
+          <SettingsToggle label="Keep screen awake" settingKey="keepScreenAwake" />
         </VStack>
-      </Host>
+      </Island>
     </View>
   );
 }

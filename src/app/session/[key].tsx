@@ -5,6 +5,7 @@ import { View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { SegmentBar } from '@/components/segment-bar';
+import { StatList } from '@/components/stat-list';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
@@ -33,11 +34,11 @@ export default function SessionSheet() {
     <View className="flex-1 gap-6 bg-background px-6 pt-8">
       <Text variant="subtitle">{sessionTitle(session.key)}</Text>
       <SegmentBar segments={session.segments} />
-      <View className="gap-2">
-        <StatRow label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
-        <StatRow label="Running" value={formatMinutes(sessionRunSeconds(session))} />
-        <StatRow label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
-      </View>
+      <StatList>
+        <StatList.Row label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
+        <StatList.Row label="Running" value={formatMinutes(sessionRunSeconds(session))} />
+        <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
+      </StatList>
       <Island.Button
         label="Start session"
         onPress={() => {
@@ -45,15 +46,6 @@ export default function SessionSheet() {
           router.push('/run');
         }}
       />
-    </View>
-  );
-}
-
-function StatRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View className="flex-row justify-between">
-      <Text tone="secondary">{label}</Text>
-      <Text>{value}</Text>
     </View>
   );
 }

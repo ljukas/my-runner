@@ -60,7 +60,7 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
   app built via `eas build --local -p ios -e e2e-simulator` and installed onto
   it — the suite no longer needs Metro or the dev client. Flows launch via
-  `appId` `se.lukaslindqvist.myrunner` (set as both `ios.bundleIdentifier` and
+  `appId` `se.lukaslindqvist.runbro` (set as both `ios.bundleIdentifier` and
   `android.package` in `app.json`).
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).

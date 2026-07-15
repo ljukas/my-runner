@@ -1,5 +1,5 @@
 {
-  "name": "my-runner",
+  "name": "runbro",
   "main": "expo-router/entry",
   "version": "0.0.1",
   "dependencies": {

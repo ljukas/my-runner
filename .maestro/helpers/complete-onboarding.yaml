@@ -1,4 +1,4 @@
-appId: se.lukaslindqvist.myrunner
+appId: se.lukaslindqvist.runbro
 ---
 # Onboarding is a single welcome step: assert its unique copy, tap the one CTA.
 - assertVisible: "Welcome to"

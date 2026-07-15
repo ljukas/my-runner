@@ -12,8 +12,9 @@ import type { CueId } from '@/domain/cues';
 export interface CueService {
   /** Configure the audio session for the run. Called once at run start. */
   prepare(): void;
-  /** Announce a cue. Settings gating and TTS/haptic production are the
-   * adapter's concern; the engine announces unconditionally on change. */
+  /** Announce a cue. The engine announces unconditionally on every derived
+   * change; category (interval/milestone) gating happens at the composition
+   * seam (index.ts) and TTS/haptic production is the platform adapter's. */
   announce(cue: CueId): void;
   /** Stop any in-flight speech and release the audio session. Idempotent. */
   release(): void;

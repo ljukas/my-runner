@@ -3,8 +3,7 @@ import * as Speech from 'expo-speech';
 import { AppState } from 'react-native';
 import { Presets } from 'react-native-pulsar';
 
-import { CUE_PHRASE, effectiveCue, type CueId } from '@/domain/cues';
-import { settingsStore } from '@/services/settings-store';
+import { CUE_PHRASE, type CueId } from '@/domain/cues';
 import type { CueService } from './port';
 
 /**
@@ -55,11 +54,6 @@ function scheduleRelease(): void {
   }, RELEASE_DEBOUNCE_MS);
 }
 
-function currentPrefs() {
-  const s = settingsStore.getSnapshot();
-  return { intervalCues: s.intervalCuesEnabled, milestoneCues: s.milestoneCuesEnabled };
-}
-
 export const cueService: CueService = {
   prepare() {
     void setAudioModeAsync({
@@ -69,14 +63,13 @@ export const cueService: CueService = {
     }).catch(warn('prepare'));
   },
 
+  // `cue` is already resolved and gated by the composition seam (index.ts); the
+  // adapter just produces the speech + haptic for it.
   announce(cue: CueId) {
-    const effective = effectiveCue(cue, currentPrefs());
-    if (!effective) return; // this cue's category is disabled
-
     cancelPendingRelease();
     void setIsAudioActiveAsync(true).catch(warn('activate'));
     try {
-      Speech.speak(CUE_PHRASE[effective], {
+      Speech.speak(CUE_PHRASE[cue], {
         onDone: scheduleRelease,
         onError: scheduleRelease,
         onStopped: scheduleRelease,
@@ -86,10 +79,10 @@ export const cueService: CueService = {
       scheduleRelease();
     }
 
-    // Haptic accent rides the same cue and gating, but only while foreground.
+    // Haptic accent rides the same cue, but only while foreground.
     if (AppState.currentState === 'active') {
       try {
-        CUE_HAPTIC[effective]();
+        CUE_HAPTIC[cue]();
       } catch (error) {
         warn('haptic')(error);
       }

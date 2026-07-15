@@ -89,7 +89,7 @@ export class RunEngine {
     this.halfwayFired = false;
     this.plannedTotalS = sessionTotalSeconds(session);
     // The final run is announced as "last run", not a generic "start running".
-    this.lastRunIndex = session.segments.reduce((last, s, i) => (s.kind === 'run' ? i : last), -1);
+    this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
     this.cue.prepare();
     this.refresh();
   }

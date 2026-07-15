@@ -74,7 +74,7 @@ export interface CuePrefs {
  */
 export function effectiveCue(cue: CueId, prefs: CuePrefs): CueId | null {
   if (cue === 'lastRun' && !prefs.milestoneCues) {
-    return prefs.intervalCues ? 'startRun' : null;
+    return prefs.intervalCues ? SEGMENT_ENTRY_CUE.run : null;
   }
   const enabled = CUE_CATEGORY[cue] === 'milestone' ? prefs.milestoneCues : prefs.intervalCues;
   return enabled ? cue : null;

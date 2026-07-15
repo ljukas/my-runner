@@ -412,3 +412,37 @@ describe('cues (ADR 0007/0009)', () => {
     expect(releaseCount()).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('segmentEndsAt', () => {
+  test('is the wall-clock end of the active segment at start', () => {
+    const { engine } = makeEngine();
+    engine.start(SESSION); // now = 1_000_000, warmup 10s
+    expect(engine.getSnapshot().segmentEndsAt).toBe(1_000_000 + 10_000);
+  });
+
+  test('tracks elapsed within a segment', () => {
+    const { engine, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(12); // now = 1_012_000, 18s left in the run segment
+    expect(engine.getSnapshot().segmentEndsAt).toBe(1_012_000 + 18_000);
+  });
+
+  test('recomputes after a skip', () => {
+    const { engine, advance } = makeEngine();
+    engine.start(SESSION);
+    advance(5); // 5s into warmup, no heartbeat
+    engine.skipSegment(); // truncates warmup, enters run at now = 1_005_000
+    const s = engine.getSnapshot();
+    expect(s.segmentIndex).toBe(1);
+    expect(s.segmentEndsAt).toBe(1_005_000 + 20_000);
+  });
+
+  test('is null at idle and after completion', () => {
+    const { engine, tick } = makeEngine();
+    expect(engine.getSnapshot().segmentEndsAt).toBeNull();
+    engine.start(SESSION);
+    tick(75); // exhausts the 75s timeline
+    expect(engine.getSnapshot().status).toBe('completed');
+    expect(engine.getSnapshot().segmentEndsAt).toBeNull();
+  });
+});

@@ -18,6 +18,7 @@ const IDLE_SNAPSHOT: RunSnapshot = {
   segmentKind: null,
   segmentSecondsRemaining: 0,
   segmentSecondsTotal: 0,
+  segmentEndsAt: null,
   nextSegment: null,
   activeElapsedSeconds: 0,
   totalSeconds: 0,
@@ -197,6 +198,7 @@ export class RunEngine {
         segmentKind: timeline[timeline.length - 1]?.kind ?? null,
         segmentSecondsRemaining: 0,
         segmentSecondsTotal: timeline[timeline.length - 1]?.effectiveSeconds ?? 0,
+        segmentEndsAt: null,
         nextSegment: null,
       };
     } else {
@@ -208,6 +210,7 @@ export class RunEngine {
         segmentKind: segment.kind,
         segmentSecondsRemaining: pos.secondsRemaining,
         segmentSecondsTotal: segment.effectiveSeconds,
+        segmentEndsAt: now + pos.secondsRemaining * 1000,
         nextSegment: next ? { kind: next.kind, seconds: next.effectiveSeconds } : null,
       };
       // Cues fire on live running refreshes only — never on pause/resume/finalize

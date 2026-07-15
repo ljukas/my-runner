@@ -61,7 +61,11 @@
     "lint": "expo lint",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "e2e": "maestro test .maestro/",
+    "e2e:onboarding": "maestro test --include-tags onboarding .maestro/",
+    "e2e:session": "maestro test --include-tags session .maestro/",
+    "e2e:build": "eas build --local -p ios -e e2e-simulator"
   },
   "private": true,
   "trustedDependencies": [

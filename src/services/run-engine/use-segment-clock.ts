@@ -2,12 +2,12 @@ import { useEffect } from 'react';
 import {
   cancelAnimation,
   Easing,
-  runOnJS,
   useSharedValue,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
 
+import { scheduleOnRN } from 'react-native-worklets';
 import { runEngine } from './index';
 import type { EngineStatus } from './types';
 
@@ -46,7 +46,7 @@ export function useSegmentClock(segmentIndex: number, status: EngineStatus): Sha
         { duration: remainingS * 1000, easing: Easing.linear },
         (finished) => {
           'worklet';
-          if (finished) runOnJS(advanceToBoundary)(endsAt);
+          if (finished) scheduleOnRN(advanceToBoundary, endsAt);
         },
       );
     } else {

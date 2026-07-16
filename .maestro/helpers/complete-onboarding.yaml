@@ -1,4 +1,4 @@
-appId: se.lukaslindqvist.myrunner.e2e
+appId: se.lukaslindqvist.runbro.e2e
 ---
 # Onboarding is two steps: the welcome, then the spoken-coach intro (audio-cues-v1).
 # Assert each step's unique copy, tap its one CTA, and land on the next.

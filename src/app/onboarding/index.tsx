@@ -35,7 +35,7 @@ export default function WelcomeScreen() {
         <Text variant="largeTitle" tone="primary">
           Welcome to
         </Text>
-        <Text variant="largeTitle">My Runner</Text>
+        <Text variant="largeTitle">RunBro</Text>
       </View>
       <View className="gap-6 pt-7">
         <FeatureRow

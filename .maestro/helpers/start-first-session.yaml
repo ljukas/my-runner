@@ -1,4 +1,4 @@
-appId: se.lukaslindqvist.myrunner.e2e
+appId: se.lukaslindqvist.runbro.e2e
 ---
 # Fresh install → w1d1 session just started. The E2E build runs the compressed
 # plan by default (EXPO_PUBLIC_E2E), so no Developer toggle step is needed.

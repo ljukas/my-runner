@@ -1,4 +1,4 @@
-# My Runner 🏃
+# RunBro 🏃
 
 A free Couch-to-5K app: it guides someone who can barely run through a progressive
 walk/run program until they can run 5 km. Inspired by the paid App Store

@@ -1,22 +1,22 @@
 {
   "expo": {
-    "name": "my-runner",
-    "slug": "runtastic",
+    "name": "RunBro",
+    "slug": "runbro",
     "version": "0.0.1",
     "platforms": ["ios"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myrunner",
+    "scheme": "runbro",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "se.lukaslindqvist.myrunner",
+      "bundleIdentifier": "se.lukaslindqvist.runbro",
       "icon": "./assets/expo.icon",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "se.lukaslindqvist.myrunner",
+      "package": "se.lukaslindqvist.runbro",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -55,7 +55,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c628b135-773c-4b9d-b886-db1ff910b531"
+        "projectId": "5dba60a7-4979-4944-a304-94df0fba8bc4"
       }
     },
     "owner": "lukas-apps",
@@ -63,7 +63,7 @@
       "policy": "fingerprint"
     },
     "updates": {
-      "url": "https://u.expo.dev/c628b135-773c-4b9d-b886-db1ff910b531"
+      "url": "https://u.expo.dev/5dba60a7-4979-4944-a304-94df0fba8bc4"
     }
   }
 }

@@ -62,12 +62,12 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
   app built via `eas build --local -p ios -e e2e-simulator` and installed onto
   it — the suite no longer needs Metro or the dev client. Flows launch via
-  `appId` `se.lukaslindqvist.myrunner.e2e` — the e2e build's identity. The app
+  `appId` `se.lukaslindqvist.runbro.e2e` — the e2e build's identity. The app
   identity is variant-driven via the `APP_VARIANT` env var
   ([ADR 0019](docs/adr/0019-app-variants-dynamic-config.md)): `development` builds
-  use `se.lukaslindqvist.myrunner.dev` / scheme `myrunnerdev`, `e2e` builds use
-  `se.lukaslindqvist.myrunner.e2e` / scheme `myrunnere2e`, and unset (production /
-  preview) keeps the clean `se.lukaslindqvist.myrunner` / scheme `myrunner`.
+  use `se.lukaslindqvist.runbro.dev` / scheme `runbrodev`, `e2e` builds use
+  `se.lukaslindqvist.runbro.e2e` / scheme `runbroe2e`, and unset (production /
+  preview) keeps the clean `se.lukaslindqvist.runbro` / scheme `runbro`.
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).
 - **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`

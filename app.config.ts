@@ -11,11 +11,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    slug: config?.slug ?? 'runtastic',
+    slug: config?.slug ?? 'runbro',
     name: `${config.name}${idSuffix}`,
     scheme: `${config.scheme}${schemeSuffix}`,
     // The exp+<slug> dev-launcher scheme is slug-derived, so it is shared across
-    // variants. Register it only on the dev build so exp+runtastic unambiguously
+    // variants. Register it only on the dev build so exp+runbro unambiguously
     // opens the dev client when dev + e2e coexist (ADR 0019).
     plugins: [
       ...(config.plugins ?? []),

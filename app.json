@@ -55,7 +55,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c628b135-773c-4b9d-b886-db1ff910b531"
+        "projectId": "5dba60a7-4979-4944-a304-94df0fba8bc4"
       }
     },
     "owner": "lukas-apps",
@@ -63,7 +63,7 @@
       "policy": "fingerprint"
     },
     "updates": {
-      "url": "https://u.expo.dev/c628b135-773c-4b9d-b886-db1ff910b531"
+      "url": "https://u.expo.dev/5dba60a7-4979-4944-a304-94df0fba8bc4"
     }
   }
 }

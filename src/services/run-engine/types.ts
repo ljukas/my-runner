@@ -17,6 +17,8 @@ export interface RunSnapshot {
   segmentKind: SegmentKind | null;
   segmentSecondsRemaining: number;
   segmentSecondsTotal: number;
+  /** Epoch-ms the current segment ends while running; null when idle/done. */
+  segmentEndsAt: number | null;
   nextSegment: { kind: SegmentKind; seconds: number } | null;
   activeElapsedSeconds: number;
   totalSeconds: number;

@@ -1,5 +1,7 @@
 # 5. System-native UI via @expo/ui SwiftUI islands
 
+> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+
 Date: 2026-07-11
 
 ## Status

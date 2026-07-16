@@ -41,5 +41,9 @@ example
 /ios
 /android
 
+# local build artifacts (eas build --local output, extracted .app bundles)
+build-*.tar.gz
+*.app
+
 # Claude Code session worktrees
 .claude/worktrees/

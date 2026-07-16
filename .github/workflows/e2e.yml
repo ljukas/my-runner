@@ -42,6 +42,8 @@ jobs:
     # macos-15 tops out at Xcode 16.4 and fails building the ExpoModulesJSI
     # xcframework. Still a standard runner → free/unlimited on public repos.
     runs-on: macos-26
+    env:
+      APP_VARIANT: e2e
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5

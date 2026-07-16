@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
-import { durationWords, formatClock, formatMinutes, sessionSummary, sessionTitle } from './format';
+import {
+  durationWords,
+  formatClock,
+  formatCountdown,
+  formatMinutes,
+  sessionSummary,
+  sessionTitle,
+} from './format';
 import { NHS_PLAN, getSession } from './plan';
 
 describe('formatClock', () => {
@@ -17,6 +24,24 @@ describe('formatClock', () => {
 
   test('never goes negative', () => {
     expect(formatClock(-3)).toBe('0:00');
+  });
+});
+
+describe('formatCountdown', () => {
+  test('renders m:ss.cc', () => {
+    expect(formatCountdown(65)).toBe('1:05.00');
+    expect(formatCountdown(9.99)).toBe('0:09.99');
+    expect(formatCountdown(125.5)).toBe('2:05.50');
+  });
+
+  test('ceils to hundredths so 0:00.00 shows only at exactly zero', () => {
+    expect(formatCountdown(0)).toBe('0:00.00');
+    expect(formatCountdown(0.004)).toBe('0:00.01');
+    expect(formatCountdown(59.999)).toBe('1:00.00');
+  });
+
+  test('never goes negative', () => {
+    expect(formatCountdown(-3)).toBe('0:00.00');
   });
 });
 

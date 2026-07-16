@@ -22,6 +22,7 @@ import { SegmentColors, SegmentSymbols } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
 import { runEngine, useRunEngine } from '@/services/run-engine';
+import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
 import { useSetting } from '@/services/settings-store';
 
 /** useKeepAwake is unconditional, so the toggle mounts/unmounts this child. */
@@ -53,16 +54,10 @@ export default function RunScreen() {
     if (finished && saveSettled) router.replace('/run-summary');
   }, [finished, saveSettled, router]);
 
+  const remaining = useSegmentClock(snapshot.segmentIndex, snapshot.status);
+
   if (snapshot.status === 'idle') return <Redirect href="/" />;
   const kind = snapshot.segmentKind ?? 'run';
-  const segmentProgress =
-    snapshot.segmentSecondsTotal > 0
-      ? Math.min(1, 1 - snapshot.segmentSecondsRemaining / snapshot.segmentSecondsTotal)
-      : 0;
-  // Whole-second countdown split into MM:SS for TimeFlow (hours omitted).
-  const secondsLeft = Math.max(0, Math.ceil(snapshot.segmentSecondsRemaining));
-  const minutes = Math.floor(secondsLeft / 60);
-  const seconds = secondsLeft % 60;
 
   return (
     <View className="flex-1 bg-background">
@@ -84,16 +79,17 @@ export default function RunScreen() {
           </VStack>
           {/* Both RN elements on this SwiftUI screen (ADR 0005), each hosted via
               RNHostView with a plain-View root (a bare RN leaf as the direct
-              RNHostView child mounts but never paints): number-flow's Skia
-              digit-roll countdown, and the Reanimated progress bar. */}
+              RNHostView child mounts but never paints): the Skia centisecond
+              countdown and the Reanimated progress bar, both driven on the UI
+              thread from the shared `remaining` clock. */}
           <RNHostView matchContents>
-            <SkiaCountdown minutes={minutes} seconds={seconds} color={colors.text} />
+            <SkiaCountdown remaining={remaining} color={colors.text} />
           </RNHostView>
           <RNHostView matchContents>
             <RunProgressBar
-              progress={segmentProgress}
+              remaining={remaining}
+              totalSeconds={snapshot.segmentSecondsTotal}
               color={SegmentColors[kind]}
-              segmentIndex={snapshot.segmentIndex}
             />
           </RNHostView>
           {/* Transport row, music-player order: End · Pause/Resume · Skip. */}

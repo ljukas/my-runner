@@ -17,6 +17,10 @@ export default function SettingsScreen() {
             <Text>{Constants.expoConfig?.version ?? '—'}</Text>
           </LabeledContent>
         </Section>
+        <Section title="Coaching">
+          <SettingsToggle label="Interval cues" settingKey="intervalCuesEnabled" />
+          <SettingsToggle label="Milestone cues" settingKey="milestoneCuesEnabled" />
+        </Section>
         {__DEV__ ? (
           <Section title="Developer">
             <SettingsToggle label="Compressed plan" settingKey="useCompressedPlan" />

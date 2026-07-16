@@ -1,5 +1,7 @@
 # 8. Background execution: When-In-Use location as the locked-phone heartbeat
 
+> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+
 Date: 2026-07-11
 
 ## Status

@@ -1,14 +1,19 @@
-appId: se.lukaslindqvist.myrunner
+appId: se.lukaslindqvist.myrunner.e2e
 ---
-# Onboarding is a single welcome step: assert its unique copy, tap the one CTA.
+# Onboarding is two steps: the welcome, then the spoken-coach intro (audio-cues-v1).
+# Assert each step's unique copy, tap its one CTA, and land on the next.
 - assertVisible: "Welcome to"
 # Retry the tap + its landing assertion together: the E2E build's larger binary
-# (Skia/Reanimated) launches slowly, so the welcome screen can be on screen but
-# not yet interactive when Maestro taps — the tap silently no-ops and we stay on
-# "Welcome to". Re-tapping until the plan list ("Week 1 · …") appears absorbs
-# that transient miss instead of failing the whole flow.
+# (Skia/Reanimated) launches slowly, so a screen can be visible but not yet
+# interactive when Maestro taps — the tap silently no-ops. Re-tapping until the
+# next screen appears absorbs that transient miss instead of failing the flow.
 - retry:
     maxRetries: 3
     commands:
       - tapOn: "Continue"
-      - assertVisible: "Week 1 ·.*"
+      - assertVisible: "running coach" # audio-cues step heading
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Continue"
+      - assertVisible: "Week 1 ·.*" # plan list

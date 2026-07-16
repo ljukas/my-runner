@@ -4,21 +4,24 @@ import { ONBOARDING_STEPS, createOnboarding } from './onboarding';
 import { fakeStorage } from './test-helpers';
 
 describe('createOnboarding', () => {
-  test('the welcome step is pending on first launch', () => {
+  test('the welcome and audio-cues steps are pending on first launch', () => {
     const onboarding = createOnboarding(fakeStorage());
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1']);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1', 'audio-cues-v1']);
   });
 
-  test('completing the welcome step empties pending, idempotently', () => {
+  test('a user who already finished welcome sees only the newer audio-cues step', () => {
     const onboarding = createOnboarding(fakeStorage());
     onboarding.completeStep('welcome-v1');
-    onboarding.completeStep('welcome-v1');
-    expect(onboarding.pendingSteps()).toEqual([]);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['audio-cues-v1']);
   });
 
-  test('completion persists across instances over the same storage', () => {
+  test('completing every step empties pending idempotently and persists', () => {
     const storage = fakeStorage();
-    createOnboarding(storage).completeStep('welcome-v1');
+    const onboarding = createOnboarding(storage);
+    onboarding.completeStep('welcome-v1');
+    onboarding.completeStep('audio-cues-v1');
+    onboarding.completeStep('audio-cues-v1'); // idempotent
+    expect(onboarding.pendingSteps()).toEqual([]);
     expect(createOnboarding(storage).pendingSteps()).toEqual([]);
   });
 

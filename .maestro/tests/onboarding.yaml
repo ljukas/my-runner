@@ -1,11 +1,12 @@
-appId: se.lukaslindqvist.runbro
+appId: se.lukaslindqvist.runbro.e2e
 tags:
   - onboarding
 ---
 - runFlow: ../helpers/launch-and-onboard.yaml
 - stopApp
 - launchApp
-# Onboarding must not restart after a relaunch: no welcome screen, plan list shows.
+# Onboarding must not restart after a relaunch: neither step reappears, plan list shows.
 - assertNotVisible: "Welcome to" # welcome-marker
+- assertNotVisible: "running coach" # audio-cues-marker
 - assertVisible: "Week 1 ·.*"
 - assertVisible: "Day 1"

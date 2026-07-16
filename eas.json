@@ -5,27 +5,21 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
-    },
-    "development-simulator": {
-      "extends": "development",
+      "distribution": "internal",
       "ios": {
         "simulator": true
-      }
+      },
+      "env": { "APP_VARIANT": "development" }
     },
     "preview": {
       "distribution": "internal",
       "channel": "preview"
     },
-    "internal": {
-      "extends": "production",
-      "distribution": "internal"
-    },
     "e2e-simulator": {
       "extends": "preview",
       "ios": { "simulator": true },
       "autoIncrement": false,
-      "env": { "EXPO_PUBLIC_E2E": "1" }
+      "env": { "EXPO_PUBLIC_E2E": "1", "APP_VARIANT": "e2e" }
     },
     "production": {
       "autoIncrement": true,

@@ -14,6 +14,21 @@ export function formatClock(totalSeconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/**
+ * `m:ss.cc` countdown with centiseconds, driven every frame on the UI thread.
+ * Ceils to hundredths so `0:00.00` appears only at exactly zero. The `'worklet'`
+ * directive lets it run inside a Reanimated reaction; it is an inert string
+ * literal under `bun test`.
+ */
+export function formatCountdown(remainingSeconds: number): string {
+  'worklet';
+  const cs = Math.ceil(Math.max(0, remainingSeconds) * 100);
+  const m = Math.floor(cs / 6000);
+  const s = Math.floor((cs % 6000) / 100);
+  const c = cs % 100;
+  return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
+}
+
 export function formatMinutes(totalSeconds: number): string {
   return `${Math.round(totalSeconds / 60)} min`;
 }

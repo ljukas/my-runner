@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "types": ["bun"],
+    "moduleSuffixes": [".ios", ".native", ""],
     "paths": {
       "@/*": [
         "./src/*"

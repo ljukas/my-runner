@@ -1,4 +1,4 @@
-appId: se.lukaslindqvist.runbro
+appId: se.lukaslindqvist.runbro.e2e
 ---
 # E2E build launches straight to the app (no dev launcher). Clear state for a
 # fresh install, then complete the single welcome step. Ends on the plan list.

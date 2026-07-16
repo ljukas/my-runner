@@ -22,7 +22,7 @@ import { useActivePlan } from '@/services/active-plan';
 import { runEngine } from '@/services/run-engine';
 
 export default function SessionSheet() {
-  const { key } = useLocalSearchParams<{ key: string }>();
+  const { key } = useLocalSearchParams<'/session/[key]'>();
   const router = useRouter();
   const plan = useActivePlan();
   const session = getSession(plan, key);
@@ -44,10 +44,10 @@ export default function SessionSheet() {
           {sessionSummary(session)}
         </Text>
       </View>
-      <View className="bg-background-element gap-4 rounded-2xl p-4">
+      <View className="gap-4 rounded-2xl bg-background-element p-4">
         <SegmentBar segments={session.segments} />
         <SegmentLegend segments={session.segments} />
-        <View className="bg-background-selected h-px" />
+        <View className="h-px bg-background-selected" />
         <StatList>
           <StatList.Row label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
           <StatList.Row label="Running" value={formatMinutes(sessionRunSeconds(session))} />

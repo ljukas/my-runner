@@ -1,7 +1,14 @@
 import { ContentUnavailableView, HStack, List, Spacer, VStack } from '@expo/ui/swift-ui';
-import { font, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
+import {
+  contentShape,
+  font,
+  monospacedDigit,
+  onTapGesture,
+  shapes,
+} from '@expo/ui/swift-ui/modifiers';
 import { desc } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useRouter } from 'expo-router';
 
 import { Island } from '@/components/island';
 import { db } from '@/db/client';
@@ -10,6 +17,7 @@ import { runs } from '@/db/schema';
 import { formatClock, sessionTitle } from '@/domain/format';
 
 export default function LogScreen() {
+  const router = useRouter();
   const { data: visible } = useLiveQuery(
     db.select().from(runs).where(runNotDeleted).orderBy(desc(runs.startedAt)),
   );
@@ -30,7 +38,16 @@ export default function LogScreen() {
     <Island>
       <List>
         {visible.map((run) => (
-          <HStack key={run.id} spacing={12}>
+          <HStack
+            key={run.id}
+            spacing={12}
+            modifiers={[
+              contentShape(shapes.rectangle()),
+              onTapGesture(() =>
+                router.navigate({ pathname: '/run-summary', params: { id: run.id } }),
+              ),
+            ]}
+          >
             <VStack alignment="leading" spacing={2}>
               <Island.Text>{sessionTitle(run.sessionKey)}</Island.Text>
               <Island.Text tone="secondary" modifiers={[font({ textStyle: 'footnote' })]}>

@@ -60,8 +60,12 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
   app built via `eas build --local -p ios -e e2e-simulator` and installed onto
   it — the suite no longer needs Metro or the dev client. Flows launch via
-  `appId` `se.lukaslindqvist.myrunner` (set as `ios.bundleIdentifier` in
-  `app.json`).
+  `appId` `se.lukaslindqvist.myrunner.e2e` — the e2e build's identity. The app
+  identity is variant-driven via the `APP_VARIANT` env var
+  ([ADR 0019](docs/adr/0019-app-variants-dynamic-config.md)): `development` builds
+  use `se.lukaslindqvist.myrunner.dev` / scheme `myrunnerdev`, `e2e` builds use
+  `se.lukaslindqvist.myrunner.e2e` / scheme `myrunnere2e`, and unset (production /
+  preview) keeps the clean `se.lukaslindqvist.myrunner` / scheme `myrunner`.
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).
 - **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
@@ -127,3 +131,4 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0016 — Text-first Maestro selectors](docs/adr/0016-text-first-maestro-selectors.md)
 - [ADR 0017 — In-app donations: a client-only tip jar behind a Tip-jar port (expo-iap)](docs/adr/0017-in-app-donations-tip-jar.md)
 - [ADR 0018 — iOS-only for now: Android support deferred](docs/adr/0018-ios-only-android-deferred.md)
+- [ADR 0019 — App variants via dynamic app.config.ts selected by APP_VARIANT](docs/adr/0019-app-variants-dynamic-config.md)

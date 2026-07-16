@@ -16,9 +16,9 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Icon sf="figure.run" />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="history">
-        <NativeTabs.Trigger.Label>History</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="clock.arrow.circlepath" />
+      <NativeTabs.Trigger name="log">
+        <NativeTabs.Trigger.Label>Log</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="book.closed" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">

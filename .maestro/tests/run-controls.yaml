@@ -29,7 +29,7 @@ tags:
       text: "Good effort!"
     timeout: 30000
 - tapOn: "Done"
-- tapOn: "History"
+- tapOn: "Log"
 - scrollUntilVisible:
     element:
       text: "Week 1 · Day 1"

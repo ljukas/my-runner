@@ -130,5 +130,6 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0015 — Run elevation: on-device barometer-first behind an Elevation port](docs/adr/0015-run-elevation-on-device-barometer.md)
 - [ADR 0016 — Text-first Maestro selectors](docs/adr/0016-text-first-maestro-selectors.md)
 - [ADR 0017 — In-app donations: a client-only tip jar behind a Tip-jar port (expo-iap)](docs/adr/0017-in-app-donations-tip-jar.md)
-- [ADR 0018 — iOS-only for now: Android support deferred](docs/adr/0018-ios-only-android-deferred.md)
+- [ADR 0018 — Free-run route generation: on-device pure-JS loop heuristic behind a Route-generator port](docs/adr/0018-free-run-route-generation.md)
 - [ADR 0019 — App variants via dynamic app.config.ts selected by APP_VARIANT](docs/adr/0019-app-variants-dynamic-config.md)
+- [ADR 0020 — iOS-only for now: Android support deferred](docs/adr/0020-ios-only-android-deferred.md)

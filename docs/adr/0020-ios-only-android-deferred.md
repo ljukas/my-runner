@@ -1,4 +1,4 @@
-# 18. iOS-only for now: Android support deferred, no `android/` generation
+# 20. iOS-only for now: Android support deferred, no `android/` generation
 
 Date: 2026-07-15
 

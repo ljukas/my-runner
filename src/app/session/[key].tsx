@@ -37,7 +37,7 @@ export default function SessionSheet() {
   if (!session) return <Redirect href="/" />;
 
   return (
-    <View className="gap-6 bg-background px-6 pt-8 pb-8">
+    <View className="gap-6 bg-background px-6 pt-8">
       <View className="gap-1.5">
         <Text variant="subtitle">{sessionTitle(session.key)}</Text>
         <Text variant="footnote" tone="secondary">
@@ -59,6 +59,11 @@ export default function SessionSheet() {
         fill
         label="Start session"
         onPress={() => {
+          // The engine's start() no-ops unless idle, so reset any prior
+          // finished run here (its state lingers harmlessly until now — no
+          // screen reads it between runs). This is why the summary no longer
+          // needs to reset the engine on "Done".
+          runEngine.reset();
           runEngine.start(session);
           // Replace, not push: the run screen is a full-screen modal, so the
           // session sheet must leave the stack — otherwise the lingering

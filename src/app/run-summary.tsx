@@ -1,101 +1,113 @@
-// `UIText` is @expo/ui's SwiftUI Text — here the value side of `LabeledContent`
-// rows, which SwiftUI styles natively (so it stays direct, not an `Island.Text`).
-// The unqualified `Text` below is the design-system RN primitive (ADR 0013).
-import { Form, LabeledContent, Section, Text as UIText } from '@expo/ui/swift-ui';
 import { asc, eq } from 'drizzle-orm';
-import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState, type ReactNode } from 'react';
 import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Island } from '@/components/island';
+import { SegmentBar } from '@/components/segment-bar';
+import { SegmentLegend } from '@/components/segment-legend';
+import { StatGrid } from '@/components/stat-grid';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
-import { SEGMENT_KIND_LABEL, formatClock, sessionTitle } from '@/domain/format';
-import { runEngine } from '@/services/run-engine';
+import { formatClock, formatRunDate, sessionTitle } from '@/domain/format';
+import { runStats } from '@/domain/run-stats';
 
 type RunRow = typeof runs.$inferSelect;
 type SegmentRow = typeof runSegments.$inferSelect;
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'missing' }
+  | { status: 'ready'; run: RunRow; segments: SegmentRow[] };
 
 export default function RunSummaryScreen() {
   const router = useRouter();
-  // Read once at mount: the run screen navigates here only after the save has
-  // settled, and the engine keeps the outcome until done() resets it.
-  const [runId] = useState(() => runEngine.getSnapshot().savedRunId);
-  const [data, setData] = useState<{ run: RunRow; segments: SegmentRow[] } | null>(null);
+  const insets = useSafeAreaInsets();
+  const { id, celebrate } = useLocalSearchParams<{ id?: string; celebrate?: string }>();
+  const [state, setState] = useState<LoadState>(() => {
+    return !id ? { status: 'missing' } : { status: 'loading' };
+  });
 
   useEffect(() => {
-    if (!runId) return;
+    if (!id) return;
+    let active = true;
     void (async () => {
       const [[run], segments] = await Promise.all([
-        db.select().from(runs).where(eq(runs.id, runId)),
+        db.select().from(runs).where(eq(runs.id, id)),
         db
           .select()
           .from(runSegments)
-          .where(eq(runSegments.runId, runId))
+          .where(eq(runSegments.runId, id))
           .orderBy(asc(runSegments.seq)),
       ]);
-      if (!run) return;
-      setData({ run, segments });
+      if (!active) return;
+      setState(run ? { status: 'ready', run, segments } : { status: 'missing' });
     })();
-  }, [runId]);
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
-  const done = () => {
-    runEngine.reset();
-    router.dismissAll();
-  };
-
-  // SwiftUI Island.Button, not the RN pill: a plain RN Pressable placed below
-  // this screen's `useViewportSizeMeasurement` Island host is painted but
-  // dropped from the accessibility tree (host a11y frame occludes it), leaving
-  // "Done" invisible to VoiceOver and Maestro. A SwiftUI button lives in the
-  // host's own a11y tree, like the run screen's transport controls.
-  const doneButton = <Island.Button fill label="Done" onPress={done} />;
-
-  if (!runId || !data) {
-    return (
-      <View className="flex-1 justify-between bg-background px-6 pt-24 pb-16">
-        <Text tone="secondary">
-          {runId ? 'Loading…' : 'This run could not be saved. Sorry about that.'}
-        </Text>
-        {doneButton}
+  let content: ReactNode;
+  if (state.status === 'loading') {
+    content = <Text tone="secondary">Loading…</Text>;
+  } else if (state.status === 'missing') {
+    content = (
+      <Text tone="secondary">
+        {id ? "This run isn't available." : 'This run could not be saved. Sorry about that.'}
+      </Text>
+    );
+  } else {
+    const { run, segments } = state;
+    const completed = run.status === 'completed';
+    const stats = runStats(segments);
+    const barSegments = segments.map((s) => ({ kind: s.kind, seconds: s.actualDurationS }));
+    content = (
+      <View className="gap-4">
+        {celebrate === '1' ? (
+          <Text variant="smallBold" tone="primary">
+            {completed ? 'Nice work! 🎉' : 'Good effort! 💪'}
+          </Text>
+        ) : null}
+        <View className="flex-row items-start justify-between">
+          <View className="gap-0.5">
+            <Text variant="largeTitle">{sessionTitle(run.sessionKey)}</Text>
+            <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
+          </View>
+          <Badge
+            tone={completed ? 'positive' : 'neutral'}
+            label={completed ? 'Completed' : 'Partial'}
+          />
+        </View>
+        <StatGrid>
+          <StatGrid.Tile label="Time running" value={formatClock(stats.timeRunningS)} />
+          <StatGrid.Tile label="Run intervals" value={String(stats.runIntervals)} />
+          <StatGrid.Tile label="Active time" value={formatClock(run.activeDurationS)} />
+          <StatGrid.Tile label="Longest run" value={formatClock(stats.longestRunS)} />
+        </StatGrid>
+        <Card className="gap-3">
+          <SegmentBar segments={barSegments} />
+          <SegmentLegend segments={barSegments} />
+        </Card>
       </View>
     );
   }
 
-  const completed = data.run.status === 'completed';
-
+  // SwiftUI Island.Button (not an RN pill): an RN Pressable below an Island host
+  // is painted but dropped from the a11y tree (host frame occludes it), leaving
+  // "Done" invisible to VoiceOver and Maestro. `fill` brings its own sized host.
   return (
-    <View className="flex-1 bg-background px-6 pt-24 pb-16">
-      <Text variant="subtitle">{completed ? 'Workout complete! 🎉' : 'Good effort!'}</Text>
-      <Island useViewportSizeMeasurement>
-        <Form>
-          <Section title="Session">
-            <LabeledContent label="Session">
-              <UIText>{sessionTitle(data.run.sessionKey)}</UIText>
-            </LabeledContent>
-            <LabeledContent label="Active time">
-              <UIText>{formatClock(data.run.activeDurationS)}</UIText>
-            </LabeledContent>
-            {!completed ? (
-              <LabeledContent label="Status">
-                <UIText>Partial</UIText>
-              </LabeledContent>
-            ) : null}
-          </Section>
-          <Section title="Segments">
-            {data.segments.map((segment) => (
-              <LabeledContent
-                key={segment.id}
-                label={`${segment.seq + 1}. ${SEGMENT_KIND_LABEL[segment.kind]}${segment.wasSkipped ? ' (skipped)' : ''}`}
-              >
-                <UIText>{`${formatClock(segment.actualDurationS)} / ${formatClock(segment.plannedDurationS)}`}</UIText>
-              </LabeledContent>
-            ))}
-          </Section>
-        </Form>
-      </Island>
-      {doneButton}
+    <View
+      className="flex-1 bg-background px-6"
+      style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}
+    >
+      {content}
+      <View className="mt-auto pt-6">
+        <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
+      </View>
     </View>
   );
 }

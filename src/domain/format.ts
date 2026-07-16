@@ -72,3 +72,12 @@ export function sessionSummary(session: PlanSession): string {
   const totalRun = runs.reduce((sum, s) => sum + s.seconds, 0);
   return `${runs.length} run intervals with walk recovery · ${formatMinutes(totalRun)} running.`;
 }
+
+/** Run date for the summary header, e.g. "Thu, Jan 1". Locale-dependent (device locale by default). */
+export function formatRunDate(iso: string, locale?: string): string {
+  return new Date(iso).toLocaleDateString(locale, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}

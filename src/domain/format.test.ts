@@ -5,6 +5,7 @@ import {
   formatClock,
   formatCountdown,
   formatMinutes,
+  formatRunDate,
   sessionSummary,
   sessionTitle,
 } from './format';
@@ -89,5 +90,11 @@ describe('sessionSummary', () => {
   });
   test('irregular fallback (W4) — non-uniform runs, 16 min total', () => {
     expect(summary('w4d1')).toBe('4 run intervals with walk recovery · 16 min running.');
+  });
+});
+
+describe('formatRunDate', () => {
+  test('formats an ISO timestamp as weekday, month day', () => {
+    expect(formatRunDate('2026-01-01T12:00:00.000Z', 'en-US')).toBe('Thu, Jan 1');
   });
 });

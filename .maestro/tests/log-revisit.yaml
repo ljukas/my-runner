@@ -2,7 +2,6 @@ appId: se.lukaslindqvist.runbro.e2e
 tags:
   - session
 ---
-- runFlow: ../helpers/launch-and-onboard.yaml
 - runFlow: ../helpers/start-first-session.yaml
 # Finish the (compressed) session.
 - extendedWaitUntil:
@@ -21,5 +20,6 @@ tags:
     text: "Nice work.*"
 - assertVisible: "Time running"
 - tapOn: "Done"
+- assertNotVisible: "Time running"
 - assertVisible:
-    text: "No runs yet|Week 1"
+    text: "Week 1 · Day 1"

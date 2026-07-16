@@ -1,0 +1,25 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+- runFlow: ../helpers/launch-and-onboard.yaml
+- runFlow: ../helpers/start-first-session.yaml
+# Finish the (compressed) session.
+- extendedWaitUntil:
+    visible:
+      text: "Nice work.*"
+    timeout: 20000
+- tapOn: "Done"
+# Revisit from the Log tab.
+- tapOn: "Log"
+- tapOn:
+    text: "Week 1 · Day 1"
+# The revisit header is neutral — the celebratory line must be absent.
+- assertVisible:
+    text: "Week 1 · Day 1"
+- assertNotVisible:
+    text: "Nice work.*"
+- assertVisible: "Time running"
+- tapOn: "Done"
+- assertVisible:
+    text: "No runs yet|Week 1"

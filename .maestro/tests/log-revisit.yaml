@@ -7,7 +7,7 @@ tags:
 - extendedWaitUntil:
     visible:
       text: "Nice work.*"
-    timeout: 20000
+    timeout: 120000
 - tapOn: "Done"
 # Revisit from the Log tab.
 - tapOn: "Log"

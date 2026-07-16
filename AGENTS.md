@@ -14,6 +14,8 @@ Hard constraints:
 
 This project uses **Bun** as its package manager and script runner — `bun.lock` is the only lockfile, and Expo CLI/EAS Build auto-detect Bun from it. Metro and the dev server still run on Node (keep a Node LTS installed); Bun handles installing and launching.
 
+> **corepack gotcha:** with corepack auto-pin on (the default), running any Expo command (`bun expo …`, `bunx expo-doctor`) makes corepack write a spurious `"packageManager": "yarn@…"` field into `package.json`. This repo is Bun-only — **never commit that field**: a committed `packageManager: yarn` can make EAS Build / the CI `e2e-ios` job honor Yarn over `bun.lock` and break the build. Prevent it with `export COREPACK_ENABLE_AUTO_PIN=0` in your shell; if the field appears, delete it before committing.
+
 - `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
 - `bun run start` — `expo run:ios`: compile and install the iOS dev-client build and start the Metro dev server. Required on first run and after any native change (new native dependency, config plugin, native app.json fields). The app uses expo-dev-client, not Expo Go. To start Metro only — when the app is already installed, or you just need typed routes regenerated — run `bun expo start` directly. (iOS-only atm; there is no `run:android` script.)

@@ -5,10 +5,7 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
-    },
-    "development-simulator": {
-      "extends": "development",
+      "distribution": "internal",
       "ios": {
         "simulator": true
       }
@@ -16,10 +13,6 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview"
-    },
-    "internal": {
-      "extends": "production",
-      "distribution": "internal"
     },
     "e2e-simulator": {
       "extends": "preview",

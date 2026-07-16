@@ -8,7 +8,7 @@ A free Couch-to-5K mobile app: it guides someone who can barely run through a pr
 
 Hard constraints:
 - **No backend, no accounts, no analytics.** All data lives on-device, with iCloud as the only sync/backup mechanism.
-- Mobile only: iOS is the primary target (iCloud); Android is the secondary target. There is no web target — react-native-web has been removed.
+- iOS only (for now): iOS is the sole supported platform (`platforms: ["ios"]` in app.json, with iCloud sync). Android is not supported atm — no `android/` project is generated — though it may return as a secondary target later. There is no web target — react-native-web has been removed.
 
 # Commands
 
@@ -16,14 +16,14 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 
 - `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
-- `bun run start` (or `bun expo start`) — start the dev server; press `i`/`a` to open the app in the installed dev client on the iOS simulator or Android emulator
-- `bun run ios` / `bun run android` — compile and install a dev-client build (`expo run:ios` / `expo run:android`) and start the dev server; required on first run and after any native change (new native dependency, config plugin, native app.json fields). The app uses expo-dev-client, not Expo Go.
+- `bun run start` — `expo run:ios`: compile and install the iOS dev-client build and start the Metro dev server. Required on first run and after any native change (new native dependency, config plugin, native app.json fields). The app uses expo-dev-client, not Expo Go. To start Metro only — when the app is already installed, or you just need typed routes regenerated — run `bun expo start` directly. (iOS-only atm; there is no `run:android` script.)
 - `bun run lint` — `expo lint` against the committed `eslint.config.js` (ADR 0014: includes Prettier formatting + Uniwind class sorting as lint errors, and type-aware `no-floating-promises` in `src/`; `bun run lint --fix` auto-formats)
 - `bun test` — runs the unit suites (pure-TS `domain/` and `services/`; no RN runtime needed)
 - `bun run typecheck` — `tsc --noEmit`. Depends on two **gitignored generated files**: `expo-env.d.ts` and `.expo/types/router.d.ts` (typed routes). In a fresh clone or worktree it fails (`TS2882` on `@/global.css`, then route-typing errors) until you start the dev server once — `bun expo start` on any free port, kill it as soon as `.expo/types/router.d.ts` appears. Never copy `.expo/types/router.d.ts` from another checkout: it encodes that branch's route files and produces misleading type errors on this one.
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
+- `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`). See "E2E tests (Maestro)" below.
 
-The `/ios` and `/android` folders are gitignored — they are generated via prebuild (Continuous Native Generation). Never edit native projects directly; configure everything through `app.json` and config plugins.
+The `/ios` folder is gitignored — it is generated via prebuild (Continuous Native Generation). `platforms: ["ios"]` in app.json means no `android/` project is generated (iOS-only atm). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
 # Skills & MCP — what to load when
 
@@ -49,7 +49,7 @@ Releases are automated per [ADR 0012](docs/adr/0012-release-please-fingerprint-g
 - **release-please** maintains a release PR from merged Conventional Commits; merging that PR tags `vX.Y.Z`, creates the GitHub Release, and dispatches `.eas/workflows/deploy-production.yml` (fingerprint gate: OTA update if a compatible store build exists, otherwise native build → manual approval → store submit).
 - **Never hand-edit** `CHANGELOG.md`, the `version` fields in `package.json`/`app.json`, or `.release-please-manifest.json` — release-please owns them. Force a version with a `Release-As: x.y.z` commit footer.
 - **Never remove or weaken** `fingerprint.config.js` or `runtimeVersion: { policy: "fingerprint" }` in app.json — the version-skip is what lets releases ship OTA instead of forcing native builds; over-skipping creates silent OTA-compatibility bugs.
-- Build numbers are managed remotely by EAS (`cli.appVersionSource: "remote"` in eas.json) — don't add `ios.buildNumber`/`android.versionCode` to app.json.
+- Build numbers are managed remotely by EAS (`cli.appVersionSource: "remote"` in eas.json) — don't add `ios.buildNumber` to app.json.
 
 # E2E tests (Maestro)
 
@@ -60,8 +60,8 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
   app built via `eas build --local -p ios -e e2e-simulator` and installed onto
   it — the suite no longer needs Metro or the dev client. Flows launch via
-  `appId` `se.lukaslindqvist.myrunner` (set as both `ios.bundleIdentifier` and
-  `android.package` in `app.json`).
+  `appId` `se.lukaslindqvist.myrunner` (set as `ios.bundleIdentifier` in
+  `app.json`).
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
   server registered in `.mcp.json` (`list_devices` → `run`).
 - **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
@@ -99,7 +99,7 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 - **Routing:** expo-router file-based routing rooted at `src/app/` (entry point is `expo-router/entry` in package.json). Typed routes and the React Compiler are enabled via `experiments` in `app.json`.
 - **Navigation:** the root layout `src/app/_layout.tsx` runs the Drizzle migrations gate (`useMigrations`, blocking on the splash screen) and an `OnboardingGate` that pushes the first pending onboarding step, then renders the root `Stack` wrapped in `ThemeProvider`. Tabs live in `src/app/(tabs)/_layout.tsx` (`NativeTabs` from `expo-router/unstable-native-tabs`; adding a tab = a route file under `src/app/(tabs)/` plus a matching `NativeTabs.Trigger` there). Every modal surface (`session/[key]`, `run`, `run-summary`, `onboarding`) is a root-`Stack` screen with a native `presentation` option (ADR 0006).
 - **Path aliases:** `@/*` → `src/*` and `@/assets/*` → `assets/*` (tsconfig.json). Use these instead of relative imports.
-- **Platform forks:** none — the app is mobile-only, with no `.web.tsx`/`.web.ts` siblings. Handle iOS/Android differences inline via `Platform.select`/`Platform.OS`.
+- **Platform forks:** the app is iOS-only (no web target, no Android atm), with no `.web.tsx`/`.web.ts` siblings. Handle any platform/OS-version branching inline via `Platform.select`/`Platform.OS` rather than platform-suffixed files.
 - **Styling:** [Uniwind](https://docs.uniwind.dev) (Tailwind CSS v4 for React Native) is the main styling library — style with `className` directly on core RN components (`<View className="flex-1 bg-background">`); no Babel plugin or component wrappers needed. Metro is wired through `withUniwindConfig` in `metro.config.js` (it must stay the outermost wrapper) and auto-regenerates `src/uniwind-types.d.ts`. For third-party components without `className` support, wrap once with `withUniwind`; where an API needs a style object, use `useResolveClassNames`. Prefer `className` over `StyleSheet` in new code.
 - **Theming:** theme tokens live in `src/global.css` (imported by `src/app/_layout.tsx`) under `@variant light`/`@variant dark` blocks, producing utilities like `bg-background-element` and `text-foreground-secondary` that follow the system theme automatically. `src/constants/theme.ts` keeps a JS mirror of the palette (`Colors`) for the few places that need raw color values (`use-theme` hook) — keep it in sync with `global.css`. `ThemedText`/`ThemedView` are `className`-based wrappers over these tokens.
 - **Components:** authored per [ADR 0013](docs/adr/0013-component-design-conventions.md) — shadcn/Radix-style: `src/components/ui/` style primitives with `cva` variants merged via `cn()` (caller `className` wins), `src/components/island/` wraps the repeated @expo/ui idioms, domain components at `src/components/` root, dot-notation compounds (`RadioToggle.Group`), paired `-foreground` tokens, screens compose only (no file-local components, no raw RN `Text`/`Pressable` in screens). Consult the ADR before adding or reshaping any component.
@@ -126,3 +126,4 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0015 — Run elevation: on-device barometer-first behind an Elevation port](docs/adr/0015-run-elevation-on-device-barometer.md)
 - [ADR 0016 — Text-first Maestro selectors](docs/adr/0016-text-first-maestro-selectors.md)
 - [ADR 0017 — In-app donations: a client-only tip jar behind a Tip-jar port (expo-iap)](docs/adr/0017-in-app-donations-tip-jar.md)
+- [ADR 0018 — iOS-only for now: Android support deferred](docs/adr/0018-ios-only-android-deferred.md)

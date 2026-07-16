@@ -3,6 +3,7 @@
     "name": "my-runner",
     "slug": "runtastic",
     "version": "0.0.1",
+    "platforms": ["ios"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myrunner",

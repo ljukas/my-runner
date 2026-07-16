@@ -14,6 +14,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     slug: config?.slug ?? 'runtastic',
     name: `${config.name}${idSuffix}`,
     scheme: `${config.scheme}${schemeSuffix}`,
+    // The exp+<slug> dev-launcher scheme is slug-derived, so it is shared across
+    // variants. Register it only on the dev build so exp+runtastic unambiguously
+    // opens the dev client when dev + e2e coexist (ADR 0019).
+    plugins: [
+      ...(config.plugins ?? []),
+      ['expo-dev-client', { addGeneratedScheme: variant === 'development' }],
+    ] as ExpoConfig['plugins'],
     ios: {
       ...config.ios,
       bundleIdentifier: `${config.ios?.bundleIdentifier ?? ''}${idSuffix}`,

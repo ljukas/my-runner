@@ -1,4 +1,4 @@
-import { ExpoConfig, ConfigContext } from 'expo/config';
+import { ConfigContext, ExpoConfig } from 'expo/config';
 
 // Selects the app identity from APP_VARIANT so the development and e2e builds
 // install side-by-side (distinct bundle id + name + scheme). Unset (production /
@@ -11,6 +11,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
+    slug: config?.slug ?? 'runtastic',
     name: `${config.name}${idSuffix}`,
     scheme: `${config.scheme}${schemeSuffix}`,
     ios: {

@@ -34,7 +34,7 @@ export default function RunSummaryScreen() {
   useEffect(() => {
     if (!id) return;
     let active = true;
-    void (async () => {
+    (async () => {
       const [[run], segments] = await Promise.all([
         db.select().from(runs).where(eq(runs.id, id)),
         db
@@ -45,7 +45,11 @@ export default function RunSummaryScreen() {
       ]);
       if (!active) return;
       setState(run ? { status: 'ready', run, segments } : { status: 'missing' });
-    })();
+    })().catch(() => {
+      if (active) {
+        setState({ status: 'missing' });
+      }
+    });
     return () => {
       active = false;
     };

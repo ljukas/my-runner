@@ -7,6 +7,7 @@ import { Island } from '@/components/island';
 import { SegmentBar } from '@/components/segment-bar';
 import { SegmentLegend } from '@/components/segment-legend';
 import { StatList } from '@/components/stat-list';
+import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
@@ -44,7 +45,7 @@ export default function SessionSheet() {
           {sessionSummary(session)}
         </Text>
       </View>
-      <View className="gap-4 rounded-2xl bg-background-element p-4">
+      <Card className="gap-4">
         <SegmentBar segments={session.segments} />
         <SegmentLegend segments={session.segments} />
         <View className="h-px bg-background-selected" />
@@ -54,7 +55,7 @@ export default function SessionSheet() {
           <StatList.Row label="Walking" value={formatMinutes(sessionWalkSeconds(session))} />
           <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
         </StatList>
-      </View>
+      </Card>
       <Island.Button
         fill
         label="Start session"

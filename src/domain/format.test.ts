@@ -102,8 +102,8 @@ describe('formatRunDate', () => {
 
 describe('clockParts', () => {
   test('under a minute reads in seconds', () => {
-    expect(clockParts(16)).toEqual({ value: '16', unit: 'sec' });
-    expect(clockParts(0)).toEqual({ value: '0', unit: 'sec' });
+    expect(clockParts(16)).toEqual({ value: '16', unit: 'seconds' });
+    expect(clockParts(0)).toEqual({ value: '0', unit: 'seconds' });
   });
   test('a minute or more reads as a m:ss clock', () => {
     expect(clockParts(60)).toEqual({ value: '1:00', unit: 'min' });

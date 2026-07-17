@@ -16,8 +16,8 @@ tags:
 # The revisit header is neutral — the celebratory line must be absent.
 - assertVisible:
     text: "Week 1 · Day 1"
-# "intervals" is a stat-tile unit; "running"/"active" would collide with the
-# tab bar's "Running" a11y label / other copy under full-string IGNORE_CASE.
+# "intervals" matches the Intervals tile header (IGNORE_CASE); "running"/
+# "active" would collide with the tab bar's "Running" a11y label / other copy.
 - assertNotVisible:
     text: "Nice work.*"
 - assertVisible: "intervals"

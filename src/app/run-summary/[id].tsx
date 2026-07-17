@@ -14,7 +14,7 @@ import { Text } from '@/components/ui/text';
 import { SegmentColors } from '@/constants/theme';
 import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
-import { formatClock, formatRunDate, sessionTitle } from '@/domain/format';
+import { clockParts, formatRunDate, sessionTitle } from '@/domain/format';
 import { runStats } from '@/domain/run-stats';
 
 type RunRow = typeof runs.$inferSelect;
@@ -101,26 +101,27 @@ export default function RunSummaryScreen() {
           <StatGrid.Tile
             icon="figure.run"
             color={SegmentColors.run}
-            value={formatClock(stats.timeRunningS)}
-            unit="running"
+            label="Running"
+            {...clockParts(stats.timeRunningS)}
           />
           <StatGrid.Tile
             icon="repeat"
             color={SegmentColors.warmup}
+            label="Intervals"
             value={String(stats.runIntervals)}
-            unit="intervals"
+            unit="runs"
           />
           <StatGrid.Tile
             icon="stopwatch.fill"
             color={SegmentColors.cooldown}
-            value={formatClock(run.activeDurationS)}
-            unit="active"
+            label="Active Time"
+            {...clockParts(run.activeDurationS)}
           />
           <StatGrid.Tile
             icon="trophy.fill"
             color={SegmentColors.walk}
-            value={formatClock(stats.longestRunS)}
-            unit="longest"
+            label="Longest Run"
+            {...clockParts(stats.longestRunS)}
           />
         </StatGrid>
         <Card surface="card" className="gap-3">

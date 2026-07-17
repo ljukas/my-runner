@@ -73,6 +73,17 @@ export function sessionSummary(session: PlanSession): string {
   return `${runs.length} run intervals with walk recovery · ${formatMinutes(totalRun)} running.`;
 }
 
+/**
+ * A duration split into a display value and its unit word, Apple Health
+ * style: under a minute reads in whole seconds ("16" + "sec"), otherwise as
+ * the m:ss clock ("8:00" + "min"). Ceils like formatClock, so the two never
+ * disagree at the minute boundary.
+ */
+export function clockParts(totalSeconds: number): { value: string; unit: 'sec' | 'min' } {
+  const s = Math.max(0, Math.ceil(totalSeconds));
+  return s < 60 ? { value: String(s), unit: 'sec' } : { value: formatClock(s), unit: 'min' };
+}
+
 /** Run date for the summary header, e.g. "Thu, Jan 1". Locale-dependent (device locale by default). */
 export function formatRunDate(iso: string, locale?: string): string {
   return new Date(iso).toLocaleDateString(locale, {

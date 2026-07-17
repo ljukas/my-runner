@@ -70,7 +70,7 @@ export default function RootLayout() {
           options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
         />
         <Stack.Screen
-          name="run-summary"
+          name="run-summary/[id]"
           options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
         />
         <Stack.Screen

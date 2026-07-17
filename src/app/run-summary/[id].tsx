@@ -23,16 +23,23 @@ type LoadState =
   | { status: 'missing' }
   | { status: 'ready'; run: RunRow; segments: SegmentRow[] };
 
+/**
+ * A dynamic segment can't be empty, so a failed save routes here with this
+ * sentinel instead of a run id (run ids are UUIDs — no collision). The screen
+ * renders it as the save-failure apology without querying.
+ */
+export const UNSAVED_RUN_ID = 'unsaved';
+
 export default function RunSummaryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id, celebrate } = useLocalSearchParams<{ id?: string; celebrate?: string }>();
+  const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
   const [state, setState] = useState<LoadState>(() => {
-    return !id ? { status: 'missing' } : { status: 'loading' };
+    return id === UNSAVED_RUN_ID ? { status: 'missing' } : { status: 'loading' };
   });
 
   useEffect(() => {
-    if (!id) return;
+    if (id === UNSAVED_RUN_ID) return;
     let active = true;
     (async () => {
       const [[run], segments] = await Promise.all([
@@ -61,7 +68,9 @@ export default function RunSummaryScreen() {
   } else if (state.status === 'missing') {
     content = (
       <Text tone="secondary">
-        {id ? "This run isn't available." : 'This run could not be saved. Sorry about that.'}
+        {id === UNSAVED_RUN_ID
+          ? 'This run could not be saved. Sorry about that.'
+          : "This run isn't available."}
       </Text>
     );
   } else {

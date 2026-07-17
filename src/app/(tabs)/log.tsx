@@ -44,7 +44,7 @@ export default function LogScreen() {
             modifiers={[
               contentShape(shapes.rectangle()),
               onTapGesture(() =>
-                router.navigate({ pathname: '/run-summary', params: { id: run.id } }),
+                router.navigate({ pathname: '/run-summary/[id]', params: { id: run.id } }),
               ),
             ]}
           >

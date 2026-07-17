@@ -14,6 +14,7 @@ import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { UNSAVED_RUN_ID } from '@/app/run-summary/[id]';
 import { Island } from '@/components/island';
 import { RunProgressBar } from '@/components/run-progress-bar';
 import { SettingsToggle } from '@/components/settings-toggle';
@@ -56,8 +57,8 @@ export default function RunScreen() {
     // which the summary renders as its "couldn't be saved" state.
     if (finished && saveSettled) {
       router.replace({
-        pathname: '/run-summary',
-        params: { id: snapshot.savedRunId ?? '', celebrate: '1' },
+        pathname: '/run-summary/[id]',
+        params: { id: snapshot.savedRunId ?? UNSAVED_RUN_ID, celebrate: '1' },
       });
     }
   }, [finished, saveSettled, snapshot.savedRunId, router]);

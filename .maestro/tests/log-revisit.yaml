@@ -21,7 +21,8 @@ tags:
 - assertNotVisible:
     text: "Nice work.*"
 - assertVisible: "intervals"
-- tapOn: "Done"
+# Revisits render a header Back button instead of the bottom Done.
+- tapOn: "Back"
 - assertNotVisible: "intervals"
 - assertVisible:
     text: "Week 1 · Day 1"

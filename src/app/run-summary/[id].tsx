@@ -16,6 +16,7 @@ import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
 import { clockParts, formatRunDate, sessionTitle } from '@/domain/format';
 import { runStats } from '@/domain/run-stats';
+import { useTheme } from '@/hooks/use-theme';
 
 type RunRow = typeof runs.$inferSelect;
 type SegmentRow = typeof runSegments.$inferSelect;
@@ -33,8 +34,12 @@ export const UNSAVED_RUN_ID = 'unsaved';
 
 export default function RunSummaryScreen() {
   const router = useRouter();
+  const colors = useTheme();
   const insets = useSafeAreaInsets();
   const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
+  // A fresh finish is acknowledged with the bottom "Done"; a Log revisit is a
+  // browse, so it gets a header Back button instead (and no Done).
+  const isRevisit = celebrate !== '1';
   const [state, setState] = useState<LoadState>(() => {
     return id === UNSAVED_RUN_ID ? { status: 'missing' } : { status: 'loading' };
   });
@@ -86,16 +91,16 @@ export default function RunSummaryScreen() {
             {completed ? 'Nice work! 🎉' : 'Good effort! 💪'}
           </Text>
         ) : null}
-        <View className="flex-row items-start justify-between">
-          <View className="gap-0.5">
+        <View className="gap-0.5">
+          <View className="flex-row items-center justify-between">
             <Text variant="largeTitle">{sessionTitle(run.sessionKey)}</Text>
-            <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
+            <Badge
+              className="bg-background-card"
+              tone={completed ? 'positive' : 'neutral'}
+              label={completed ? 'Completed' : 'Partial'}
+            />
           </View>
-          <Badge
-            className="bg-background-card"
-            tone={completed ? 'positive' : 'neutral'}
-            label={completed ? 'Completed' : 'Partial'}
-          />
+          <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
         </View>
         <StatGrid>
           <StatGrid.Tile
@@ -138,12 +143,30 @@ export default function RunSummaryScreen() {
   return (
     <View
       className="flex-1 bg-background-grouped px-6"
-      style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}
+      style={{
+        paddingTop: insets.top + (isRevisit ? 12 : 24),
+        paddingBottom: insets.bottom + 16,
+      }}
     >
+      {isRevisit ? (
+        <View className="mb-4 flex-row">
+          <Island matchContents>
+            <Island.IconButton
+              systemName="chevron.backward"
+              size={22}
+              color={colors.text}
+              label="Back"
+              onPress={() => router.back()}
+            />
+          </Island>
+        </View>
+      ) : null}
       {content}
-      <View className="mt-auto pt-6">
-        <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
-      </View>
+      {isRevisit ? null : (
+        <View className="mt-auto pt-6">
+          <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
+        </View>
+      )}
     </View>
   );
 }

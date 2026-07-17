@@ -11,6 +11,7 @@ import { StatGrid } from '@/components/stat-grid';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
+import { SegmentColors } from '@/constants/theme';
 import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
 import { formatClock, formatRunDate, sessionTitle } from '@/domain/format';
@@ -91,17 +92,38 @@ export default function RunSummaryScreen() {
             <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
           </View>
           <Badge
+            className="bg-background-card"
             tone={completed ? 'positive' : 'neutral'}
             label={completed ? 'Completed' : 'Partial'}
           />
         </View>
         <StatGrid>
-          <StatGrid.Tile label="Time running" value={formatClock(stats.timeRunningS)} />
-          <StatGrid.Tile label="Run intervals" value={String(stats.runIntervals)} />
-          <StatGrid.Tile label="Active time" value={formatClock(run.activeDurationS)} />
-          <StatGrid.Tile label="Longest run" value={formatClock(stats.longestRunS)} />
+          <StatGrid.Tile
+            icon="figure.run"
+            color={SegmentColors.run}
+            value={formatClock(stats.timeRunningS)}
+            unit="running"
+          />
+          <StatGrid.Tile
+            icon="repeat"
+            color={SegmentColors.warmup}
+            value={String(stats.runIntervals)}
+            unit="intervals"
+          />
+          <StatGrid.Tile
+            icon="stopwatch.fill"
+            color={SegmentColors.cooldown}
+            value={formatClock(run.activeDurationS)}
+            unit="active"
+          />
+          <StatGrid.Tile
+            icon="trophy.fill"
+            color={SegmentColors.walk}
+            value={formatClock(stats.longestRunS)}
+            unit="longest"
+          />
         </StatGrid>
-        <Card className="gap-3">
+        <Card surface="card" className="gap-3">
           <SegmentBar segments={barSegments} />
           <SegmentLegend segments={barSegments} />
         </Card>
@@ -114,7 +136,7 @@ export default function RunSummaryScreen() {
   // "Done" invisible to VoiceOver and Maestro. `fill` brings its own sized host.
   return (
     <View
-      className="flex-1 bg-background px-6"
+      className="flex-1 bg-background-grouped px-6"
       style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}
     >
       {content}

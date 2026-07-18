@@ -454,6 +454,27 @@ describe('cues (ADR 0007/0009)', () => {
     expect(cues.filter((c) => c === 'halfway')).toHaveLength(1);
   });
 
+  // Pins the trigger contract behind issue #41: W3's halfway lands exactly on
+  // a walk→run segment boundary, so one heartbeat announces BOTH cues, in
+  // order. Handling that coincidence is the adapter's job (release-scheduler);
+  // the engine must never drop one of them.
+  test('halfway landing exactly on a segment boundary announces both cues in one heartbeat', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start({
+      key: 'w3d1',
+      week: 3,
+      day: 1,
+      segments: [
+        { kind: 'warmup', seconds: 10 },
+        { kind: 'run', seconds: 10 },
+        { kind: 'walk', seconds: 10 },
+        { kind: 'run', seconds: 10 },
+      ], // total 40 → halfway at 20, exactly the run→walk boundary
+    });
+    tick(20); // one heartbeat onto the boundary
+    expect(cues).toEqual(['warmupStart', 'startWalk', 'halfway']);
+  });
+
   test('a skip into a new segment announces the entered segment', () => {
     const { engine, cues, tick } = makeEngine();
     engine.start(SESSION);

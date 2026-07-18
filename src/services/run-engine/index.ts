@@ -4,6 +4,8 @@ import { dbRunPersistence } from '@/db/save-run';
 import { cueService } from '@/services/cue-service';
 import { RunEngine } from './engine';
 
+export { endCountsAsCompleted } from './engine';
+
 export const runEngine = new RunEngine({ persistence: dbRunPersistence, cue: cueService });
 
 export function useRunEngine() {

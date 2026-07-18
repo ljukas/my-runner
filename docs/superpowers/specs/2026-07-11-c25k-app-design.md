@@ -25,7 +25,7 @@ A free, local-first Couch-to-5K app. It guides someone who can barely run throug
 | Cue audio | **TTS (expo-speech)** over a configured expo-audio session; early device spike; pre-recorded files as fallback behind the same interface |
 | Cue language | English only |
 | Cue richness | Transitions + milestones (~10 phrases) |
-| Run controls | Pause/resume, skip segment, end early (partial save) |
+| Run controls | Pause/resume, skip segment, end early (partial save; ending during the final cool-down still counts as completed — issue #40) |
 | Screen-awake mode | Run-screen toggle (default on, persisted): keep display awake all run — glanceable + preserves a foreground haptic cue accent channel (added 2026-07-11 review; ADR 0009) |
 | Auto-pause | No — interval timer is wall-clock based and never self-pauses |
 | Progression | Linear with free repeat: next session highlighted, any earlier session can be redone |
@@ -145,7 +145,7 @@ The session's segment timeline is a prefix-sum over planned durations, adjusted 
 
 **Per heartbeat:** recompute segment → fire cue on change (incl. halfway/last-run milestones) → accept GPS fix if `accuracy ≤ 50 m` (append to in-memory track, add haversine delta to distance, tag with `segment_seq`) → every ~5 s batch-insert points + upsert `active_run_snapshot` in one transaction.
 
-**Completion:** timeline exhausted → `completed`; write `runs` + `run_segments`, encode `summary_polyline`, clear snapshot, fire congratulations cue, `router.replace` to summary, then `HealthAdapter.saveRun()` (non-blocking). `endEarly()` → same flow with `status: 'partial'`.
+**Completion:** timeline exhausted → `completed`; write `runs` + `run_segments`, encode `summary_polyline`, clear snapshot, fire congratulations cue, `router.replace` to summary, then `HealthAdapter.saveRun()` (non-blocking). `endEarly()` → same flow with `status: 'partial'`, except when the derived active-elapsed position already lies inside the final cool-down segment (or past timeline exhaustion), which finalizes as `completed` — the cool-down is a flex period for ending early (issue #40), consistent with skipping the final segment.
 
 **Crash recovery:** on app launch, an `active_run_snapshot` younger than (planned session length + 30 min) → "Resume run?" dialog; resume rebuilds the engine from the event log (elapsed stays correct because it's wall-clock math). Decline or older → finalized as `partial`.
 

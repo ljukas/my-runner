@@ -5,6 +5,7 @@ import { Presets } from 'react-native-pulsar';
 
 import { CUE_PHRASE, type CueId } from '@/domain/cues';
 import type { CueService } from './port';
+import { createReleaseScheduler, RELEASE_DEBOUNCE_MS } from './release-scheduler';
 
 /**
  * iOS cue adapter (ADR 0003, ADR 0009): expo-speech spoken over a ducked
@@ -36,23 +37,10 @@ const warn = (context: string) => (error: unknown) =>
 // when a cue speaks and is deactivated a short beat after it finishes, so
 // back-to-back cues (a milestone landing on a transition) don't flap it and the
 // "stuck ducked" bug class (expo#19042) is designed out.
-const RELEASE_DEBOUNCE_MS = 500;
-let pendingRelease: ReturnType<typeof setTimeout> | null = null;
-
-function cancelPendingRelease(): void {
-  if (pendingRelease) {
-    clearTimeout(pendingRelease);
-    pendingRelease = null;
-  }
-}
-
-function scheduleRelease(): void {
-  cancelPendingRelease();
-  pendingRelease = setTimeout(() => {
-    pendingRelease = null;
-    void setIsAudioActiveAsync(false).catch(warn('deactivate'));
-  }, RELEASE_DEBOUNCE_MS);
-}
+const releaseScheduler = createReleaseScheduler({
+  debounceMs: RELEASE_DEBOUNCE_MS,
+  release: () => void setIsAudioActiveAsync(false).catch(warn('deactivate')),
+});
 
 export const cueService: CueService = {
   prepare() {
@@ -66,17 +54,17 @@ export const cueService: CueService = {
   // `cue` is already resolved and gated by the composition seam (index.ts); the
   // adapter just produces the speech + haptic for it.
   announce(cue: CueId) {
-    cancelPendingRelease();
+    releaseScheduler.begin();
     void setIsAudioActiveAsync(true).catch(warn('activate'));
     try {
       Speech.speak(CUE_PHRASE[cue], {
-        onDone: scheduleRelease,
-        onError: scheduleRelease,
-        onStopped: scheduleRelease,
+        onDone: () => releaseScheduler.end(),
+        onError: () => releaseScheduler.end(),
+        onStopped: () => releaseScheduler.end(),
       });
     } catch (error) {
       warn('speak')(error);
-      scheduleRelease();
+      releaseScheduler.end();
     }
 
     // Haptic accent rides the same cue, but only while foreground.
@@ -90,7 +78,7 @@ export const cueService: CueService = {
   },
 
   release() {
-    cancelPendingRelease();
+    releaseScheduler.reset();
     void Speech.stop().catch(warn('stop'));
     void setIsAudioActiveAsync(false).catch(warn('release'));
   },

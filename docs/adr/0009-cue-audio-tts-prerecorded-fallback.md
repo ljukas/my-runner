@@ -72,10 +72,17 @@ audio files as the pre-approved drop-in fallback adapter.**
    true` so utterances inherit exactly this session.
 3. **Duck-and-release lifecycle.** Music must dip only *around* utterances,
    not for the whole run: the session activates when an utterance starts and
-   is released via `setIsAudioActiveAsync(false)` after `onDone` (with a
-   short debounce so multi-phrase moments don't flap). `release()` at run
-   end tears the session down unconditionally — the #19042 "stuck ducked"
-   class is designed out, not hoped away.
+   is released via `setIsAudioActiveAsync(false)` only after the *last*
+   in-flight utterance's terminal callback (with a short debounce so
+   multi-phrase moments don't flap). A per-utterance release is not enough
+   (issue #41): back-to-back cues queue natively inside the shared
+   `AVSpeechSynthesizer` — W3's halfway milestone lands exactly on a
+   walk→run boundary — and deactivating the session mid-queue wedges the
+   synthesizer, silencing every later cue. The adapter therefore counts
+   in-flight utterances (`release-scheduler.ts`) and releases when the count
+   returns to zero. `release()` at run end tears the session down
+   unconditionally — the #19042 "stuck ducked" class is designed out, not
+   hoped away.
 4. **Failure is non-fatal.** `onError`/silent failures skip the cue and log
    to console; the screen still shows the transition (spec §11). No retries
    mid-run — a late cue is worse than a missed one next to an on-screen

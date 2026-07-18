@@ -103,4 +103,18 @@ describe('release scheduler (ADR 0009 §3)', () => {
     advance(RELEASE_DEBOUNCE_MS);
     expect(releases).toHaveLength(1);
   });
+
+  test('isIdle reflects in-flight utterances so release() can skip a mid-run teardown', () => {
+    const { scheduler, advance, announce } = makeHarness();
+    expect(scheduler.isIdle()).toBe(true);
+    const finishFirst = announce();
+    expect(scheduler.isIdle()).toBe(false);
+    const finishSecond = announce();
+    finishFirst();
+    expect(scheduler.isIdle()).toBe(false); // the queued utterance is still speaking
+    finishSecond();
+    expect(scheduler.isIdle()).toBe(true); // the pending debounced release doesn't count
+    advance(RELEASE_DEBOUNCE_MS);
+    expect(scheduler.isIdle()).toBe(true);
+  });
 });

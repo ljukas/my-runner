@@ -69,9 +69,13 @@ export default function RootLayout() {
           name="run"
           options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
         />
+        {/* Card, not modal: the Log revisit needs the native header back
+            chevron, which only pushed screens get. Per-instance chrome
+            (fresh finish = headerless + Done, revisit = large-title header +
+            swipe-back) is set dynamically from the screen. */}
         <Stack.Screen
           name="run-summary/[id]"
-          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+          options={{ presentation: 'card', gestureEnabled: false }}
         />
         <Stack.Screen
           name="onboarding"

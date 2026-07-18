@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Island } from '@/components/island';
@@ -37,8 +37,10 @@ export default function RunSummaryScreen() {
   const colors = useTheme();
   const insets = useSafeAreaInsets();
   const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
-  // A fresh finish is acknowledged with the bottom "Done"; a Log revisit is a
-  // browse, so it gets a header Back button instead (and no Done).
+  // A fresh finish is acknowledged with the bottom "Done" on the headerless
+  // modal (the route's static config). A Log revisit is a browse: it overrides
+  // to a pushed card with the native large-title header, whose back button
+  // (and swipe-back) replaces Done.
   const isRevisit = celebrate !== '1';
   const [state, setState] = useState<LoadState>(() => {
     return id === UNSAVED_RUN_ID ? { status: 'missing' } : { status: 'loading' };
@@ -84,24 +86,36 @@ export default function RunSummaryScreen() {
     const completed = run.status === 'completed';
     const stats = runStats(segments);
     const barSegments = segments.map((s) => ({ kind: s.kind, seconds: s.actualDurationS }));
+    const badge = (
+      <Badge
+        className="bg-background-card"
+        tone={completed ? 'positive' : 'neutral'}
+        label={completed ? 'Completed' : 'Partial'}
+      />
+    );
     content = (
       <View className="gap-4">
-        {celebrate === '1' ? (
-          <Text variant="smallBold" tone="primary">
-            {completed ? 'Nice work! 🎉' : 'Good effort! 💪'}
-          </Text>
-        ) : null}
-        <View className="gap-0.5">
+        {isRevisit ? (
+          // The title lives in the native large-title header; the row under it
+          // carries the date and the status pill.
           <View className="flex-row items-center justify-between">
-            <Text variant="largeTitle">{sessionTitle(run.sessionKey)}</Text>
-            <Badge
-              className="bg-background-card"
-              tone={completed ? 'positive' : 'neutral'}
-              label={completed ? 'Completed' : 'Partial'}
-            />
+            <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
+            {badge}
           </View>
-          <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
-        </View>
+        ) : (
+          <>
+            <Text variant="smallBold" tone="primary">
+              {completed ? 'Nice work! 🎉' : 'Good effort! 💪'}
+            </Text>
+            <View className="gap-0.5">
+              <View className="flex-row items-center justify-between">
+                <Text variant="largeTitle">{sessionTitle(run.sessionKey)}</Text>
+                {badge}
+              </View>
+              <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
+            </View>
+          </>
+        )}
         <StatGrid>
           <StatGrid.Tile
             icon="figure.run"
@@ -137,36 +151,58 @@ export default function RunSummaryScreen() {
     );
   }
 
+  if (isRevisit) {
+    // The native large-title header needs a ScrollView with automatic content
+    // insets: that is what reserves space under the expanded title and drives
+    // its collapse on scroll. headerTintColor styles only the back chevron;
+    // the title itself stays on the label color.
+    return (
+      <>
+        <Stack.Screen
+          options={{
+            headerShown: true,
+            gestureEnabled: true,
+            headerLargeTitle: true,
+            title: state.status === 'ready' ? sessionTitle(state.run.sessionKey) : '',
+            headerLargeStyle: { backgroundColor: colors.backgroundGrouped },
+            headerLargeTitleStyle: { color: colors.text },
+            headerTitleStyle: { color: colors.text },
+            headerStyle: { backgroundColor: colors.backgroundGrouped },
+            headerShadowVisible: false,
+            headerTintColor: colors.primary,
+            headerBackButtonDisplayMode: 'minimal',
+          }}
+        />
+        <ScrollView
+          className="flex-1 bg-background-grouped"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{
+            paddingHorizontal: 24,
+            paddingTop: 8,
+            paddingBottom: insets.bottom + 16,
+          }}
+        >
+          {content}
+        </ScrollView>
+      </>
+    );
+  }
+
   // SwiftUI Island.Button (not an RN pill): an RN Pressable below an Island host
   // is painted but dropped from the a11y tree (host frame occludes it), leaving
   // "Done" invisible to VoiceOver and Maestro. `fill` brings its own sized host.
   return (
-    <View
-      className="flex-1 bg-background-grouped px-6"
-      style={{
-        paddingTop: insets.top + (isRevisit ? 12 : 24),
-        paddingBottom: insets.bottom + 16,
-      }}
-    >
-      {isRevisit ? (
-        <View className="mb-4 flex-row">
-          <Island matchContents>
-            <Island.IconButton
-              systemName="chevron.backward"
-              size={22}
-              color={colors.text}
-              label="Back"
-              onPress={() => router.back()}
-            />
-          </Island>
-        </View>
-      ) : null}
-      {content}
-      {isRevisit ? null : (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View
+        className="flex-1 bg-background-grouped px-6"
+        style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}
+      >
+        {content}
         <View className="mt-auto pt-6">
           <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
         </View>
-      )}
-    </View>
+      </View>
+    </>
   );
 }

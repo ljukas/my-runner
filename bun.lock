@@ -42,7 +42,7 @@
         "uniwind": "^1.10.0",
       },
       "devDependencies": {
-        "@swmansion/argent": "^0.15.0",
+        "@swmansion/argent": "0.16.0",
         "@types/bun": "^1.3.14",
         "@types/react": "~19.2.2",
         "babel-plugin-inline-import": "^3.0.0",
@@ -486,7 +486,7 @@
 
     "@sinclair/typebox": ["@sinclair/typebox@0.27.10", "", {}, "sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA=="],
 
-    "@swmansion/argent": ["@swmansion/argent@0.15.0", "", { "dependencies": { "@fails-components/webtransport": "^1.6.3", "@fails-components/webtransport-transport-http3-quiche": "^1.6.3", "@modelcontextprotocol/sdk": "^1.20.0", "tree-sitter": "^0.21.1", "tree-sitter-typescript": "^0.23.2" }, "optionalDependencies": { "electron": "^42.5.0", "node-pty": "^1.1.0" }, "bin": { "argent": "dist/cli.js", "argent-simulator-server": "bin/argent-simulator-server.cjs" } }, "sha512-899c2k8cG4bNxTwzose3UJaLlV6i2Er84XrWOSdiJ4572Kv9cNyRAVDPDoyhUaMNMlc8Rh2htvuupq4o0aGBIA=="],
+    "@swmansion/argent": ["@swmansion/argent@0.16.0", "", { "dependencies": { "@fails-components/webtransport": "^1.6.3", "@fails-components/webtransport-transport-http3-quiche": "^1.6.3", "@modelcontextprotocol/sdk": "^1.20.0", "tree-sitter": "^0.21.1", "tree-sitter-typescript": "^0.23.2" }, "optionalDependencies": { "electron": "^42.5.0", "node-pty": "^1.1.0" }, "bin": { "argent": "dist/cli.js", "argent-simulator-server": "bin/argent-simulator-server.cjs" } }, "sha512-foIN+ulqvTyt3u0ZhcF2Y/NNmrkUxCNFYmbvbfxILfMcfBVMTyJ4WWRuwsty8vm6jHS6+hn8s3iy1yCAwXwOnQ=="],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.3.0", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.21.0", "jiti": "^2.6.1", "lightningcss": "1.32.0", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.3.0" } }, "sha512-aFb4gUhFOgdh9AXo4IzBEOzBkkAxm9VigwDJnMIYv3lcfXCJVesNfbEaBl4BNgVRyid92AmdviqwBUBRKSeY3g=="],
 

@@ -22,7 +22,7 @@ import { SkiaCountdown } from '@/components/skia-countdown';
 import { SegmentColors, SegmentSymbols } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
-import { runEngine, useRunEngine } from '@/services/run-engine';
+import { endCountsAsCompleted, runEngine, useRunEngine } from '@/services/run-engine';
 import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
 import { useSetting } from '@/services/settings-store';
 
@@ -67,6 +67,9 @@ export default function RunScreen() {
 
   if (snapshot.status === 'idle') return <Redirect href="/" />;
   const kind = snapshot.segmentKind ?? 'run';
+  // Ending during the final cool-down saves the run as completed (issue #40);
+  // the engine resolves the same rule from the event log at finalize time.
+  const endsAsCompleted = endCountsAsCompleted(snapshot);
 
   return (
     <View className="flex-1 bg-background">
@@ -122,7 +125,11 @@ export default function RunScreen() {
                 <Button role="destructive" label="End run" onPress={() => runEngine.endEarly()} />
               </ConfirmationDialog.Actions>
               <ConfirmationDialog.Message>
-                <Text>Progress so far is saved as a partial run.</Text>
+                <Text>
+                  {endsAsCompleted
+                    ? 'The workout is done — this run will be saved as completed.'
+                    : 'Progress so far is saved as a partial run.'}
+                </Text>
               </ConfirmationDialog.Message>
             </ConfirmationDialog>
             <Island.IconButton

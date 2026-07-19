@@ -46,6 +46,27 @@ function activeElapsedMs(events: RunEvent[], now: number): number {
   return Math.max(0, end - startAt - pausedTotal);
 }
 
+/**
+ * Whether ending at `elapsed` counts as completing the session (issue #40):
+ * inside the final segment when it is a cool-down, or past timeline
+ * exhaustion. Every work segment is behind the runner, so the cool-down acts
+ * as a flex period for ending early — consistent with skipSegment(), which
+ * already completes when the final segment is skipped.
+ */
+function endsInFinalCooldown(timeline: TimelineSegment[], elapsed: number): boolean {
+  const pos = positionAt(timeline, elapsed);
+  if (pos.done) return true;
+  return pos.index === timeline.length - 1 && timeline[pos.index].kind === 'cooldown';
+}
+
+/**
+ * Snapshot twin of `endsInFinalCooldown` for the UI — the run screen's End
+ * dialog derives its copy from this. Keep the two rules in sync.
+ */
+export function endCountsAsCompleted(snapshot: RunSnapshot): boolean {
+  return snapshot.segmentKind === 'cooldown' && snapshot.nextSegment === null;
+}
+
 export class RunEngine {
   private readonly clock: Clock;
   private readonly persistence: RunPersistence;
@@ -233,7 +254,7 @@ export class RunEngine {
     }
   }
 
-  private finalize(kind: 'completed' | 'endedEarly'): void {
+  private finalize(requestedKind: 'completed' | 'endedEarly'): void {
     if (!this.session || this.events.length === 0) return;
     this.append('end');
     const endAt = this.events[this.events.length - 1].at;
@@ -241,6 +262,14 @@ export class RunEngine {
     const total = totalSeconds(timeline);
     // Completion is capped at timeline exhaustion (ADR 0007).
     const finalElapsed = Math.min(activeElapsedMs(this.events, endAt) / 1000, total);
+    // Ending early during the final cool-down — or past exhaustion, before the
+    // next heartbeat notices — completes the session (issue #40). Resolved from
+    // the recorded end event so the outcome stays derivable from the event log
+    // alone (ADR 0007).
+    const kind =
+      requestedKind === 'endedEarly' && endsInFinalCooldown(timeline, finalElapsed)
+        ? 'completed'
+        : requestedKind;
 
     const record: CompletedRunRecord = {
       sessionKey: this.session.key,

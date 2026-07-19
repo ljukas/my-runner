@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { CueId } from '@/domain/cues';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
-import { RunEngine } from './engine';
+import { RunEngine, endCountsAsCompleted } from './engine';
 import type { CompletedRunRecord, RunPersistence } from './types';
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
@@ -283,6 +283,91 @@ describe('completion', () => {
   });
 });
 
+describe('end during the final cooldown (issue #40)', () => {
+  test('endEarly during the final cooldown finalizes and persists as completed', async () => {
+    const { engine, tick, saved } = makeEngine();
+    engine.start(SESSION);
+    tick(66); // 1s into the cooldown (65–75)
+    engine.endEarly();
+    expect(engine.getSnapshot().status).toBe('completed');
+    await flush();
+    expect(saved[0].status).toBe('completed');
+    expect(saved[0].activeDurationS).toBe(66);
+    expect(saved[0].segments).toHaveLength(5);
+    expect(saved[0].segments[4]).toMatchObject({
+      kind: 'cooldown',
+      actualDurationS: 1,
+      wasSkipped: false,
+    });
+  });
+
+  test('endEarly while paused in the cooldown still completes', async () => {
+    const { engine, tick, advance, saved } = makeEngine();
+    engine.start(SESSION);
+    tick(70);
+    engine.pause();
+    advance(100); // paused wall time is not active time
+    engine.endEarly();
+    expect(engine.getSnapshot().status).toBe('completed');
+    await flush();
+    expect(saved[0].status).toBe('completed');
+    expect(saved[0].activeDurationS).toBe(70);
+  });
+
+  test('skipping into the cooldown then ending early completes', async () => {
+    const { engine, tick, saved } = makeEngine();
+    engine.start(SESSION);
+    tick(50); // 5s into the final run (45–65)
+    engine.skipSegment(); // truncates it; the cooldown now starts at 50
+    tick(2); // 2s into the cooldown
+    engine.endEarly();
+    expect(engine.getSnapshot().status).toBe('completed');
+    await flush();
+    expect(saved[0].status).toBe('completed');
+  });
+
+  test('endEarly after timeline exhaustion but before the next heartbeat completes', async () => {
+    const { engine, advance, saved } = makeEngine();
+    engine.start(SESSION);
+    advance(80); // past the 75s total, with no heartbeat observing it
+    engine.endEarly();
+    expect(engine.getSnapshot().status).toBe('completed');
+    await flush();
+    expect(saved[0].status).toBe('completed');
+    expect(saved[0].activeDurationS).toBe(75); // capped at the timeline (ADR 0007)
+  });
+
+  test('endEarly exactly at the cooldown boundary completes; the untouched cooldown row is dropped', async () => {
+    const { engine, tick, saved } = makeEngine();
+    engine.start(SESSION);
+    tick(65); // exactly at the cooldown's startsAt
+    engine.endEarly();
+    expect(engine.getSnapshot().status).toBe('completed');
+    await flush();
+    expect(saved[0].status).toBe('completed');
+    expect(saved[0].segments).toHaveLength(4); // the 0-second cooldown row is filtered out
+  });
+
+  test('endEarly just before the cooldown stays partial', async () => {
+    const { engine, tick, saved } = makeEngine();
+    engine.start(SESSION);
+    tick(64); // 19s into the final run (45–65)
+    engine.endEarly();
+    expect(engine.getSnapshot().status).toBe('endedEarly');
+    await flush();
+    expect(saved[0].status).toBe('partial');
+  });
+
+  test('endCountsAsCompleted mirrors the engine rule on live snapshots (UI twin)', () => {
+    const { engine, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(64); // final run segment
+    expect(endCountsAsCompleted(engine.getSnapshot())).toBe(false);
+    tick(2); // 66 → in the cooldown
+    expect(endCountsAsCompleted(engine.getSnapshot())).toBe(true);
+  });
+});
+
 describe('clock anomalies (ADR 0007 invariants)', () => {
   test('a backwards clock jump never produces negative elapsed', () => {
     const { engine, advance } = makeEngine();
@@ -392,6 +477,15 @@ describe('cues (ADR 0007/0009)', () => {
     engine.start(SESSION);
     tick(80); // timeline exhausted → completed
     await flush();
+    expect(cues).toContain('complete');
+    expect(releaseCount()).toBe(0);
+  });
+
+  test('ending during the cooldown announces complete and does not hard-release', () => {
+    const { engine, cues, releaseCount, tick } = makeEngine();
+    engine.start(SESSION);
+    tick(66); // 1s into the cooldown → ending counts as completed (issue #40)
+    engine.endEarly();
     expect(cues).toContain('complete');
     expect(releaseCount()).toBe(0);
   });

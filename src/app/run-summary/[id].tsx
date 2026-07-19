@@ -2,7 +2,6 @@ import { asc, eq } from 'drizzle-orm';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Island } from '@/components/island';
 import { SegmentBar } from '@/components/segment-bar';
@@ -16,7 +15,6 @@ import { db } from '@/db/client';
 import { runSegments, runs } from '@/db/schema';
 import { clockParts, formatRunDate, sessionTitle } from '@/domain/format';
 import { runStats } from '@/domain/run-stats';
-import { useTheme } from '@/hooks/use-theme';
 
 type RunRow = typeof runs.$inferSelect;
 type SegmentRow = typeof runSegments.$inferSelect;
@@ -34,8 +32,6 @@ export const UNSAVED_RUN_ID = 'unsaved';
 
 export default function RunSummaryScreen() {
   const router = useRouter();
-  const colors = useTheme();
-  const insets = useSafeAreaInsets();
   const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
   // A fresh finish is acknowledged with the bottom "Done" on the headerless
   // modal (the route's static config). A Log revisit is a browse: it overrides
@@ -71,6 +67,7 @@ export default function RunSummaryScreen() {
   }, [id]);
 
   let content: ReactNode;
+
   if (state.status === 'loading') {
     content = <Text tone="secondary">Loading…</Text>;
   } else if (state.status === 'missing') {
@@ -104,15 +101,11 @@ export default function RunSummaryScreen() {
           </View>
         ) : (
           <>
-            <Text variant="smallBold" tone="primary">
-              {completed ? 'Nice work! 🎉' : 'Good effort! 💪'}
-            </Text>
-            <View className="gap-0.5">
-              <View className="flex-row items-center justify-between">
-                <Text variant="largeTitle">{sessionTitle(run.sessionKey)}</Text>
-                {badge}
-              </View>
-              <Text tone="secondary">{formatRunDate(run.startedAt)}</Text>
+            <View className="flex-row items-center justify-between">
+              <Text variant="smallBold" tone="primary">
+                {completed ? 'Nice work! 🎉' : 'Good effort! 💪'}
+              </Text>
+              {badge}
             </View>
           </>
         )}
@@ -151,58 +144,26 @@ export default function RunSummaryScreen() {
     );
   }
 
-  if (isRevisit) {
-    // The native large-title header needs a ScrollView with automatic content
-    // insets: that is what reserves space under the expanded title and drives
-    // its collapse on scroll. headerTintColor styles only the back chevron;
-    // the title itself stays on the label color.
-    return (
-      <>
-        <Stack.Screen
-          options={{
-            headerShown: true,
-            gestureEnabled: true,
-            headerLargeTitle: true,
-            title: state.status === 'ready' ? sessionTitle(state.run.sessionKey) : '',
-            headerLargeStyle: { backgroundColor: colors.backgroundGrouped },
-            headerLargeTitleStyle: { color: colors.text },
-            headerTitleStyle: { color: colors.text },
-            headerStyle: { backgroundColor: colors.backgroundGrouped },
-            headerShadowVisible: false,
-            headerTintColor: colors.primary,
-            headerBackButtonDisplayMode: 'minimal',
-          }}
-        />
-        <ScrollView
-          className="flex-1 bg-background-grouped"
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={{
-            paddingHorizontal: 24,
-            paddingTop: 8,
-            paddingBottom: insets.bottom + 16,
-          }}
-        >
-          {content}
-        </ScrollView>
-      </>
-    );
-  }
-
-  // SwiftUI Island.Button (not an RN pill): an RN Pressable below an Island host
-  // is painted but dropped from the a11y tree (host frame occludes it), leaving
-  // "Done" invisible to VoiceOver and Maestro. `fill` brings its own sized host.
   return (
     <>
-      <Stack.Screen options={{ headerShown: false }} />
-      <View
-        className="flex-1 bg-background-grouped px-6"
-        style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 16 }}
+      <Stack.Screen
+        options={{
+          title: state.status === 'ready' ? sessionTitle(state.run.sessionKey) : '',
+        }}
+      />
+
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        className="bg-background-grouped"
+        contentContainerClassName="px-4"
       >
         {content}
-        <View className="mt-auto pt-6">
-          <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
-        </View>
-      </View>
+        {isRevisit ? null : (
+          <View className="mt-auto pt-6">
+            <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
+          </View>
+        )}
+      </ScrollView>
     </>
   );
 }

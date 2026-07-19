@@ -10,6 +10,7 @@ import { Text } from '@/components/ui/text';
 import { Colors } from '@/constants/theme';
 import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
+import { useTheme } from '@/hooks/use-theme';
 import { onboarding } from '@/services/onboarding-store';
 
 void SplashScreen.preventAutoHideAsync();
@@ -30,6 +31,9 @@ function OnboardingGate() {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { success, error } = useMigrations(db, migrations);
+  const router = useRouter();
+
+  const colors = useTheme();
 
   useEffect(() => {
     if (success || error) SplashScreen.hide();
@@ -50,14 +54,21 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <OnboardingGate />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" />
+      <Stack
+        screenOptions={{
+          headerLargeTitleStyle: { color: colors.text },
+          headerTitleStyle: { color: colors.text },
+          headerShadowVisible: false,
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="session/[key]"
           options={{
             presentation: 'formSheet',
             sheetAllowedDetents: 'fitToContents',
             sheetGrabberVisible: true,
+            headerShown: false,
             // Paint the whole sheet container (incl. the bottom safe-area inset the
             // content view no longer covers under fitToContents) with the theme background.
             contentStyle: {
@@ -69,14 +80,16 @@ export default function RootLayout() {
           name="run"
           options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
         />
-        {/* Card, not modal: the Log revisit needs the native header back
-            chevron, which only pushed screens get. Per-instance chrome
-            (fresh finish = headerless + Done, revisit = large-title header +
-            swipe-back) is set dynamically from the screen. */}
+
         <Stack.Screen
           name="run-summary/[id]"
-          options={{ presentation: 'card', gestureEnabled: false }}
-        />
+          options={{ presentation: 'modal', gestureEnabled: false, headerLargeTitleEnabled: true }}
+        >
+          <Stack.Toolbar placement="right">
+            <Stack.Toolbar.Button icon="xmark" onPress={() => router.dismissAll()} />
+          </Stack.Toolbar>
+        </Stack.Screen>
+
         <Stack.Screen
           name="onboarding"
           options={{ presentation: 'modal', gestureEnabled: false }}

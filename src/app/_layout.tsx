@@ -83,7 +83,7 @@ export default function RootLayout() {
 
         <Stack.Screen
           name="run-summary/[id]"
-          options={{ presentation: 'modal', gestureEnabled: false, headerLargeTitleEnabled: true }}
+          options={{ presentation: 'modal', headerLargeTitleEnabled: true }}
         >
           <Stack.Toolbar placement="right">
             <Stack.Toolbar.Button icon="xmark" onPress={() => router.dismissAll()} />

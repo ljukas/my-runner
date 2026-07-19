@@ -24,6 +24,9 @@
       --color-background: #ffffff;
       --color-background-element: #f0f0f3;
       --color-background-selected: #e0e1e6;
+      /* iOS grouped-screen pair (Apple Health look): gray page, white cards */
+      --color-background-grouped: #f2f2f7;
+      --color-background-card: #ffffff;
       --color-foreground: #000000;
       --color-foreground-secondary: #60646c;
       --color-destructive: #ff3b30;
@@ -36,6 +39,9 @@
       --color-background: #000000;
       --color-background-element: #212225;
       --color-background-selected: #2e3135;
+      /* iOS grouped-screen pair (Apple Health look): black page, elevated cards */
+      --color-background-grouped: #000000;
+      --color-background-card: #1c1c1e;
       --color-foreground: #ffffff;
       --color-foreground-secondary: #b0b4ba;
       --color-destructive: #ff453a;

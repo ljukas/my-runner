@@ -14,6 +14,7 @@ import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { UNSAVED_RUN_ID } from '@/app/run-summary/[id]';
 import { Island } from '@/components/island';
 import { RunProgressBar } from '@/components/run-progress-bar';
 import { SettingsToggle } from '@/components/settings-toggle';
@@ -50,9 +51,17 @@ export default function RunScreen() {
   const finished = snapshot.status === 'completed' || snapshot.status === 'endedEarly';
   const saveSettled = snapshot.savedRunId !== null || snapshot.saveFailed;
   useEffect(() => {
-    // The summary reads the run id / save outcome from the engine snapshot.
-    if (finished && saveSettled) router.replace('/run-summary');
-  }, [finished, saveSettled, router]);
+    // Hand the run id + a fresh-finish flag to the summary via params; the
+    // summary is engine-free and reads only these. `replace` so Back never
+    // returns to the finished run. `savedRunId` is null only on save failure,
+    // which the summary renders as its "couldn't be saved" state.
+    if (finished && saveSettled) {
+      router.replace({
+        pathname: '/run-summary/[id]',
+        params: { id: snapshot.savedRunId ?? UNSAVED_RUN_ID, celebrate: '1' },
+      });
+    }
+  }, [finished, saveSettled, snapshot.savedRunId, router]);
 
   const remaining = useSegmentClock(snapshot.segmentIndex, snapshot.status);
 

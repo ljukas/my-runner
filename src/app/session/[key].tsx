@@ -7,6 +7,7 @@ import { Island } from '@/components/island';
 import { SegmentBar } from '@/components/segment-bar';
 import { SegmentLegend } from '@/components/segment-legend';
 import { StatList } from '@/components/stat-list';
+import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
@@ -37,14 +38,14 @@ export default function SessionSheet() {
   if (!session) return <Redirect href="/" />;
 
   return (
-    <View className="gap-6 bg-background px-6 pt-8 pb-8">
+    <View className="gap-6 bg-background px-6 pt-8">
       <View className="gap-1.5">
         <Text variant="subtitle">{sessionTitle(session.key)}</Text>
         <Text variant="footnote" tone="secondary">
           {sessionSummary(session)}
         </Text>
       </View>
-      <View className="gap-4 rounded-2xl bg-background-element p-4">
+      <Card className="gap-4">
         <SegmentBar segments={session.segments} />
         <SegmentLegend segments={session.segments} />
         <View className="h-px bg-background-selected" />
@@ -54,11 +55,16 @@ export default function SessionSheet() {
           <StatList.Row label="Walking" value={formatMinutes(sessionWalkSeconds(session))} />
           <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
         </StatList>
-      </View>
+      </Card>
       <Island.Button
         fill
         label="Start session"
         onPress={() => {
+          // The engine's start() no-ops unless idle, so reset any prior
+          // finished run here (its state lingers harmlessly until now — no
+          // screen reads it between runs). This is why the summary no longer
+          // needs to reset the engine on "Done".
+          runEngine.reset();
           runEngine.start(session);
           // Replace, not push: the run screen is a full-screen modal, so the
           // session sheet must leave the stack — otherwise the lingering

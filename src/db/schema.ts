@@ -29,3 +29,7 @@ export const runSegments = sqliteTable('run_segments', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
+
+/** A stored run row and one of its segment rows — the shapes the summary reads. */
+export type Run = typeof runs.$inferSelect;
+export type RunSegment = typeof runSegments.$inferSelect;

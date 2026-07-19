@@ -11,7 +11,7 @@ export default function TabsLayout() {
       indicatorColor={colors.backgroundElement}
       labelStyle={{ selected: { color: colors.text } }}
     >
-      <NativeTabs.Trigger name="index">
+      <NativeTabs.Trigger name="(index)">
         <NativeTabs.Trigger.Label>Plan</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="figure.run" />
       </NativeTabs.Trigger>

@@ -1,0 +1,36 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+- runFlow: ../helpers/start-first-session.yaml
+# Finish the (compressed) session.
+- extendedWaitUntil:
+    visible:
+      text: "Nice work.*"
+    timeout: 120000
+- tapOn: "Done"
+# Revisit from the Log tab.
+- tapOn: "Log"
+- tapOn:
+    text: "Week 1 · Day 1"
+# The revisit header is neutral — the celebratory line must be absent.
+- assertVisible:
+    text: "Week 1 · Day 1"
+# "intervals" matches the Intervals tile header (IGNORE_CASE); "running"/
+# "active" would collide with the tab bar's "Running" a11y label / other copy.
+- assertNotVisible:
+    text: "Nice work.*"
+- assertVisible: "intervals"
+# Revisits dismiss via the native header back control instead of a bottom
+# Done. The chevron is headerBackButtonDisplayMode 'minimal': it has no
+# visible text, and its accessibility label is the previous route's derived
+# title ("(tabs)") — an internal route name, not user-visible copy, so there
+# is nothing text-first to tap (ADR 0016). Exercise the revisit's other
+# native dismissal instead: the swipe-back edge gesture, which the revisit
+# screen enables alongside the header (gestureEnabled).
+- swipe:
+    start: "1%, 50%"
+    end: "70%, 50%"
+- assertNotVisible: "intervals"
+- assertVisible:
+    text: "Week 1 · Day 1"

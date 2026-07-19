@@ -7,7 +7,7 @@ tags:
 - assertVisible: "Warm up"
 - extendedWaitUntil:
     visible:
-      text: "Workout complete.*"
+      text: "Nice work.*"
     timeout: 120000
 - tapOn: "Done"
 - tapOn: "Log"

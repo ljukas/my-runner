@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn';
  * A vertical list of label/value stat rows (ADR 0013), promoted from the
  * session sheet's private `StatRow`. This is the RN-side vocabulary; the
  * SwiftUI equivalent for a Form/Section context is `@expo/ui`'s native
- * `LabeledContent` (run-summary, settings), used directly — not this component.
+ * `LabeledContent` (settings), used directly — not this component.
  */
 function StatListRoot({ className, ...props }: ViewProps) {
   return <View className={cn('gap-2', className)} {...props} />;

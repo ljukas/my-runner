@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  clockParts,
   durationWords,
   formatClock,
   formatCountdown,
   formatMinutes,
+  formatRunDate,
   sessionSummary,
   sessionTitle,
 } from './format';
@@ -89,5 +91,26 @@ describe('sessionSummary', () => {
   });
   test('irregular fallback (W4) — non-uniform runs, 16 min total', () => {
     expect(summary('w4d1')).toBe('4 run intervals with walk recovery · 16 min running.');
+  });
+});
+
+describe('formatRunDate', () => {
+  test('formats an ISO timestamp as weekday, month day', () => {
+    expect(formatRunDate('2026-01-01T12:00:00.000Z', 'en-US')).toBe('Thu, Jan 1');
+  });
+});
+
+describe('clockParts', () => {
+  test('under a minute reads in seconds', () => {
+    expect(clockParts(16)).toEqual({ value: '16', unit: 'seconds' });
+    expect(clockParts(0)).toEqual({ value: '0', unit: 'seconds' });
+  });
+  test('a minute or more reads as a m:ss clock', () => {
+    expect(clockParts(60)).toEqual({ value: '1:00', unit: 'min' });
+    expect(clockParts(480)).toEqual({ value: '8:00', unit: 'min' });
+    expect(clockParts(1710)).toEqual({ value: '28:30', unit: 'min' });
+  });
+  test('ceils like formatClock, so 59.2s already reads as a clock', () => {
+    expect(clockParts(59.2)).toEqual({ value: '1:00', unit: 'min' });
   });
 });

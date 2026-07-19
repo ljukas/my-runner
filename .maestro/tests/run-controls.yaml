@@ -26,7 +26,7 @@ tags:
 - tapOn: "End run"
 - extendedWaitUntil:
     visible:
-      text: "Good effort!"
+      text: "Good effort.*"
     timeout: 30000
 - tapOn: "Done"
 - tapOn: "Log"

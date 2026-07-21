@@ -12,4 +12,4 @@ appId: se.lukaslindqvist.runbro.e2e
     text: "Day 1"
     index: 0
 - assertVisible: "Week 1 · Day 1"
-- tapOn: "Start session"
+- tapOn: "Start Session"

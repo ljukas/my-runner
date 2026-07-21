@@ -1,5 +1,5 @@
 import { SymbolView } from 'expo-symbols';
-import { Image, View } from 'react-native';
+import { Image, PixelRatio, View } from 'react-native';
 
 import { FeatureRow } from '@/components/feature-row';
 import { OnboardingStepScreen } from '@/components/onboarding-step-screen';
@@ -14,11 +14,13 @@ export default function WelcomeScreen() {
       buttonLabel="Continue"
       footnote={
         <View className="gap-2">
-          <SymbolView
-            name={{ ios: 'heart.text.square', android: 'favorite' }}
-            size={20}
-            tintColor={colors.primary}
-          />
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <SymbolView
+              name={{ ios: 'heart.text.square', android: 'favorite' }}
+              size={Math.round(20 * Math.min(PixelRatio.getFontScale(), 1.6))}
+              tintColor={colors.primary}
+            />
+          </View>
           <Text variant="footnote" tone="secondary">
             Couch to 5K is designed for beginners. If you have a health condition or an old injury,
             have a quick word with your doctor before starting — and listen to your body.
@@ -32,15 +34,17 @@ export default function WelcomeScreen() {
         style={{ borderCurve: 'continuous' } as any}
       />
       <View className="pt-9">
-        <Text variant="largeTitle" tone="primary">
+        <Text variant="largeTitle" accessibilityRole="header">
           Welcome to
         </Text>
-        <Text variant="largeTitle">RunBro</Text>
+        <Text variant="largeTitle" accessibilityRole="header">
+          RunBro
+        </Text>
       </View>
       <View className="gap-6 pt-7">
         <FeatureRow
           symbol={{ ios: 'figure.run', android: 'directions_run' }}
-          title="From Couch to 5 km"
+          title="From Couch to 5K"
         >
           Three short sessions a week for nine weeks — walking at first, running 30 minutes straight
           by the end.

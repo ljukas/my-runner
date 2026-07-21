@@ -12,14 +12,14 @@ import { cn } from '@/lib/cn';
 export const textVariants = cva('', {
   variants: {
     variant: {
-      default: 'text-base leading-6 font-medium',
-      title: 'text-5xl leading-[52px] font-semibold',
-      largeTitle: 'text-[34px] leading-[41px] font-bold',
-      subtitle: 'text-[32px] leading-[44px] font-semibold',
-      footnote: 'text-[13px] leading-[18px]',
-      small: 'text-sm leading-5 font-medium',
-      smallBold: 'text-sm leading-5 font-bold',
-      link: 'text-sm leading-[30px]',
+      default: 'text-base font-medium',
+      title: 'text-5xl font-semibold',
+      largeTitle: 'text-[34px] font-bold',
+      subtitle: 'text-[32px] font-semibold',
+      footnote: 'text-[13px]',
+      small: 'text-sm font-medium',
+      smallBold: 'text-sm font-bold',
+      link: 'text-sm',
       code: `font-mono text-xs ${Platform.select({ android: 'font-bold' }) ?? 'font-medium'}`,
     },
     tone: {
@@ -34,5 +34,8 @@ export const textVariants = cva('', {
 export type TextProps = RNTextProps & VariantProps<typeof textVariants>;
 
 export function Text({ className, variant, tone, ...props }: TextProps) {
+  // No fixed `leading-*` on the variants: RN derives a line height from the
+  // (Dynamic-Type-scaling) fontSize, so leading scales too and text no longer
+  // clips at large accessibility sizes.
   return <RNText className={cn(textVariants({ variant, tone }), className)} {...props} />;
 }

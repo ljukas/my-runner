@@ -2,10 +2,10 @@ import { parseSessionKey, type PlanSession, type SegmentKind } from './plan';
 
 /** Display names for segment kinds, shared by the run and summary screens (and later TTS cues). */
 export const SEGMENT_KIND_LABEL: Record<SegmentKind, string> = {
-  warmup: 'Warm up',
+  warmup: 'Warm Up',
   run: 'Run',
   walk: 'Walk',
-  cooldown: 'Cool down',
+  cooldown: 'Cool Down',
 };
 
 /** `m:ss` countdown/elapsed clock. Ceils so a fresh segment shows its full length. */

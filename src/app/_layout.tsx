@@ -78,7 +78,7 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="run"
-          options={{ presentation: 'fullScreenModal', gestureEnabled: false }}
+          options={{ presentation: 'fullScreenModal', gestureEnabled: false, headerShown: false }}
         />
 
         <Stack.Screen
@@ -86,13 +86,17 @@ export default function RootLayout() {
           options={{ presentation: 'modal', headerLargeTitleEnabled: true }}
         >
           <Stack.Toolbar placement="right">
-            <Stack.Toolbar.Button icon="xmark" onPress={() => router.dismissAll()} />
+            <Stack.Toolbar.Button
+              icon="xmark"
+              accessibilityLabel="Close"
+              onPress={() => router.dismissAll()}
+            />
           </Stack.Toolbar>
         </Stack.Screen>
 
         <Stack.Screen
           name="onboarding"
-          options={{ presentation: 'modal', gestureEnabled: false }}
+          options={{ presentation: 'modal', gestureEnabled: false, headerShown: false }}
         />
       </Stack>
     </ThemeProvider>

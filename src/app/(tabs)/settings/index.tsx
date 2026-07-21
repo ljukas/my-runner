@@ -12,19 +12,33 @@ export default function SettingsScreen() {
   return (
     <Island useViewportSizeMeasurement>
       <Form>
-        <Section title="About">
+        <Section
+          title="About"
+          footer={<Text>No account, no sign-in. Your runs stay on this device.</Text>}
+        >
           <LabeledContent label="Version">
             <Text>{Constants.expoConfig?.version ?? '—'}</Text>
           </LabeledContent>
         </Section>
-        <Section title="Coaching">
-          <SettingsToggle label="Interval cues" settingKey="intervalCuesEnabled" />
-          <SettingsToggle label="Milestone cues" settingKey="milestoneCuesEnabled" />
+        <Section title="Display">
+          <SettingsToggle label="Keep screen awake" settingKey="keepScreenAwake" />
+        </Section>
+        <Section
+          title="Coaching"
+          footer={
+            <Text>
+              Interval Cues call out each walk/run switch. Milestone Cues add motivational spots —
+              halfway, your last run, and finishing.
+            </Text>
+          }
+        >
+          <SettingsToggle label="Interval Cues" settingKey="intervalCuesEnabled" />
+          <SettingsToggle label="Milestone Cues" settingKey="milestoneCuesEnabled" />
         </Section>
         {__DEV__ ? (
           <Section title="Developer">
-            <SettingsToggle label="Compressed plan" settingKey="useCompressedPlan" />
-            <Button label="Reset onboarding" onPress={() => resetAndRestart(router)} />
+            <SettingsToggle label="Compressed Plan" settingKey="useCompressedPlan" />
+            <Button label="Reset Onboarding" onPress={() => resetAndRestart(router)} />
           </Section>
         ) : null}
       </Form>

@@ -8,7 +8,13 @@ import {
   Text,
   VStack,
 } from '@expo/ui/swift-ui';
-import { font, frame, monospacedDigit, padding } from '@expo/ui/swift-ui/modifiers';
+import {
+  accessibilityHidden,
+  font,
+  frame,
+  monospacedDigit,
+  padding,
+} from '@expo/ui/swift-ui/modifiers';
 import { useKeepAwake } from 'expo-keep-awake';
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -17,11 +23,10 @@ import { View } from 'react-native';
 import { UNSAVED_RUN_ID } from '@/app/run-summary/[id]';
 import { Island } from '@/components/island';
 import { RunProgressBar } from '@/components/run-progress-bar';
-import { SettingsToggle } from '@/components/settings-toggle';
 import { SkiaCountdown } from '@/components/skia-countdown';
-import { SegmentColors, SegmentSymbols } from '@/constants/theme';
+import { SegmentSymbols } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
-import { useTheme } from '@/hooks/use-theme';
+import { useSegmentColors, useTheme } from '@/hooks/use-theme';
 import { endCountsAsCompleted, runEngine, useRunEngine } from '@/services/run-engine';
 import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
 import { useSetting } from '@/services/settings-store';
@@ -36,6 +41,7 @@ export default function RunScreen() {
   const snapshot = useRunEngine();
   const router = useRouter();
   const colors = useTheme();
+  const segmentColors = useSegmentColors();
   const keepAwake = useSetting('keepScreenAwake');
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const paused = snapshot.status === 'paused';
@@ -83,8 +89,12 @@ export default function RunScreen() {
               between segments the way the inline row did. The coloured SF Symbol
               carries the segment-colour cue; the label stays on the theme
               foreground so it's legible regardless of palette (main #32). */}
-          <VStack spacing={6} modifiers={[frame({ height: 62 })]}>
-            <Image systemName={SegmentSymbols[kind]} size={26} color={SegmentColors[kind]} />
+          <VStack spacing={6} modifiers={[frame({ minHeight: 62 })]}>
+            <Image
+              systemName={SegmentSymbols[kind]}
+              color={segmentColors[kind]}
+              modifiers={[font({ textStyle: 'title2' }), accessibilityHidden(true)]}
+            />
             <Island.Text modifiers={[font({ textStyle: 'title2' })]}>
               {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
             </Island.Text>
@@ -101,7 +111,7 @@ export default function RunScreen() {
             <RunProgressBar
               remaining={remaining}
               totalSeconds={snapshot.segmentSecondsTotal}
-              color={SegmentColors[kind]}
+              color={segmentColors[kind]}
             />
           </RNHostView>
           {/* Transport row, music-player order: End · Pause/Resume · Skip. */}
@@ -127,7 +137,7 @@ export default function RunScreen() {
               <ConfirmationDialog.Message>
                 <Text>
                   {endsAsCompleted
-                    ? 'The workout is done — this run will be saved as completed.'
+                    ? 'This run is done — it will be saved as completed.'
                     : 'Progress so far is saved as a partial run.'}
                 </Text>
               </ConfirmationDialog.Message>
@@ -135,7 +145,7 @@ export default function RunScreen() {
             <Island.IconButton
               systemName={paused ? 'play.fill' : 'pause.fill'}
               size={48}
-              color={SegmentColors[kind]}
+              color={colors.text}
               label={paused ? 'Resume' : 'Pause'}
               onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
             />
@@ -156,7 +166,6 @@ export default function RunScreen() {
             {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
           </Island.Text>
           <Spacer />
-          <SettingsToggle label="Keep screen awake" settingKey="keepScreenAwake" />
         </VStack>
       </Island>
     </View>

@@ -49,9 +49,9 @@ module-scope TaskManager task   ← ~1 Hz background location delivery keeps JS 
             └─ try { ingest:                            ← wrapped; a throw here must not stall timing
                  ├─ domain/geo: accuracyFilter(≤50m) + haversineMeters(anchor,fix)   ← PURE, unit-tested (reused Stage 4)
                  ├─ running distanceM (display cache) + point tagged with segment_seq
-                 └─ batchScheduler (pure ~5s cadence) ─► RunStore.flush() in ONE txn:
-                      ├─ appendPoints(points)   → run_points     ← incremental, durable spine (spec §5)
-                      └─ saveSnapshot(eventLog)  → active_run_snapshot   (event log + watermarks ONLY — tiny, ADR 0007 §5)
+                 └─ batchScheduler (pure ~5s cadence) ─► RunStore.flush(runId, points, state) — ONE txn:
+                      ├─ batch-insert points  → run_points          ← incremental, durable spine (spec §5)
+                      └─ upsert state         → active_run_snapshot  (event log + watermarks ONLY — tiny, ADR 0007 §5)
                } catch → console.warn, continue
 
 Post-run (engine dead — everything reads the DB):
@@ -88,18 +88,23 @@ inserted before a `runs` row exists. Therefore:
 
 - **An in-flight `runs` row is created at `start()`** with a new `'active'`
   status (added to the enum) so `run_points` can FK-reference it during the run.
-  This forces schema changes: `runs.status` gains `'active'`; `ended_at` becomes
-  nullable; `active_duration_s` gets a default (0) or becomes nullable. **Ripple
+  This forces one schema change: `runs.status` gains `'active'`. **[Wave A
+  ratified]** `ended_at`/`active_duration_s` stay NOT NULL (additive-only
+  migration — no table rebuild); `startRun()` inserts placeholders
+  (`ended_at = started_at`, `active_duration_s = 0`) and `finalize()` UPDATEs them
+  to real values on `active → completed|partial`. **Ripple
   (must be handled, not discovered):** every "completed/partial run" query
   (`src/db/queries.ts`, run-stats, Plan progression, Log) must exclude
   `status = 'active'` — an in-flight or abandoned-unfinalized run is *not* a
   result, and "current session is derived from completed runs" must stay true.
 - **`run_points` is written incrementally** (~5s batches) against that `runId`.
-- **`active_run_snapshot` carries only the event log** + `sessionKey` +
-  announced-cue watermark + **last-persisted `seq` watermark** + `lastAcceptedFix`
-  anchor. **Never the track** (no write amplification; ADR 0007's tiny-snapshot
-  invariant preserved). Distance is *not* stored here — it is recomputed from
-  `run_points` on resume.
+- **`active_run_snapshot` carries only** `RunSnapshotState = { sessionKey, events,
+  lastAnnouncedIndex, halfwayFired, lastAcceptedFix }` — the event log + two cue
+  watermarks + the haversine anchor. **Never the track**, and **no `seq`
+  watermark** (resume reloads `run_points` and continues from `max(seq)+1`);
+  distance is recomputed from `run_points` on resume. Freshness uses the row's
+  `updated_at` (returned by `loadSnapshot`), not event-log age. ADR 0007's
+  tiny-snapshot invariant preserved.
 - **`finalize()`** flips the `'active'` row to `completed`/`partial`, writes
   `distance_m` (Σ) + `summary_polyline`, and inserts `run_segments` with
   per-segment distance grouped from `run_points`. Clears the snapshot.
@@ -173,7 +178,7 @@ await Location.startLocationUpdatesAsync(LOCATION_TASK, {
 - **`LocationFix`** = `{ timestamp, lat, lng, altitude, accuracy, speed }` —
   mirrors the `run_points` columns (spec §4). (No `course`; add only if HealthKit
   later needs it.)
-- **`accuracyFilter(fix)`** — accept iff `accuracy != null && accuracy <= 50` m.
+- **`accuracyFilter(fix)`** — accept iff `accuracy != null && accuracy > 0 && accuracy <= 50` m (iOS reports `horizontalAccuracy <= 0` for invalid fixes — Wave A ratified).
 - **`haversineMeters(a, b)`** — great-circle delta; distance = `Σ` of consecutive
   accepted deltas. Ingestion enforces monotonic timestamps + de-dupes the anchor
   so a stale/duplicate background-batch fix cannot inflate distance.
@@ -234,9 +239,10 @@ tasks *within* a wave are independent (code-writers use separate worktrees if
 they touch overlapping files); waves are ordered. See the "review surface" on
 each task — that is what the two reviewers attack.
 
-- **Wave A (pure/foundational):** T1 geo · T2 format · T2b pace+best-segment · T3
-  schema+queries+migration · T4 RunStore port · T5 batch scheduler · T6
-  LocationTracker port.
+- **Wave A (pure/foundational) — ✅ BUILT & committed (2026-07-21):** T1 geo · T2
+  format · T2b pace+best-segment · T3 schema+queries+migration · T4 RunStore port ·
+  T5 batch scheduler · T6 LocationTracker port. Repo gate green (171 tests,
+  typecheck, lint); ratified deltas folded into the contract section + T4/T6/T8.
 - **Wave B (adapters/persistence):** T7 RunStore DB adapter · T8 save-run
   (active-row + finalize rollup) · T9 LocationTracker iOS adapter + module-scope
   task · T10 app-entry task registration · T11 app.json/background audio/`resuming` cue.
@@ -275,7 +281,7 @@ each task — that is what the two reviewers attack.
 - **Review surface:** schema + queries + migration diff. Reviewers check the in-flight-row model, PK/FK, the `status != 'active'` filter is applied *everywhere* results are read, `useLiveQuery` never on `run_points` (ADR 0004 §3), and existing nullable `distance_m`/`summary_polyline` are the write targets.
 
 #### T4. `RunStore` port (types only)
-- [ ] `run-store/port.ts` — `appendPoints(points): Promise<void>`, `saveSnapshot(state): Promise<void>`, `loadSnapshot(): Promise<RunSnapshotState | null>`, `clearSnapshot(): Promise<void>`; `RunPoint` / `RunSnapshotState` types (event-log + watermarks, **no track**).
+- [x] **[Wave A — built]** `run-store/port.ts` — a single atomic `flush(runId, points, state): Promise<void>` (batch-insert `run_points` + upsert `active_run_snapshot` in ONE txn), `loadSnapshot(): Promise<{ state: RunSnapshotState; updatedAt: string } | null>`, `clearSnapshot(): Promise<void>`. `RunPoint = Omit<LocationFix,'timestamp'> + seq + ISO timestamp + segmentSeq`; `RunSnapshotState` per the contract section (**no track, no seq watermark**).
 - **Review surface:** one interface. Reviewers check DB-agnosticism, separation from `RunPersistence.saveRun`, and that `RunSnapshotState` carries no point array.
 
 #### T5. Pure batch scheduler
@@ -283,7 +289,7 @@ each task — that is what the two reviewers attack.
 - **Review surface:** one pure module + tests. Reviewers check timer lifecycle, no leaks, determinism under injected clocks.
 
 #### T6. `LocationTracker` port (types only)
-- [ ] `location-tracker/port.ts` — `requestPermission(): Promise<PermissionStatus>`, `getPermissionStatus(): Promise<PermissionStatus>`, `start(): Promise<void>`, `stop(): Promise<void>`, `onFix(cb): () => void`.
+- [x] **[Wave A — built]** `location-tracker/port.ts` — `requestPermission()`, `getPermissionStatus()`, `start()`, `stop()`, `onFix(cb): () => void`. Status type exported as **`LocationPermissionStatus`** (`'granted' | 'denied' | 'undetermined'`) — named distinctly from expo-location's own `PermissionStatus` to avoid an adapter import collision (T9). Downstream (T9/T20) import `LocationPermissionStatus`.
 - **Review surface:** one interface. Reviewers check no expo-location types leak, `onFix` returns an unsubscribe, permission is queryable + requestable.
 
 ### Wave B — adapters & persistence
@@ -293,7 +299,7 @@ each task — that is what the two reviewers attack.
 - **Review surface:** one adapter. Reviewers check transaction boundary, single-row snapshot invariant, batch correctness, failure propagation.
 
 #### T8. `save-run.ts`: active-row start + finalize rollup
-- [ ] `startRun()` inserts the `'active'` `runs` row (returns `runId`). `finalize` UPDATEs it → `completed`/`partial`, writes `distance_m`, `summary_polyline` (via `geo.encodePolyline`), `ended_at`, `active_duration_s`; inserts `run_segments` with per-segment distance grouped from `run_points`. Extend `CompletedRunRecord`/`CompletedSegmentRecord` with `distanceM`.
+- [ ] `startRun()` inserts the `'active'` `runs` row (returns `runId`) **with NOT-NULL placeholders `ended_at = started_at`, `active_duration_s = 0`** (columns stay NOT NULL — Wave A). `finalize` UPDATEs it → `completed`/`partial`, writing the real `ended_at`, `active_duration_s`, `distance_m`, `summary_polyline` (via `geo.encodePolyline`); inserts `run_segments` with per-segment distance grouped from `run_points`. Extend `CompletedRunRecord`/`CompletedSegmentRecord` with `distanceM`.
 - **Review surface:** record types + `save-run.ts` diff. Reviewers check the active→terminal transition, per-segment distance derivation from points, polyline over the right point set, and the superseded-run generation guard still holds.
 
 #### T9. `LocationTracker` iOS adapter + module-scope task

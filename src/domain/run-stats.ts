@@ -24,16 +24,12 @@ export function runStats(segments: RunStatsSegment[]): RunStats {
   };
 }
 
-/** A segment carrying the recorded distance the pace derivations read (`null` when GPS was off). */
+/** A segment plus its recorded distance; `distanceM` is null when GPS was off. */
 export interface PaceSegment extends RunStatsSegment {
   distanceM: number | null;
 }
 
-/**
- * Pace in seconds per kilometre, derived (never stored) from a distance and a
- * duration. `null` for a degenerate input — no distance or no elapsed time — so
- * callers render a placeholder instead of a bogus `0`/`∞`.
- */
+/** Pace in seconds per km; null for degenerate input (no distance or no time) so callers show a placeholder. */
 export function paceSecPerKm(distanceM: number, durationS: number): number | null {
   if (distanceM <= 0 || durationS <= 0) return null;
   return (durationS / distanceM) * 1000;
@@ -46,11 +42,8 @@ export function segmentPaceSecPerKm(segment: PaceSegment): number | null {
 }
 
 /**
- * The fastest (lowest-pace) `run` segment that has a recorded distance, or `null`
- * if none qualifies — the summary's "fastest interval" highlight. Returns the
- * input element itself (reference-preserving) so the caller can flag the matching
- * row with `===`. Ties keep the earlier segment (array-order-first) — callers pass
- * segments in `seq` order for the earliest interval to win.
+ * Fastest (lowest-pace) `run` segment with a recorded distance, or null. Returns the
+ * input element itself so callers can flag the row by `===`; ties keep the earlier segment.
  */
 export function bestRunSegment<T extends PaceSegment>(segments: T[]): T | null {
   let best: T | null = null;

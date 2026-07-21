@@ -94,12 +94,8 @@ export function formatRunDate(iso: string, locale?: string): string {
 }
 
 /**
- * Distance in kilometres, metric only, always to two decimals so the value
- * keeps a stable width in a monospacedDigit row: `2310 → "2.31 km"`,
- * `0 → "0.00 km"`. Defensive like the rest of this module: negative input
- * (never expected from the haversine accumulator) clamps to zero, and
- * non-finite input (`NaN`/`±Infinity`) renders `"0.00 km"` rather than
- * `"NaN km"`, matching the guard on its sibling formatPace.
+ * Kilometres to two decimals (`2310 → "2.31 km"`). Negative clamps to 0 and
+ * non-finite renders `"0.00 km"`, never `"NaN km"` (matches formatPace's guard).
  */
 export function formatDistanceKm(meters: number): string {
   if (!Number.isFinite(meters)) {
@@ -109,16 +105,8 @@ export function formatDistanceKm(meters: number): string {
 }
 
 /**
- * Average pace as `m:ss /km`, metric only: `389 → "6:29 /km"`. Pace is a
- * duration/distance quotient, so it is structurally degenerate before any
- * distance exists — a nullish value (straight from `paceSecPerKm`, which
- * returns `number | null`), `0`, negatives, `Infinity` (distance 0), and
- * `NaN` (0/0) all render the `--:-- /km` placeholder instead of a bogus
- * clock. Seconds round to the nearest whole second — an unbiased average,
- * unlike formatClock's countdown ceil, and the rounding is what carries
- * `359.6 → 360 → "6:00"`; a value that rounds down to zero seconds is
- * degenerate too. The rounded integer is then handed to formatClock, reusing
- * the one canonical m:ss splitter (padding + minute math).
+ * Average pace as `m:ss /km` (`389 → "6:29 /km"`). Nullish, 0, negative, and
+ * non-finite render the `--:-- /km` placeholder; seconds round to nearest.
  */
 export function formatPace(secondsPerKm: number | null): string {
   if (secondsPerKm == null || !Number.isFinite(secondsPerKm)) {

@@ -68,9 +68,15 @@ state is **ephemeral** — the DB is authoritative. The engine holds only a runn
 `distanceM` display-cache + the `lastAcceptedFix` haversine anchor; **per-segment
 distance is never a stored scalar** — it is derived from `run_points` (grouped by
 `segment_seq`) at finalize. On resume, `distanceM` is recomputed from persisted
-`run_points`, so there is no second source of truth to diverge. The heavy,
-review-worthy logic lives in pure modules (`domain/geo.ts`, the scheduler) and one
-DB adapter; the engine gains only thin, fault-isolated coordination.
+`run_points`, so there is no second source of truth to diverge. **Pace** (overall
+and per-segment) and the **fastest interval** ("best segment") are likewise pure
+derivations — computed on demand from persisted per-segment `distance_m` +
+`actual_duration_s`, never stored as columns: runs are immutable after finalize,
+so nothing can diverge and a pace column would only duplicate truth for no v1
+benefit. Persisting per-segment distance is precisely what unlocks the
+best-segment highlight. The heavy, review-worthy logic lives in pure modules
+(`domain/geo.ts`, `domain/run-stats.ts`, the scheduler) and one DB adapter; the
+engine gains only thin, fault-isolated coordination.
 
 ## Point persistence & crash-recovery contract (settled — was the #1 review point)
 
@@ -181,7 +187,8 @@ src/
 ├── domain/
 │   ├── geo.ts / geo.test.ts             # NEW: LocationFix, accuracyFilter, haversineMeters, boundingBox, encodePolyline
 │   ├── cues.ts / cues.test.ts           # EDIT: add `resuming` cue (phrase, interval category)
-│   └── format.ts / format.test.ts       # EDIT: formatDistanceKm, formatPace (metric only)
+│   ├── format.ts / format.test.ts       # EDIT: formatDistanceKm, formatPace (metric only)
+│   └── run-stats.ts / run-stats.test.ts # EDIT: paceSecPerKm, segmentPaceSecPerKm, bestRunSegment (derived)
 ├── services/
 │   ├── run-store/
 │   │   ├── port.ts                       # NEW: RunStore { appendPoints, saveSnapshot, loadSnapshot, clearSnapshot } + types
@@ -206,6 +213,7 @@ src/
 └── app/
     ├── _layout.tsx                       # EDIT: async crash-resume gate (Resume run? ConfirmationDialog)
     ├── run.tsx                           # EDIT: live distance/pace row; location-denied banner
+    ├── run-summary/[id].tsx              # EDIT: per-segment distance/pace + fastest-interval highlight
     ├── session/[key].tsx                 # EDIT: just-in-time permission ask at first run start
     ├── onboarding/location-primer.tsx    # NEW: primer step (Enable → requestPermission; Not now → skip)
     └── (tabs)/settings/index.tsx         # EDIT: Location status row + Linking.openSettings() when denied
@@ -226,8 +234,9 @@ tasks *within* a wave are independent (code-writers use separate worktrees if
 they touch overlapping files); waves are ordered. See the "review surface" on
 each task — that is what the two reviewers attack.
 
-- **Wave A (pure/foundational):** T1 geo · T2 format · T3 schema+queries+migration
-  · T4 RunStore port · T5 batch scheduler · T6 LocationTracker port.
+- **Wave A (pure/foundational):** T1 geo · T2 format · T2b pace+best-segment · T3
+  schema+queries+migration · T4 RunStore port · T5 batch scheduler · T6
+  LocationTracker port.
 - **Wave B (adapters/persistence):** T7 RunStore DB adapter · T8 save-run
   (active-row + finalize rollup) · T9 LocationTracker iOS adapter + module-scope
   task · T10 app-entry task registration · T11 app.json/background audio/`resuming` cue.
@@ -236,8 +245,9 @@ each task — that is what the two reviewers attack.
   resume-rebuild (`restore()`) · T15 composition root + onFix→heartbeat + start/stop
   lifecycle + `detectResumableRun`.
 - **Wave D (UI, HIG):** T16 `OnboardingStepScreen` two-action extension · T17
-  run-screen distance/pace + denied banner · T18 crash-resume dialog · T19
-  location-primer + JIT ask · T20 Settings location row/deep-link.
+  run-screen distance/pace + denied banner · T17b run-summary per-segment pace +
+  fastest-interval highlight · T18 crash-resume dialog · T19 location-primer + JIT
+  ask · T20 Settings location row/deep-link.
 - **Wave E:** T21 Maestro flows (+ shared-helper pre-grant) · T22 objective gate +
   sim verification · T23 Milestone-0 device checklist (external gate).
 
@@ -253,6 +263,10 @@ each task — that is what the two reviewers attack.
 #### T2. `domain/format.ts` distance/pace formatters (TDD)
 - [ ] `formatDistanceKm(m)` (`2.31 km`, metric); `formatPace(secPerKm)` (`6:29 /km`, handles 0/∞ distance). Tests for rounding + degenerate inputs.
 - **Review surface:** two pure formatters + tests. Reviewers check rounding, zero-distance pace, locale-free output.
+
+#### T2b. `domain` pace + best-segment helpers (TDD)
+- [ ] In `domain/run-stats.ts`: `paceSecPerKm(distanceM, durationS)` (null when `distanceM <= 0`); `segmentPaceSecPerKm(segment)` from its `distance_m` + `actual_duration_s`; `bestRunSegment(segments)` → the fastest `kind === 'run'` segment (lowest pace) with a recorded distance, else `null`. Tests: null/zero-distance, no-run-segment, tie-break.
+- **Review surface:** pure helpers + tests. Reviewers check the pace formula (sec/km), the run-only filter, null/zero handling, and that pace stays a derivation (no persisted pace column).
 
 #### T3. DB schema + queries + migration
 - [ ] Add `runPoints` (`(runId, seq)` PK, FK → runs, columns per spec §4) + `activeRunSnapshot` (`id` CHECK=1, `stateJson`, `updatedAt`). Add `'active'` to `runs.status`; make `ended_at` nullable; default `active_duration_s`.
@@ -325,6 +339,10 @@ each task — that is what the two reviewers attack.
 - [ ] `tone="secondary"` `monospacedDigit` distance/pace row in the `VStack` (below elapsed/total), from the engine snapshot; hidden/placeholder when location off. Location-denied SwiftUI banner (top of `VStack`) linking to Settings.
 - **Review surface:** `run.tsx` diff. Reviewers check HIG (Dynamic-Type, `accessibilityHidden`, RN-leaf-needs-View-wrapper), snapshot-only (no engine coupling in the view), Reduce-Motion safety.
 
+#### T17b. Run summary: per-segment distance/pace + fastest-interval highlight
+- [ ] On `src/app/run-summary/[id].tsx`: overall avg pace + total distance (derived); the per-segment table shows each segment's distance + pace (`segmentPaceSecPerKm`); visually **highlight the fastest interval** (`bestRunSegment`) — a "Fastest" badge/accent on that row. HIG-audit idioms (`StatGrid`/`StatList`, `monospacedDigit`, Dynamic-Type). No-GPS fallback: no distance → hide pace/highlight, keep the time-based summary.
+- **Review surface:** the run-summary diff. Reviewers check derivation-only (no stored pace), correct fastest-segment selection, graceful no-GPS fallback, and HIG conformance.
+
 #### T18. Crash-resume "Resume run?" dialog
 - [ ] `_layout.tsx`: after the migrations gate, `await detectResumableRun()`; if resumable, present a `ConfirmationDialog` (Resume · Discard). Resume → `resume()` + `router.push('/run')` + `cueService.announce('resuming')` (routes through the `index.ts` gate). Discard → finalize `partial`.
 - **Review surface:** `_layout.tsx` diff. Reviewers check the **async** load is sequenced correctly relative to the migrations + OnboardingGate, no double-present on re-render, and the resume cue is gated.
@@ -357,7 +375,8 @@ each task — that is what the two reviewers attack.
 
 A real 30-min outdoor run, phone locked, music playing → correct cues, route
 data, and distance (the **device gate**, T23). Verifiable in-repo: distance/pace
-live + summary + Log; permission primer allow/deny; denied-path session completes
+live + summary + Log (incl. per-segment pace and the fastest-interval highlight);
+permission primer allow/deny; denied-path session completes
 with the honest banner; resume-after-kill restores elapsed + track;
 `lint`/`typecheck`/`bun test` green; stage Maestro flows pass. Map rendering
 remains a documented Stage 4 gap.

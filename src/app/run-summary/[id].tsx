@@ -3,6 +3,7 @@ import { asc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Island } from '@/components/island';
 import { RunStatGrid } from '@/components/run-stat-grid';
@@ -31,6 +32,7 @@ export const UNSAVED_RUN_ID = 'unsaved';
 export default function RunSummaryScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
   const celebrating = celebrate === '1';
 
@@ -61,9 +63,11 @@ export default function RunSummaryScreen() {
   const doneToolbar = celebrating ? (
     <Stack.Toolbar placement="bottom">
       {/* hidesSharedBackground drops the toolbar's glass capsule so only our
-          filled CTA shows; the width matches the session sheet's px-6 inset. */}
+          filled CTA shows; width - 32 = 16 pt/side to align with the scroll
+          content's px-4 cards, and the bottom padding is the real safe-area
+          inset (hidesSharedBackground strips the toolbar's own). */}
       <Stack.Toolbar.View hidesSharedBackground>
-        <View style={{ width: width - 48 }} className="pb-6">
+        <View style={{ width: width - 32, paddingBottom: Math.max(insets.bottom, 8) }}>
           <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
         </View>
       </Stack.Toolbar.View>
@@ -84,11 +88,7 @@ export default function RunSummaryScreen() {
             <ContentUnavailableView
               title={unsaved ? 'Run not saved' : 'Run unavailable'}
               systemImage={unsaved ? 'exclamationmark.triangle' : 'questionmark.circle'}
-              description={
-                unsaved
-                  ? 'This run could not be saved. Sorry about that.'
-                  : "This run isn't available."
-              }
+              description={unsaved ? "This run couldn't be saved." : "This run isn't available."}
             />
           </Island>
         </View>

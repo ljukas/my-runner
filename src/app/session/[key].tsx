@@ -19,12 +19,14 @@ import {
   sessionTotalSeconds,
   sessionWalkSeconds,
 } from '@/domain/plan';
+import { useTheme } from '@/hooks/use-theme';
 import { useActivePlan } from '@/services/active-plan';
 import { runEngine } from '@/services/run-engine';
 
 export default function SessionSheet() {
   const { key } = useLocalSearchParams<'/session/[key]'>();
   const router = useRouter();
+  const colors = useTheme();
   const plan = useActivePlan();
   const session = getSession(plan, key);
   const { data: attempts, updatedAt } = useLiveQuery(
@@ -40,25 +42,31 @@ export default function SessionSheet() {
   return (
     <View className="gap-6 bg-background px-6 pt-8">
       <View className="gap-1.5">
-        <Text variant="subtitle">{sessionTitle(session.key)}</Text>
+        <Text variant="subtitle" accessibilityRole="header">
+          {sessionTitle(session.key)}
+        </Text>
         <Text variant="footnote" tone="secondary">
           {sessionSummary(session)}
         </Text>
       </View>
       <Card className="gap-4">
-        <SegmentBar segments={session.segments} />
+        <SegmentBar
+          segments={session.segments}
+          accessibilityLabel="Interval timeline"
+          dividerColor={colors.backgroundElement}
+        />
         <SegmentLegend segments={session.segments} />
         <View className="h-px bg-background-selected" />
         <StatList>
           <StatList.Row label="Total" value={formatMinutes(sessionTotalSeconds(session))} />
-          <StatList.Row label="Running" value={formatMinutes(sessionRunSeconds(session))} />
-          <StatList.Row label="Walking" value={formatMinutes(sessionWalkSeconds(session))} />
+          <StatList.Row label="Run" value={formatMinutes(sessionRunSeconds(session))} />
+          <StatList.Row label="Walk" value={formatMinutes(sessionWalkSeconds(session))} />
           <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
         </StatList>
       </Card>
       <Island.Button
         fill
-        label="Start session"
+        label="Start Session"
         onPress={() => {
           // The engine's start() no-ops unless idle, so reset any prior
           // finished run here (its state lingers harmlessly until now — no

@@ -11,7 +11,9 @@ import { cn } from '@/lib/cn';
 const badgeLabelVariants = cva('font-semibold', {
   variants: {
     tone: {
-      positive: 'text-primary',
+      // D: the completed state reads green (the success token), matching the Plan
+      // completed-checkmarks, rather than reusing the interactive accent blue.
+      positive: 'text-success',
       neutral: 'text-foreground-secondary',
     },
   },

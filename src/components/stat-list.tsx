@@ -1,4 +1,4 @@
-import { View, type ViewProps } from 'react-native';
+import { PixelRatio, View, type ViewProps } from 'react-native';
 
 import { Text } from '@/components/ui/text';
 import { cn } from '@/lib/cn';
@@ -14,10 +14,19 @@ function StatListRoot({ className, ...props }: ViewProps) {
 }
 
 function StatListRow({ label, value }: { label: string; value: string }) {
+  // Stack value under label at accessibility Dynamic Type so the two don't collide.
+  const stacked = PixelRatio.getFontScale() >= 1.6;
   return (
-    <View className="flex-row justify-between">
-      <Text tone="secondary">{label}</Text>
-      <Text>{value}</Text>
+    <View
+      className={stacked ? 'flex-col items-start gap-0.5' : 'flex-row items-center justify-between'}
+      accessible // F8: one VoiceOver stop
+      accessibilityLabel={`${label}, ${value.replace('×', ' times')}`} // F8: "12 times"
+    >
+      <Text tone="secondary" className="flex-shrink" numberOfLines={stacked ? undefined : 1}>
+        {label}
+      </Text>
+      {/* F10: tabular figures so value columns line up */}
+      <Text style={{ fontVariant: ['tabular-nums'] }}>{value}</Text>
     </View>
   );
 }

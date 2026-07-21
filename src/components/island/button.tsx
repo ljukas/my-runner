@@ -1,6 +1,6 @@
 import { Button, Text } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, font, frame, padding, tint } from '@expo/ui/swift-ui/modifiers';
-import { Platform } from 'react-native';
+import { PixelRatio, Platform } from 'react-native';
 
 import { Button as PillButton } from '@/components/ui/button';
 import { useTheme } from '@/hooks/use-theme';
@@ -45,7 +45,7 @@ export function IslandButton({
       ? [
           buttonStyle(isGlassAvailable() ? 'glassProminent' : 'borderedProminent'),
           controlSize('large'),
-          tint(colors.primary),
+          tint(colors.primaryFill),
         ]
       : [buttonStyle('bordered'), controlSize('large')];
   const role = variant === 'destructive' ? 'destructive' : undefined;
@@ -71,7 +71,11 @@ export function IslandButton({
   if (inline) return button;
 
   return fill ? (
-    <IslandHost style={{ width: '100%', height: 50 }}>{button}</IslandHost>
+    <IslandHost
+      style={{ width: '100%', height: Math.round(50 * Math.min(PixelRatio.getFontScale(), 2)) }}
+    >
+      {button}
+    </IslandHost>
   ) : (
     <IslandHost matchContents>{button}</IslandHost>
   );

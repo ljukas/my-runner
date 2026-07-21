@@ -26,15 +26,18 @@ export function OnboardingStepScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   return (
-    <View
-      className="flex-1 bg-background px-6"
-      style={{ paddingBottom: Math.max(insets.bottom, 16) }}
-    >
-      <ScrollView contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false}>
-        <View className="pt-10 pb-6">{children}</View>
+    <View className="flex-1 bg-background" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
+      {/* Full-width ScrollView so the scroll indicator sits at the screen edge;
+          horizontal inset lives on the content. The footnote scrolls WITH the
+          content (not pinned) so it can't dominate the screen at large Dynamic
+          Type — only the CTA stays pinned. */}
+      <ScrollView contentInsetAdjustmentBehavior="automatic">
+        <View className="px-6 pt-10 pb-6">
+          {children}
+          {footnote ? <View className="pt-8">{footnote}</View> : null}
+        </View>
       </ScrollView>
-      <View className="gap-5 pt-2">
-        {footnote}
+      <View className="px-6 pt-2">
         <Island.Button
           fill
           label={buttonLabel}

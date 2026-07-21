@@ -33,9 +33,7 @@ export default function AudioCuesScreen() {
         />
       </View>
       <View className="pt-9">
-        <Text variant="largeTitle" tone="primary">
-          Your pocket
-        </Text>
+        <Text variant="largeTitle">Your pocket</Text>
         <Text variant="largeTitle">running coach</Text>
       </View>
       <View className="gap-6 pt-7">

@@ -22,6 +22,9 @@ export const Colors = {
     textSecondary: '#60646C',
     primary: PRIMARY,
     primaryForeground: '#ffffff',
+    primaryFill: '#0071E3',
+    success: '#34C759',
+    successForeground: '#ffffff',
     destructive: '#FF3B30',
     destructiveForeground: '#ffffff',
   },
@@ -33,8 +36,11 @@ export const Colors = {
     backgroundGrouped: '#000000',
     backgroundCard: '#1C1C1E',
     textSecondary: '#B0B4BA',
-    primary: PRIMARY,
+    primary: '#5C9DFF',
     primaryForeground: '#ffffff',
+    primaryFill: '#0071E3',
+    success: '#30D158',
+    successForeground: '#ffffff',
     destructive: '#FF453A',
     destructiveForeground: '#ffffff',
   },
@@ -42,12 +48,44 @@ export const Colors = {
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
-/** Segment-kind accents (Beacon palette), shared by the SegmentBar, legend, and run screen. */
-export const SegmentColors: Record<SegmentKind, string> = {
-  warmup: '#FF7A00',
-  run: PRIMARY,
-  walk: '#FFC400',
-  cooldown: '#00B39A',
+/** Segment-kind accents — Apple iOS system colors (vibrant), per color scheme.
+ * warmup=systemOrange, run=systemRed (Apple activity/Health red), walk=systemYellow,
+ * cooldown=systemTeal. Shared by the SegmentBar, legend, run screen, and summary.
+ * Access via the `useSegmentColors()` hook so it follows light/dark. */
+export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>> = {
+  light: {
+    warmup: '#FF9500',
+    run: '#007AFF',
+    walk: '#8E8E93',
+    cooldown: '#30B0C7',
+  },
+  dark: {
+    warmup: '#FF9F0A',
+    run: '#0A84FF',
+    walk: '#8E8E93',
+    cooldown: '#40CBE0',
+  },
+};
+
+/** Run-summary stat-tile accents (ADR 0013) — chosen for the summary cards and
+ * intentionally INDEPENDENT of the segment-bar palette (they need not match).
+ * Apple iOS system colors, per color scheme. Access via `useStatColors()`. */
+export const StatColors: Record<
+  'light' | 'dark',
+  { running: string; intervals: string; activeTime: string; longestRun: string }
+> = {
+  light: {
+    running: '#FF3B30', // systemRed
+    intervals: '#FF9500', // systemOrange
+    activeTime: '#007AFF', // systemBlue
+    longestRun: '#30B0C7', // systemTeal
+  },
+  dark: {
+    running: '#FF453A',
+    intervals: '#FF9F0A',
+    activeTime: '#0A84FF',
+    longestRun: '#40CBE0',
+  },
 };
 
 /** Segment-kind SF Symbols for the run screen phase label. Warm-up/cool-down are

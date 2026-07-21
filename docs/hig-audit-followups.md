@@ -41,6 +41,16 @@ and is not repeated here.
   Defensible to skip (a live value needs a JS seconds-mirror the component
   deliberately avoids), but a static role/label could be added.
 
+- [ ] **SegmentBreakdown bar — describe the silent colour bar to VoiceOver** — *minor, verify-gated*
+  The proportional `SegmentBar` is silent to VoiceOver (the adjacent legend
+  names each phase in text). A naive fix — `accessible` + a combined label on
+  the whole `SegmentBreakdown` card — **collapses the legend's per-phase labels
+  out of the a11y tree**, which broke `complete-session`'s
+  `scrollUntilVisible "Warm Up"` (the PR#33 combine trap). It was applied and
+  then reverted. **Approach:** put the spoken label on the `SegmentBar` element
+  alone, leaving the legend labels individually exposed; verify with `describe`
+  / VoiceOver **and** the E2E suite. **File:** `src/components/segment-breakdown.tsx`.
+
 - [ ] **Log `F2` — native `Island.Text` hard-codes hex over the system label color** — *minor, shared primitive*
   On the all-native Log/Plan lists, `Island.Text` emits `foregroundColor(hex)`
   even for the default tone, where SwiftUI's `label`/`.secondary` would apply for

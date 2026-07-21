@@ -3,8 +3,18 @@ tags:
   - session
 ---
 - runFlow: ../helpers/start-first-session.yaml
-# Every session opens with a warm-up segment.
-- assertVisible: "Warm up"
+# Every session opens with a warm-up segment. Poll (extendedWaitUntil) rather
+# than a bare assertVisible: the run screen animates continuously (Skia
+# countdown + progress bar), and a single assertVisible waits for that
+# animation to settle — which only happens with Reduce Motion enabled (CI does
+# this; see .github/workflows/e2e.yml). Polling reads the hierarchy directly,
+# so it catches the warm-up phase on the live screen without the settle wait —
+# the same pattern the "Nice work" wait below and log-revisit already rely on.
+# "Warm Up" is Title Case (SEGMENT_KIND_LABEL).
+- extendedWaitUntil:
+    visible:
+      text: "Warm Up"
+    timeout: 10000
 - extendedWaitUntil:
     visible:
       text: "Nice work.*"

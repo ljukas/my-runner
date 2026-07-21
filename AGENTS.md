@@ -100,6 +100,21 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   re-profiling after a fix), not a second E2E layer — regression flows live only in
   `.maestro/`.
 
+# Comments & documentation
+
+Architecture lives in ADRs; code should be self-explanatory. Comment only to add
+what the code and types cannot carry — when in doubt, delete the comment and fix
+the name or the type instead. (Retro: the first Stage-3 files landed ~49% comment
+lines, port files ~80% — JSDoc restating architecture and types. Don't repeat that.)
+
+- **Explain WHY, not WHAT** — never restate the code, the signature, or the types.
+- **Don't re-describe architecture** — reference the ADR (`// per ADR 0008`); don't re-explain ports/adapters, the event-log engine, etc.
+- **Rationale goes where it lives:** durable design → an ADR; why-this-change → the commit/PR body (Conventional Commits); a local non-obvious choice → a one-line `// why:` at the site.
+- **Types are the source of truth** (strict TS, [ADR 0014](docs/adr/0014-eslint-prettier-linting-stack.md)) — never write types in JSDoc (`@param {T}`, `@returns`, `@enum`, `@private`).
+- **JSDoc an exported symbol only** when its contract isn't obvious from the signature: units, ranges, rounding, null/empty semantics, ordering, side effects, throws. One line where possible; skip `@param`/`@returns` that add nothing.
+- **No** narrative JSDoc on internal/domain helpers; **no** commented-out code; keep interface comments free of implementation detail (if you can't, the abstraction is too shallow).
+- Non-obvious code: simplify it first; comment only what can't be simplified.
+
 # Architecture
 
 - **Routing:** expo-router file-based routing rooted at `src/app/` (entry point is `expo-router/entry` in package.json). Typed routes and the React Compiler are enabled via `experiments` in `app.json`.
@@ -135,3 +150,4 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0018 — Free-run route generation: on-device pure-JS loop heuristic behind a Route-generator port](docs/adr/0018-free-run-route-generation.md)
 - [ADR 0019 — App variants via dynamic app.config.ts selected by APP_VARIANT](docs/adr/0019-app-variants-dynamic-config.md)
 - [ADR 0020 — iOS-only for now: Android support deferred](docs/adr/0020-ios-only-android-deferred.md)
+- [ADR 0021 — On-device GPS track smoothing; no map-matching](docs/adr/0021-on-device-gps-track-smoothing.md)

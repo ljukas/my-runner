@@ -92,3 +92,29 @@ export function formatRunDate(iso: string, locale?: string): string {
     day: 'numeric',
   });
 }
+
+/**
+ * Kilometres to two decimals (`2310 → "2.31 km"`). Negative clamps to 0 and
+ * non-finite renders `"0.00 km"`, never `"NaN km"` (matches formatPace's guard).
+ */
+export function formatDistanceKm(meters: number): string {
+  if (!Number.isFinite(meters)) {
+    return '0.00 km';
+  }
+  return `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
+}
+
+/**
+ * Average pace as `m:ss /km` (`389 → "6:29 /km"`). Nullish, 0, negative, and
+ * non-finite render the `--:-- /km` placeholder; seconds round to nearest.
+ */
+export function formatPace(secondsPerKm: number | null): string {
+  if (secondsPerKm == null || !Number.isFinite(secondsPerKm)) {
+    return '--:-- /km';
+  }
+  const seconds = Math.round(secondsPerKm);
+  if (seconds <= 0) {
+    return '--:-- /km';
+  }
+  return `${formatClock(seconds)} /km`;
+}

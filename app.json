@@ -37,11 +37,18 @@
       ],
       "expo-sqlite",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Your location is used to map your route and measure distance during runs, including while your screen is locked.",
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
         "expo-audio",
         {
           "microphonePermission": false,
           "recordAudioAndroid": false,
-          "enableBackgroundPlayback": false
+          "enableBackgroundPlayback": true
         }
       ],
       "expo-asset",

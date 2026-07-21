@@ -25,7 +25,7 @@ import { useRouter } from 'expo-router';
 
 import { Island } from '@/components/island';
 import { db } from '@/db/client';
-import { runNotDeleted } from '@/db/queries';
+import { runIsResult } from '@/db/queries';
 import { runs } from '@/db/schema';
 import { clockParts, formatClock, formatRunDate, sessionTitle } from '@/domain/format';
 
@@ -50,7 +50,7 @@ export default function LogScreen() {
   const router = useRouter();
 
   const { data: visible } = useLiveQuery(
-    db.select().from(runs).where(runNotDeleted).orderBy(desc(runs.startedAt)),
+    db.select().from(runs).where(runIsResult).orderBy(desc(runs.startedAt)),
   );
 
   if (visible.length === 0) {

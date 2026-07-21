@@ -29,8 +29,9 @@ export interface LocationTracker {
   /** Stop location updates. Idempotent — safe to call when not started. */
   stop(): Promise<void>;
   /**
-   * Subscribe to accepted fixes; multiple listeners each receive every fix. Returns an
-   * idempotent unsubscribe that detaches only its own listener.
+   * Subscribe to raw delivered fixes; multiple listeners each receive every fix. Accuracy
+   * filtering and smoothing are the engine's responsibility (plan arch, ADR 0021), not the
+   * adapter's. Returns an idempotent unsubscribe that detaches only its own listener.
    */
   onFix(cb: (fix: LocationFix) => void): () => void;
 }

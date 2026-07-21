@@ -17,6 +17,7 @@ export const CUE_IDS = [
   'complete',
   'paused',
   'resumed',
+  'resuming',
 ] as const;
 
 export type CueId = (typeof CUE_IDS)[number];
@@ -35,6 +36,7 @@ export const CUE_CATEGORY: Record<CueId, CueCategory> = {
   complete: 'milestone',
   paused: 'interval',
   resumed: 'interval',
+  resuming: 'interval',
 };
 
 /** English cue script (spec §6). Warm-up and cool-down name the walk so the
@@ -49,6 +51,7 @@ export const CUE_PHRASE: Record<CueId, string> = {
   complete: 'Workout complete. Great job!',
   paused: 'Paused.',
   resumed: 'Resumed.',
+  resuming: 'Resuming your workout.',
 };
 
 /** Which cue announces entry into a segment of a given kind (except the final

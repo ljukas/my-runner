@@ -38,6 +38,11 @@ describe('cue tables', () => {
     };
     expect(SEGMENT_ENTRY_CUE).toEqual(expected);
   });
+
+  test('the resuming cue carries the crash-recovery phrase (spec §6)', () => {
+    expect(CUE_PHRASE.resuming).toBe('Resuming your workout.');
+    expect(CUE_CATEGORY.resuming).toBe('interval');
+  });
 });
 
 describe('effectiveCue gating', () => {
@@ -46,6 +51,11 @@ describe('effectiveCue gating', () => {
     expect(effectiveCue('startWalk', MILESTONE_ONLY)).toBeNull();
     expect(effectiveCue('warmupStart', MILESTONE_ONLY)).toBeNull();
     expect(effectiveCue('paused', MILESTONE_ONLY)).toBeNull();
+  });
+
+  test('resuming follows the interval toggle', () => {
+    expect(effectiveCue('resuming', INTERVAL_ONLY)).toBe('resuming');
+    expect(effectiveCue('resuming', MILESTONE_ONLY)).toBeNull();
   });
 
   test('milestone cues are suppressed when milestone cues are off', () => {

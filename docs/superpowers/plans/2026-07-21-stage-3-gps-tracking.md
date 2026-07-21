@@ -12,7 +12,7 @@
 > (flagged inline). Tasks use checkbox (`- [ ]`) syntax; each states its **review
 > surface** (the isolated artifact the two reviewers attack). Follows the C25K
 > spec (§4, §5, §6, §11, §13 Stage 3) and ADRs 0003, 0004, 0006, 0007, 0008,
-> 0009, 0013, 0016, 0019.
+> 0009, 0010, 0013, 0016, 0019, 0021.
 
 **Goal:** The phone goes in a pocket. GPS tracks the route and measures
 distance; the run engine keeps deriving segments and speaking cues **while the
@@ -179,9 +179,14 @@ await Location.startLocationUpdatesAsync(LOCATION_TASK, {
   mirrors the `run_points` columns (spec §4). (No `course`; add only if HealthKit
   later needs it.)
 - **`accuracyFilter(fix)`** — accept iff `accuracy != null && accuracy > 0 && accuracy <= 50` m (iOS reports `horizontalAccuracy <= 0` for invalid fixes — Wave A ratified).
-- **`haversineMeters(a, b)`** — great-circle delta; distance = `Σ` of consecutive
-  accepted deltas. Ingestion enforces monotonic timestamps + de-dupes the anchor
-  so a stale/duplicate background-batch fix cannot inflate distance.
+- **`haversineMeters(a, b)`** — great-circle delta between two points.
+- **Smoothing pipeline (ADR 0021):** distance is `Σ` of deltas over the
+  **forward-smoothed** stream, not raw fixes — a velocity/outlier gate, a
+  metre-plane forward Kalman (accuracy = measurement variance), a carried-residual
+  near-stationary deadband, and a max-gap anchor reset. Forward/causal, so the
+  live value equals the finalize/resume recomputation over `run_points`. Plus
+  `simplifyPolyline` (Douglas–Peucker) for Stage 4 render (presentation-only —
+  distance is never derived from it).
 - **`boundingBox(points)`** — min/max lat/lng (Stage 4 camera-fit; built now).
 - **`encodePolyline(points, precision = 5)`** — verify against a reference vector.
 
@@ -292,6 +297,11 @@ each task — that is what the two reviewers attack.
 - [x] **[Wave A — built]** `location-tracker/port.ts` — `requestPermission()`, `getPermissionStatus()`, `start()`, `stop()`, `onFix(cb): () => void`. Status type exported as **`LocationPermissionStatus`** (`'granted' | 'denied' | 'undetermined'`) — named distinctly from expo-location's own `PermissionStatus` to avoid an adapter import collision (T9). Downstream (T9/T20) import `LocationPermissionStatus`.
 - **Review surface:** one interface. Reviewers check no expo-location types leak, `onFix` returns an unsubscribe, permission is queryable + requestable.
 
+#### T6b. `domain/geo.ts` GPS smoothing pipeline (TDD) — ADR 0021
+- [ ] Pure, **forward/causal** functions: a velocity/outlier gate (median-window reference, Δt-aware, running-speed ceiling), a constant-velocity Kalman in a **local equirectangular metre plane** about a per-run reference latitude (`accuracy` = measurement variance; fixed `Q`), a **carried-residual** near-stationary deadband (never drops accumulated movement — a 1.4 m/s walker is fully counted), and a max-gap anchor reset. Distance = `Σ` haversine over the smoothed stream. Load-bearing params as named constants (ADR 0021 Parameters). Also `simplifyPolyline` (Douglas–Peucker) for the Stage 4 render (presentation-only).
+- **Review surface:** the pure smoothing module + tests. Reviewers check the metre-plane projection (not degrees), that `Q`/deadband don't under-count walking, forward-causal determinism (live == batch), boundary/gap handling, and that DP output never feeds distance.
+- **Done when:** `bun test` green on fixture tracks — including a walk-pace track that must not lose distance.
+
 ### Wave B — adapters & persistence
 
 #### T7. `RunStore` DB adapter
@@ -299,7 +309,7 @@ each task — that is what the two reviewers attack.
 - **Review surface:** one adapter. Reviewers check transaction boundary, single-row snapshot invariant, batch correctness, failure propagation.
 
 #### T8. `save-run.ts`: active-row start + finalize rollup
-- [ ] `startRun()` inserts the `'active'` `runs` row (returns `runId`) **with NOT-NULL placeholders `ended_at = started_at`, `active_duration_s = 0`** (columns stay NOT NULL — Wave A). `finalize` UPDATEs it → `completed`/`partial`, writing the real `ended_at`, `active_duration_s`, `distance_m`, `summary_polyline` (via `geo.encodePolyline`); inserts `run_segments` with per-segment distance grouped from `run_points`. Extend `CompletedRunRecord`/`CompletedSegmentRecord` with `distanceM`.
+- [ ] `startRun()` inserts the `'active'` `runs` row (returns `runId`) **with NOT-NULL placeholders `ended_at = started_at`, `active_duration_s = 0`** (columns stay NOT NULL — Wave A). `finalize` UPDATEs it → `completed`/`partial`, writing the real `ended_at`, `active_duration_s`, `distance_m` + per-segment distances **computed by re-running the ADR 0021 forward smoother over `run_points`** (not a raw `Σ haversine`; each smoothed delta attributed to the segment its end fix falls in, so per-segment sums to total), plus `summary_polyline` (via `geo.encodePolyline`) and `run_segments`. Extend `CompletedRunRecord`/`CompletedSegmentRecord` with `distanceM`.
 - **Review surface:** record types + `save-run.ts` diff. Reviewers check the active→terminal transition, per-segment distance derivation from points, polyline over the right point set, and the superseded-run generation guard still holds.
 
 #### T9. `LocationTracker` iOS adapter + module-scope task
@@ -320,7 +330,7 @@ each task — that is what the two reviewers attack.
 
 #### T12. Engine fix ingestion + distance/tagging (TDD)
 - [ ] RED (`engine.test.ts`, fake RunStore): accepted fixes accumulate distance; >50 m rejected; each point tagged with the current `segment_seq`; **no accumulation while `paused`**; stale/duplicate fix does not inflate distance; ingestion throwing does **not** stall timing/cues; accumulator reset in `start()`/`reset()` before `refresh()`.
-- [ ] GREEN: `heartbeat(now, fix?)` — derive timing/cues **first**, then `if (status==='running' && fix)` ingest inside try/catch (log+continue) via `domain/geo`; running `distanceM` cache + `lastAcceptedFix` anchor; extend `RunSnapshot` with live `distanceM`/pace.
+- [ ] GREEN: `heartbeat(now, fix?)` — derive timing/cues **first**, then `if (status==='running' && fix)` ingest inside try/catch (log+continue) via the `domain/geo` **forward smoother** (ADR 0021); the engine's in-memory ingest state carries the forward-filter state (position/velocity/covariance/ref-lat/residual) so live `distanceM` **is** the smoothed value; extend `RunSnapshot` with live `distanceM`/pace. The tiny crash snapshot does **not** serialize filter state — resume re-derives it (T14).
 - **Review surface:** `engine.ts`/`types.ts` ingestion diff + tests. Reviewers check timing-first ordering, pause gating, fault isolation, ephemeral accumulator (no per-segment scalar), anchor de-dup.
 
 #### T13. Engine batch-scheduler + snapshot persistence wiring
@@ -328,7 +338,7 @@ each task — that is what the two reviewers attack.
 - **Review surface:** the scheduler-wiring diff + tests. Reviewers check one-txn flush, watermark advance (no duplicate points), generation-guard coverage, no snapshot track.
 
 #### T14. Engine resume-rebuild (`restore()`)
-- [ ] Add a `restore(state)` entry point (bypasses the `idle` guard): re-resolve `PlanSession` from static plan data by `sessionKey` (add a `getSession(key)` helper if absent), replay the event log, reload the track from `run_points` (from `max(seq)+1`), restore anchor, recompute `distanceM`. Tests: resume restores elapsed+distance+track; stale snapshot not resumable.
+- [ ] Add a `restore(state)` entry point (bypasses the `idle` guard): re-resolve `PlanSession` from static plan data by `sessionKey` (add a `getSession(key)` helper if absent), replay the event log, reload `run_points` and **re-run the ADR 0021 forward smoother over them** to reconstruct the filter state + `distanceM` (continue appends from `max(seq)+1`). Tests: resume restores elapsed+distance+track; stale snapshot not resumable; recomputed distance matches the pre-crash live value.
 - **Review surface:** the `restore()` diff + tests. Reviewers check elapsed correctness post-resume, no double-count vs already-persisted points, anchor restoration (else first post-resume delta dropped).
 
 #### T15. Composition root + GPS↔engine wiring + resume detection
@@ -389,8 +399,8 @@ remains a documented Stage 4 gap.
 
 ## Deliberately absent (Stage 4+)
 
-Route **rendering** (segment-colored polylines, markers, camera-fit — Stage 4,
-expo-maps, iOS 18.0 floor); Apple Health write (Stage 5); the pre-recorded cue
+Route **rendering** (segment-colored polylines from the **DP-simplified smoothed
+track**, markers, camera-fit — Stage 4, expo-maps, iOS 18.0 floor, ADR 0021 §6); Apple Health write (Stage 5); the pre-recorded cue
 fallback adapter (built only if Milestone-0 fails); `course` on `LocationFix`
 (add only if HealthKit needs it); Android location adapter (port shape reserved,
 ADR 0008 §Consequences).

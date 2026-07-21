@@ -5,7 +5,9 @@ import {
   durationWords,
   formatClock,
   formatCountdown,
+  formatDistanceKm,
   formatMinutes,
+  formatPace,
   formatRunDate,
   sessionSummary,
   sessionTitle,
@@ -112,5 +114,57 @@ describe('clockParts', () => {
   });
   test('ceils like formatClock, so 59.2s already reads as a clock', () => {
     expect(clockParts(59.2)).toEqual({ value: '1:00', unit: 'min' });
+  });
+});
+
+describe('formatDistanceKm', () => {
+  test('metric, always two decimals', () => {
+    expect(formatDistanceKm(2310)).toBe('2.31 km');
+    expect(formatDistanceKm(0)).toBe('0.00 km');
+    expect(formatDistanceKm(1000)).toBe('1.00 km');
+    expect(formatDistanceKm(5000)).toBe('5.00 km');
+  });
+
+  test('rounds to two decimals (10 m) via toFixed', () => {
+    expect(formatDistanceKm(2314)).toBe('2.31 km');
+    expect(formatDistanceKm(2316)).toBe('2.32 km');
+    expect(formatDistanceKm(994)).toBe('0.99 km');
+    expect(formatDistanceKm(996)).toBe('1.00 km');
+    expect(formatDistanceKm(999)).toBe('1.00 km');
+  });
+
+  test('clamps negative input to zero, mirroring formatClock', () => {
+    expect(formatDistanceKm(-5)).toBe('0.00 km');
+  });
+
+  test('renders non-finite input as 0.00 km rather than garbage', () => {
+    expect(formatDistanceKm(NaN)).toBe('0.00 km');
+    expect(formatDistanceKm(Infinity)).toBe('0.00 km');
+    expect(formatDistanceKm(-Infinity)).toBe('0.00 km');
+  });
+});
+
+describe('formatPace', () => {
+  test('renders m:ss /km', () => {
+    expect(formatPace(389)).toBe('6:29 /km');
+    expect(formatPace(360)).toBe('6:00 /km');
+    expect(formatPace(605)).toBe('10:05 /km');
+    expect(formatPace(720)).toBe('12:00 /km');
+  });
+
+  test('rounds to the nearest second, carrying into the next minute', () => {
+    expect(formatPace(389.4)).toBe('6:29 /km');
+    expect(formatPace(389.6)).toBe('6:30 /km');
+    expect(formatPace(359.6)).toBe('6:00 /km');
+  });
+
+  test('degenerate paces render the placeholder, not a bogus clock', () => {
+    expect(formatPace(0)).toBe('--:-- /km');
+    expect(formatPace(0.4)).toBe('--:-- /km');
+    expect(formatPace(-5)).toBe('--:-- /km');
+    expect(formatPace(Infinity)).toBe('--:-- /km');
+    expect(formatPace(-Infinity)).toBe('--:-- /km');
+    expect(formatPace(NaN)).toBe('--:-- /km');
+    expect(formatPace(null)).toBe('--:-- /km');
   });
 });

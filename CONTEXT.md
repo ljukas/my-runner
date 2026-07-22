@@ -29,6 +29,11 @@ lazily — add a term when a module gets named after it.
   context (`RadioToggle.Group` / `RadioToggle.Item`).
 - **Token pair** — a surface color and its `-foreground` partner
   (`bg-primary` / `text-primary-foreground`); the palette's unit of growth.
+- **Live Activity** — the active **Run** mirrored onto the iOS Lock Screen and
+  Dynamic Island via the `services/live-activity` port (ADR 0022). Driven by the
+  **run engine**'s derived-segment-change seam (the one that also fires cues), not
+  by the view layer, so it stays fresh while the phone is locked; its countdown
+  self-renders via `@expo/ui/swift-ui` timer text, so between segments no JS runs.
 
 ## Support
 

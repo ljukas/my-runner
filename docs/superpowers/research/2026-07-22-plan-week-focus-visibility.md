@@ -19,9 +19,10 @@ staying fully local?
   first-use in this repo (a UI spike is the ADR's first task), native `Section` collapse
   forces the whole list into `sidebar` style, and manual-hide collides with the "next
   up" logic in a way the ADR must resolve.
-- **Local-first fit:** `Fully local` — pure UI + a small persisted "hidden weeks" set in
-  the existing `expo-sqlite/kv-store` seam. No network, no accounts, no analytics, no
-  schema migration. Holds the AGENTS.md line trivially.
+- **Local-first fit:** `Fully local` — pure UI + a small persisted plan-view state (the
+  set of hidden weeks *and* the collapsed/expanded state of groups) in the existing
+  `expo-sqlite/kv-store` seam. No network, no accounts, no analytics, no schema migration.
+  Holds the AGENTS.md line trivially.
 - **Recommended approach:** Ship the zero-risk **baseline** always-on (reorder completed
   weeks to the bottom + gray them via modifiers), then add **native collapse** — front-
   runner `DisclosureGroup` so the list keeps its current inset-grouped look — and a
@@ -123,9 +124,14 @@ official Expo docs. All verified 2026-07-22.
   no RN runtime.
 - **Persistence is the existing kv-store seam.** Settings/onboarding/active-plan persist a
   JSON blob through `StringStorage` (`getItemSync`/`setItemSync`) with a `create*Store`
-  factory + a `use*` hook (`src/services/settings.ts`, `storage.ts`). A `hiddenWeeks:
-  number[]` (or a small `plan-view` store) slots in identically — fully local, corruption-
-  safe (`readJson` returns `null` on bad JSON), no migration.
+  factory + a `use*` hook (`src/services/settings.ts`, `storage.ts`). A small `plan-view`
+  store holding **both** the hidden-weeks set and the collapsed/expanded state (e.g.
+  `{ hiddenWeeks: number[]; collapsedWeeks: number[] }`, or a per-week view-state map)
+  slots in identically — fully local, corruption-safe (`readJson` returns `null` on bad
+  JSON), no migration. **Required (per project owner, 2026-07-22): both the hidden state
+  and the collapsed/expanded ("closing of groups") state persist across app sessions** —
+  so collapse is *not* purely derived/ephemeral; the derived "completed ⇒ collapsed"
+  default seeds the stored state on first encounter, and user toggles overwrite it.
 - **These components are first-use in this repo.** A grep of `src/` finds no existing use
   of `DisclosureGroup`, `SwipeActions`, `isExpanded`, `List.ForEach`, `onDelete`, or
   `onMove`; only `listStyle` is already used. So the collapse/swipe behavior is documented
@@ -202,12 +208,13 @@ core is unconditional and pure TS. The caveats are bounded and non-blocking:
 
 ## Local-first assessment
 
-**`Fully local`.** The whole feature is presentation plus one on-device preference (a set
-of hidden week numbers) persisted through the same `expo-sqlite/kv-store` seam that already
-backs settings and onboarding — no backend, no account, no analytics, no network call, and
-no Drizzle schema migration (kv-store, not the runs DB). It rides iCloud's kv-store backup
-for free like the other preferences. Auto de-emphasis/collapse is *derived* from existing
-`completedKeys`, so it persists nothing extra. The line in AGENTS.md is untouched.
+**`Fully local`.** The whole feature is presentation plus a small on-device plan-view
+state (hidden weeks + collapsed/expanded state, both required to persist across sessions)
+kept through the same `expo-sqlite/kv-store` seam that already backs settings and
+onboarding — no backend, no account, no analytics, no network call, and no Drizzle schema
+migration (kv-store, not the runs DB). It rides iCloud's kv-store backup for free like the
+other preferences. Auto de-emphasis is *derived* from existing `completedKeys`; the auto
+collapse default merely seeds the persisted state. The line in AGENTS.md is untouched.
 
 ## Recommendation
 
@@ -218,8 +225,10 @@ pure, testable domain logic. Layer **native collapse** on top with **Option B
 the app's existing inset-grouped look; fall back to **Option C (`sidebar` Sections)** only
 if a spike shows the source-list aesthetic is acceptable app-wide. Provide **manual
 hide/unhide** via a custom `SwipeActions` "Hide" button (or a `ContextMenu` long-press at
-the week level), persisted to kv-store, with a "Show N hidden weeks" reveal. New idioms
-wrap into `island/`/`ui/` per ADR 0013; the reorder logic lands in `@/domain/plan`.
+the week level), with a "Show N hidden weeks" reveal. Both the hidden-weeks set and the
+collapsed/expanded state persist across app sessions in a `plan-view` kv-store store (per
+project owner). New idioms wrap into `island/`/`ui/` per ADR 0013; the reorder logic lands
+in `@/domain/plan`.
 
 > This is an assessment, not a decision to build. A build commitment — and the choice
 > between the `DisclosureGroup` and `sidebar` collapse mechanisms, plus the hide-vs-"next
@@ -239,10 +248,12 @@ wrap into `island/`/`ui/` per ADR 0013; the reorder logic lands in `@/domain/pla
   Edit-mode toggle. Pick one in the spike.
 - **Collapse mechanism:** `DisclosureGroup` (keeps look, restructures) vs `sidebar`
   `Section` (minimal restructure, restyles list). Resolve with the on-device spike.
-- **Is expand/collapse state persisted or ephemeral?** Auto-collapsing completed weeks can
-  be derived (no storage). If the user manually re-expands a completed week, do we remember
-  that across launches, or reset to the derived default? Only the hidden-weeks set clearly
-  needs persistence.
+- **Expand/collapse persistence — DECIDED (project owner, 2026-07-22): persist it.** The
+  "closing of groups" (collapsed/expanded state) must survive app restarts, alongside the
+  hidden-weeks set — both live in the `plan-view` kv-store store. The auto "completed ⇒
+  collapsed" rule is the *default* that seeds a week's stored state; once the user toggles
+  it, the stored value wins on subsequent launches. Remaining sub-question for the ADR:
+  what re-seeds/overrides the default when a not-yet-seen week later completes.
 - **Reveal affordance:** a "Show N hidden weeks" list footer/row, a Settings toggle, or
   both. Also: unhiding — swipe/ContextMenu on the revealed hidden weeks.
 - **Empty/degenerate states:** all weeks completed (does the list invert to a "completed"

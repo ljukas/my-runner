@@ -9,7 +9,7 @@ import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
 import { isTimelineExhausted, RunEngine } from './engine';
-import { isSnapshotFresh, parseSnapshotState } from './resumable';
+import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
 
 export { endCountsAsCompleted } from './engine';
 
@@ -31,6 +31,8 @@ export interface ResumableRun {
   runId: string;
   session: PlanSession;
   state: RunSnapshotState;
+  /** Where this run's record ends if it is abandoned rather than resumed (`snapshotAliveUntil`). */
+  aliveUntil: number;
 }
 
 // Background location updates outlive the process, so anything that ends without a live run must
@@ -78,8 +80,13 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       return stopIdleTracking();
     }
 
-    const candidate: ResumableRun = { runId: active.id, session, state };
     const now = Date.now();
+    const candidate: ResumableRun = {
+      runId: active.id,
+      session,
+      state,
+      aliveUntil: snapshotAliveUntil(loaded.updatedAt, now),
+    };
     if (
       !isSnapshotFresh(loaded.updatedAt, session, now) ||
       isTimelineExhausted(session, state.events, now)

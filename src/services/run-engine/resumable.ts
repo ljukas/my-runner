@@ -71,3 +71,14 @@ export function isSnapshotFresh(updatedAt: string, session: PlanSession, now: nu
   const age = now - stampedAt;
   return age >= 0 && age < sessionTotalSeconds(session) * 1000 + RESUME_GRACE_MS;
 }
+
+/**
+ * Where an interrupted run's record ends: its own flush stamp, the last moment the run is known to
+ * have been alive. Finalizing there rather than at `now` keeps a dead process's wall clock out of the
+ * record — nothing was tracked after it. Falls back to `now` for an unparseable stamp, and never runs
+ * ahead of `now`, which a forwards device-clock jump would otherwise do.
+ */
+export function snapshotAliveUntil(updatedAt: string, now: number): number {
+  const stampedAt = Date.parse(updatedAt);
+  return Number.isNaN(stampedAt) ? now : Math.min(stampedAt, now);
+}

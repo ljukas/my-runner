@@ -141,6 +141,11 @@ export interface RunRestoreInput {
   points: readonly BufferedRunPoint[];
 }
 
+export interface RunAbandonInput extends Omit<RunRestoreInput, 'points'> {
+  /** Epoch ms the record ends at — the run's last known-alive instant (`snapshotAliveUntil`). */
+  aliveUntil: number;
+}
+
 function toRunPoint(point: BufferedRunPoint): RunPoint {
   return { ...point, timestamp: new Date(point.timestamp).toISOString() };
 }
@@ -304,11 +309,13 @@ export class RunEngine {
   /**
    * Finalize an unresumable in-flight run as `partial` from its log, then return to idle. Never
    * `completed`, even from the final cool-down: only the runner's own end event can complete a run.
+   * The record ends at `aliveUntil`, not at now: the process was dead after it, so the wall clock in
+   * between belongs to no one — crediting it would bill the run for time nothing was tracked.
    */
-  async abandon(input: Omit<RunRestoreInput, 'points'>): Promise<void> {
+  async abandon(input: RunAbandonInput): Promise<void> {
     if (this.status !== 'idle') return;
     if (!this.rebuild({ ...input, points: [] })) return;
-    await this.finalize('endedEarly', false);
+    await this.finalize('endedEarly', false, input.aliveUntil);
     this.reset();
   }
 
@@ -345,9 +352,9 @@ export class RunEngine {
   // --- derivation ---
 
   /** Event timestamps are clamped non-decreasing so elapsed can never go negative (ADR 0007). */
-  private append(type: RunEvent['type']): void {
+  private append(type: RunEvent['type'], at?: number): void {
     const last = this.events[this.events.length - 1];
-    this.events.push({ type, at: Math.max(this.clock(), last?.at ?? 0) });
+    this.events.push({ type, at: Math.max(at ?? this.clock(), last?.at ?? 0) });
     if (type === 'skip') this.cachedTimeline = null;
   }
 
@@ -498,9 +505,10 @@ export class RunEngine {
   private async finalize(
     requestedKind: 'completed' | 'endedEarly',
     promoteInCooldown = true,
+    at?: number,
   ): Promise<void> {
     if (!this.session || this.events.length === 0) return;
-    this.append('end');
+    this.append('end', at);
     const endAt = this.events[this.events.length - 1].at;
     const timeline = this.timeline();
     const total = totalSeconds(timeline);

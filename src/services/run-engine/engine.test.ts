@@ -1246,7 +1246,12 @@ describe('abandon (unresumable in-flight run)', () => {
   test('an expired run is finalized as partial into its own row, then the engine returns to idle', async () => {
     const h = makeEngine();
     h.setNow(FIX_START + 200_000);
-    await h.engine.abandon({ runId: 'run-1', session: SESSION, state: stateAtStart() });
+    await h.engine.abandon({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart(),
+      aliveUntil: FIX_START + 200_000,
+    });
     expect(h.calls).not.toContain('startRun');
     expect(h.finalized).toHaveLength(1);
     expect(h.finalized[0].runId).toBe('run-1');
@@ -1261,10 +1266,48 @@ describe('abandon (unresumable in-flight run)', () => {
   test('abandoning inside the final cool-down is still partial — only the runner can complete a run', async () => {
     const h = makeEngine();
     h.setNow(FIX_START + 70_000); // elapsed 70 ∈ cooldown [65,75)
-    await h.engine.abandon({ runId: 'run-1', session: SESSION, state: stateAtStart() });
+    await h.engine.abandon({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart(),
+      aliveUntil: FIX_START + 70_000,
+    });
     expect(h.saved[0].status).toBe('partial');
     expect(h.saved[0].activeDurationS).toBe(70);
     expect(h.cues).not.toContain('complete');
+  });
+
+  test('the record ends at the last flush, not at detection — the dead process tracked nothing', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 200_000); // noticed long after the process died
+    await h.engine.abandon({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart(),
+      aliveUntil: FIX_START + 18_000,
+    });
+    expect(h.saved[0].activeDurationS).toBe(18);
+    expect(h.saved[0].endedAt).toBe(new Date(FIX_START + 18_000).toISOString());
+    // Warmup [0,10) and the run it died inside — not the whole session.
+    expect(h.saved[0].segments.map((s) => s.kind)).toEqual(['warmup', 'run']);
+    expect(h.saved[0].segments[1].actualDurationS).toBe(8);
+  });
+
+  test('a paused run keeps its frozen elapsed — the flush stamp cannot shorten it further', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 200_000);
+    await h.engine.abandon({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart({
+        events: [
+          { type: 'start', at: FIX_START },
+          { type: 'pause', at: FIX_START + 12_000 },
+        ],
+      }),
+      aliveUntil: FIX_START + 16_000,
+    });
+    expect(h.saved[0].activeDurationS).toBe(12);
   });
 
   test('abandon leaves a live run alone', async () => {
@@ -1274,6 +1317,7 @@ describe('abandon (unresumable in-flight run)', () => {
       runId: 'run-9',
       session: { ...SESSION, key: 'w1d2' },
       state: stateAtStart({ sessionKey: 'w1d2' }),
+      aliveUntil: FIX_START,
     });
     expect(h.engine.getSnapshot().status).toBe('running');
     expect(h.engine.getSnapshot().sessionKey).toBe('w1d1');

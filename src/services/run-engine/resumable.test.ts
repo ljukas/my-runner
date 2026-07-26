@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test';
 
 import type { PlanSession } from '@/domain/plan';
 import type { RunSnapshotState } from '@/services/run-store/port';
-import { isSnapshotFresh, parseSnapshotState, RESUME_GRACE_MS } from './resumable';
+import {
+  isSnapshotFresh,
+  parseSnapshotState,
+  RESUME_GRACE_MS,
+  snapshotAliveUntil,
+} from './resumable';
 
 const SESSION: PlanSession = {
   key: 'w1d1',
@@ -81,5 +86,22 @@ describe('isSnapshotFresh', () => {
 
   test('an unparseable timestamp is never fresh', () => {
     expect(isSnapshotFresh('not-a-date', SESSION, stampedAt)).toBe(false);
+  });
+});
+
+describe('snapshotAliveUntil', () => {
+  const stampedAt = 2_000_000_000_000;
+  const stamped = new Date(stampedAt).toISOString();
+
+  test('is the flush stamp, however long ago the process died', () => {
+    expect(snapshotAliveUntil(stamped, stampedAt + 30 * 60 * 1000)).toBe(stampedAt);
+  });
+
+  test('never runs ahead of now (forwards device clock)', () => {
+    expect(snapshotAliveUntil(stamped, stampedAt - 5000)).toBe(stampedAt - 5000);
+  });
+
+  test('falls back to now for an unparseable stamp', () => {
+    expect(snapshotAliveUntil('not-a-date', stampedAt)).toBe(stampedAt);
   });
 });

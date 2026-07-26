@@ -7,7 +7,7 @@ tags:
 - launchApp:
     clearState: true
     permissions:
-      location: deny
+      location: never
 - runFlow: ../helpers/onboarding-to-primer.yaml
 - retry:
     maxRetries: 3

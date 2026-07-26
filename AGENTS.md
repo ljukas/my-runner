@@ -69,7 +69,12 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   `se.lukaslindqvist.runbro.e2e` / scheme `runbroe2e`, and unset (production /
   preview) keeps the clean `se.lukaslindqvist.runbro` / scheme `runbro`.
 - **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
-  server registered in `.mcp.json` (`list_devices` → `run`).
+  server registered in `.mcp.json` (`list_devices` → `run`). Only **one**
+  automation server may own a simulator: stop Argent's (`stop-all-simulator-servers`)
+  and leave the Maestro MCP idle while the CLI suite runs, or every flow dies at
+  `launchApp` with `Unable to set permissions … Failed to connect to 127.0.0.1:<port>`
+  — the rival XCUITest runners kill and relaunch each other, stealing the port.
+  The CLI tears its own driver down on exit; the MCP server keeps one alive.
 - **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
   by `@expo/fingerprint` hash — JS-only PRs skip the build and repack the JS via
   `@expo/repack-app` (~5–7 min); native changes trigger a full `eas build
@@ -87,6 +92,14 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   https://docs.maestro.dev/llms.txt for flow syntax.
   If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI
   `Text`, wrap it in a container (`HStack`) — the id doesn't surface otherwise.
+  `@expo/ui` `LabeledContent` surfaces one merged element (`"Access, Never"`),
+  so match its value as a suffix (`.*Never`), never on its own.
+- **Location permission values:** on the iOS simulator Maestro's `location` key
+  takes `inuse` / `always` / `never` / `unset` — *not* the `allow` / `deny` the
+  cheat sheet documents for every other permission (they map to
+  `simctl privacy grant|revoke location[-always]`, and an unknown value fails
+  the flow before it launches). `inuse` is the one that matches what the app
+  actually requests (When-In-Use, ADR 0008).
 - **Compressed plan:** the `e2e-simulator` build sets `EXPO_PUBLIC_E2E=1`,
   which makes the seconds-long compressed plan reachable (`src/services/e2e.ts`)
   and default-on, so a full session finishes in seconds with no toggle

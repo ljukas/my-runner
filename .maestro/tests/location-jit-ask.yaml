@@ -10,9 +10,11 @@ tags:
       location: unset
 - runFlow: ../helpers/complete-onboarding.yaml
 - tapOn: "Settings"
+# LabeledContent merges label and value into one element ("Access, <value>"), so match the
+# value as a suffix — Maestro anchors text as a full match (ADR 0016).
 - scrollUntilVisible:
     element:
-      text: "Ask Next Time Or When I Share"
+      text: ".*Ask Next Time Or When I Share"
 - assertVisible: "Enable Location"
 - tapOn: "Plan"
 - runFlow: ../helpers/start-w1d1.yaml

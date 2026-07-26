@@ -8,7 +8,7 @@ tags:
 - launchApp:
     clearState: true
     permissions:
-      location: deny
+      location: never
 - runFlow: ../helpers/complete-onboarding.yaml
 - runFlow: ../helpers/start-w1d1.yaml
 - tapOn:

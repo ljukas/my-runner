@@ -2,17 +2,42 @@ appId: se.lukaslindqvist.runbro.e2e
 tags:
   - session
 ---
-# A running compressed session (0:40) outlives its timeline while the process is dead, so the run is
-# finalized as partial at next launch instead of being offered for resume (ADR 0007 wall clock).
+# An interrupted run is offered for as long as its timeline has time left, and a stopApp with a
+# relaunch of this binary costs ~3.5 s — so the first relaunch below legitimately offers the sheet
+# (tests/run-resume.yaml takes that path). What this flow guards is the *expired* run:
+# detectResumableRun finalizing it as partial instead of offering it. Reaching that state needs the
+# wall clock past the compressed session's 0:40 with the run out of the engine — which is exactly
+# what an untouched offer sheet gives us; a live run would simply finish instead.
 - runFlow: ../helpers/start-first-session.yaml
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      text: "Resume run.*"
+    timeout: 60000
+# Maestro has no sleep command, so the timeout IS the wait: an unsatisfiable condition, optional so
+# the inevitable miss warns instead of failing. Unsatisfiable *positively* — a `notVisible` on the
+# sheet would also be satisfied by one poll reading a partial hierarchy, cutting the wait short and
+# losing the flow to a race; a run that is out of the engine finishing is the bug, not the wait.
+# 45 s puts detection at the relaunch below ~50 s into a 0:40 timeline, ~10 s clear.
+- extendedWaitUntil:
+    visible: "Nice work.*"
+    timeout: 45000
+    optional: true
+    label: "Wait ~45 s — past the compressed session's 0:40, so the interrupted run's timeline expires while the offer sits; Maestro has no sleep"
 - stopApp
 - launchApp
 - extendedWaitUntil:
     visible: "Week 1 ·.*"
     timeout: 120000
-- assertNotVisible: "Resume run?"
+# The expired run is finalized during detection, so its Log entry is the proof detection ran and
+# chose to abandon. A sheet offered instead swallows this tap and strands the flow on the plan list,
+# where the Log row it scrolls for does not exist.
 - tapOn: "Log"
 - scrollUntilVisible:
     element:
       text: "Week 1 · Day 1"
 - assertVisible: "Partial"
+# Belt and braces for the one ordering the Log assertion cannot see: detection is async, so a sheet
+# pushed for an already-abandoned run would arrive after those assertions had passed.
+- assertNotVisible: "Resume run.*"

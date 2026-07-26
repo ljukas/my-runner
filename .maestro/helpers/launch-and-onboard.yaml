@@ -6,5 +6,5 @@ appId: se.lukaslindqvist.runbro.e2e
 - launchApp:
     clearState: true
     permissions:
-      location: allow
+      location: inuse
 - runFlow: complete-onboarding.yaml

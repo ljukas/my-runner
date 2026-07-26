@@ -2,45 +2,48 @@ appId: se.lukaslindqvist.runbro.e2e
 tags:
   - session
 ---
-# A killed run is only resumable while its timeline is still live, and elapsed is derived from
-# the WALL CLOCK (ADR 0007). The E2E build's compressed w1d1 is 0:40 end to end — shorter than
-# a stopApp plus a cold relaunch of this binary — so a *running* run is always exhausted by the
-# time the app is back and detectResumableRun correctly abandons it instead of offering it.
-# Pausing first is what makes this deterministic: active elapsed freezes at the pause event, so
-# the timeline cannot expire while the process is dead, however slow the relaunch is.
+# A force-quit run comes back resumable: detection offers one whose snapshot is fresher than the
+# session length + RESUME_GRACE_MS (0:40 + 30 min here) and whose timeline has time left — elapsed
+# *plus* dead time, and a stopApp with a relaunch of this binary costs ~3.5 s end to end
+# (tests/run-abandon.yaml owns the expired case). Pausing first freezes active elapsed at the pause
+# event, so the value that comes back cannot drift with how slow the relaunch is.
 - runFlow: ../helpers/start-first-session.yaml
 - tapOn: "Pause"
 - assertVisible: "Paused"
-# The snapshot (event log + watermarks) is written on a ~5 s cadence, so the `pause` event needs
-# one more tick to reach active_run_snapshot before the process dies — without it the restored
-# log has no pause and the wall clock exhausts the timeline. Maestro has no sleep command: this
-# waits for something that cannot happen while the run is paused, and the timeout IS the wait
-# (optional, so the inevitable miss warns instead of failing the flow).
+# The snapshot is written on a ~5 s cadence, so the `pause` event needs one more tick to reach
+# active_run_snapshot before the process dies. Maestro has no sleep command, so the timeout IS the
+# wait: an unsatisfiable condition, optional so the inevitable miss warns instead of failing.
+# Unsatisfiable *positively* — `notVisible` would also be satisfied by one poll reading a partial
+# hierarchy, ending the wait early; a paused run finishing is the bug, not the wait.
 - extendedWaitUntil:
-    notVisible: "Paused"
+    visible: "Nice work.*"
     timeout: 12000
     optional: true
     label: "Wait ~12 s — more than 2x POINT_FLUSH_MS (5000) so the pause event reaches active_run_snapshot; Maestro has no sleep"
-# Pause froze elapsed under 0:20; the same value has to come back after the kill.
-- assertVisible: "0:[0-3][0-9] / 0:40"
+# The frozen elapsed, held to the same band as the restored run below. Asserted before the kill so a
+# pause that landed late fails here, legibly: how long Maestro spends settling the animated run
+# screen before it dispatches the tap sets this value (~1 s under CI's Reduce Motion, ~6 s without).
+- assertVisible: "0:[01][0-9] / 0:40"
 - stopApp
 - launchApp
 - extendedWaitUntil:
     visible:
-      text: "Resume run?"
+      text: "Resume run.*"
     timeout: 60000
 - assertVisible: "Week 1 · Day 1 was interrupted.*"
-# The sheet's Resume (the run screen's transport control is also labelled "Resume" — that one
-# is tapped further down, after this sheet is gone).
+# The sheet's Resume (the run screen's transport control is also labelled "Resume" — that one is
+# tapped next, once this sheet is gone).
 - tapOn: "Resume"
-# Restored from the event log, not restarted: the run comes back paused, carrying the elapsed
-# it had when the app died. A run rebuilt from the wall clock would read well past 0:20 by now.
+# Replayed from the event log, not restarted: only a log carrying the `pause` event comes back
+# paused, and it comes back with the elapsed it had when the app died. A run rebuilt from the wall
+# clock, or started afresh, would be running.
 - assertVisible: "Paused"
 - assertVisible: "0:[01][0-9] / 0:40"
-# A restore that silently restarted would read 0:0x; the real one keeps its pre-kill elapsed.
-- assertNotVisible: "0:0[0-5] / 0:40"
+# The transport control, un-freezing the restored run so it can finish. That it relabelled is
+# asserted, not assumed (the run-controls.yaml pattern): a tap that never registered would otherwise
+# surface 120 s later as the completion wait timing out.
 - tapOn: "Resume"
-- tapOn: "Resume"
+- assertVisible: "Pause"
 - extendedWaitUntil:
     visible: "Nice work.*"
     timeout: 120000

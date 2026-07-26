@@ -19,7 +19,7 @@ onFlowComplete:
 - launchApp:
     clearState: true
     permissions:
-      location: allow
+      location: inuse
 - runFlow: ../helpers/complete-onboarding.yaml
 # Park the simulator somewhere real before the run opens the fix stream.
 - setLocation:

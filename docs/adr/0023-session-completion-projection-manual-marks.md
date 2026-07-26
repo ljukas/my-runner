@@ -95,23 +95,40 @@ kv-store preference.** Accepted to fix the shape; built when the feature ships.
      out of the union, not out of special-case code.
 
 2. **Manual marks are their own data, not fake Runs.** Persist a manual completion in a new
-   Drizzle table `session_completions` — roughly `{ session_key, marked_at, created_at,
-   updated_at, deleted_at }` — following [ADR 0004](0004-local-storage-expo-sqlite-drizzle.md)'s
-   sync-agnostic + soft-delete convention (un-marking soft-deletes, so a two-device iCloud
-   merge resolves last-write-wins on `updated_at`). Generate the migration with
+   Drizzle table `session_completions` — roughly `{ session_key (PK), marked_at }` (plus
+   the house `created_at`/`updated_at` if adopted uniformly) — in the training DB
+   ([ADR 0004](0004-local-storage-expo-sqlite-drizzle.md)). Generate the migration with
    `bun run db:generate`. **Not** a synthetic `runs` row:
    - *Deletion test / the Run concept.* A Run is a recorded *attempt* (`CONTEXT.md`);
      a mark is not. Representing a mark as a Run forces **every** runs-reading query — Log
      (`src/app/(tabs)/log`), run-summary, any distance/time stat, HealthKit — to grow an
      "exclude manual rows" special case. That *scatters* complexity outward: shallow and
      leaky. A separate source keeps `runs` pristine and keeps the union in one projection.
-   - *Data, not preference.* A mark is per-session training-progress that must survive and
-     iCloud-sync like a Run, so it belongs in the DB (ADR 0004), not the kv-store preference
-     seam. (Contrast §4.)
-   - The mark is the boolean fact only. It writes **no** HealthKit sample and contributes
-     **no** distance/duration — those remain Run-only. A future "sessions completed" streak
-     reads the completion projection; distance/time stats keep reading `runs`. That split is
-     the seam boundary, stated so it isn't blurred later.
+   - *Data, not preference.* A mark is per-session training-progress that rides iCloud
+     device backup like a Run, so it belongs in the DB (ADR 0004), not the kv-store
+     preference seam. (Contrast §4.)
+   - *Un-marking hard-deletes the row.* A mark is a boolean existence fact with no history
+     value, and ADR 0004 gives v1 iCloud **device backup**, not row-level sync — so the
+     soft-delete convention `runs` carries (whose payoff is retaining a deleted attempt, and
+     hedging a future sync merge) earns nothing here. This is a **deliberate divergence**
+     from the `runs` soft-delete pattern: no `deleted_at` column; un-mark = `DELETE`.
+   - *Granularity: the session is the primitive; the week is a convenience.* A mark is
+     always per-session (`session_completions.session_key`). "Mark Week N done" is sugar
+     that writes (or deletes) the week's three session rows in one action — no week-level
+     row exists. Every week has exactly three sessions (`src/domain/plan.ts`), so this is
+     uniform.
+   - *Marks and Runs are independent truths.* `completedSessionKeys` is a Set, so a session
+     with both a mark and a real Run is counted once. Neither clears the other: soft-deleting
+     a Run does **not** un-mark, and recording a Run does **not** remove a mark. "It's done"
+     stays done until the user explicitly un-marks.
+   - *Out-of-order marks are allowed.* Marking `w5d1` with nothing before it is harmless:
+     `nextSessionKey` still returns the first key not in the set (`w1d1`), and only Week 5
+     grays once fully marked. The projection tolerates arbitrary marks with no prefix
+     constraint and no special-casing — a property of unioning into an order-agnostic Set.
+   - The mark writes **no** HealthKit sample and contributes **no** distance/duration —
+     those remain Run-only. A future "sessions completed" streak reads the completion
+     projection; distance/time stats keep reading `runs`. That split is the seam boundary,
+     stated so it isn't blurred later.
 
 3. **Week-focus (feature 1) is a pure view projection — no new data.** A pure function over
    `(plan, completedSessionKeys)` yields the ordered, annotated weeks: per week its
@@ -122,13 +139,17 @@ kv-store preference.** Accepted to fix the shape; built when the feature ships.
    and is valuable even if manual marking (§2) never does; that is why the owner separated
    them, and the design keeps them decoupled.
 
-4. **Collapse/expand state is a preference, in kv-store.** The "group closing" state — which
-   completed weeks are collapsed vs expanded, which the owner requires to **persist across
-   app sessions** — is UI/preference state, so it persists through the existing
+4. **Collapse/expand state is a preference, in kv-store — a sparse override, not absolute
+   state.** The "group closing" state, which the owner requires to **persist across app
+   sessions**, is UI/preference state, so it persists through the existing
    `expo-sqlite/kv-store` `StringStorage` seam (a small `plan-view` store with a `create*Store`
-   + `use*` hook, the settings/onboarding precedent), **not** the DB. The auto rule "a
-   fully-complete week collapses by default" merely *seeds* a week's state the first time it
-   completes; once the user toggles a group, the stored value wins on later launches.
+   + `use*` hook, the settings/onboarding precedent), **not** the DB. Store a **sparse
+   per-week override**, tri-state `auto | open | closed`, defaulting to `auto` (= the derived
+   rule "a fully-complete week is collapsed"). A week the user never touches always follows
+   the derived rule even as its completion changes; only an explicit toggle writes `open`/
+   `closed` and sticks. This is deliberately *not* absolute per-week booleans — those would
+   go stale and fight the auto rule when a week's completion later changes. Plan/onboarding
+   reset clears the overrides (a fresh plan starts fully `auto`).
 
 5. **The surface (iOS, deferred to the build + a spike).** Marking done is a `SwipeActions`
    action or a `ContextMenu` on a day row and on a week header (a week = mark its three
@@ -162,8 +183,23 @@ kv-store preference.** Accepted to fix the shape; built when the feature ships.
 - **Stats/HealthKit boundary is now explicit** (§2): a mark advances *completion* only. Any
   code that treats "completed" as "ran" must be checked against the projection-vs-`runs`
   split when stats land.
-- **E2E + selectors grow**, and the icon-only `plan-next-*` escape hatch plus new
-  mark/collapse rows need anchors (ADR 0016).
+- **E2E coverage grows (ADR 0001 required check), and manual-mark is the cheapest
+  completion path in the suite.** Three flows are warranted, authored when the feature is
+  built (text-first per [ADR 0016](0016-text-first-maestro-selectors.md)): (1) **week-focus
+  render** — a fully-completed week is grayed, at the bottom, collapsed by default, and
+  expands on tap; (2) **collapse persistence** — toggle a group, relaunch *without*
+  `clearState`, assert the override survived (a novel persistence-assertion pattern for the
+  suite, exercising §4); (3) **manual completion → next-up** — mark a whole week, assert it
+  grays/reorders *and* "next up" advanced past it (the load-bearing behavior), then un-mark.
+  Because a mark bypasses running a session entirely, flow (3) needs **no** timed run — not
+  even the compressed plan — so it is cheaper than any run-based flow.
+  **Two selector risks to resolve in the build spike:** (a) whether Maestro can drive the
+  chosen mark affordance (`SwipeActions` swipe-to-reveal or `ContextMenu` long-press) on an
+  `@expo/ui` SwiftUI row — long-press/swipe on islands is exactly where elements have
+  surfaced poorly in the a11y tree before, and if it can't be reached the marking affordance
+  itself may need an id escape hatch (ADR 0016); (b) new anchors for the week header, the
+  mark/unmark action, and the collapsed/expanded state, alongside the existing icon-only
+  `plan-next-*` escape hatch.
 - **Cost:** a table + a projection + a view function + a kv-store store to keep honest — but
   each is small, pure where it can be, and none imports a platform SDK into the view layer.
 
@@ -182,10 +218,15 @@ kv-store preference.** Accepted to fix the shape; built when the feature ships.
   is soft-deleted), and adds moving parts the need doesn't justify. Unioning at read time
   gets the identical set with less coupling and no write-path change.
 - **Manual marks in kv-store instead of the DB.** Rejected: marks are per-session
-  training-progress *data* that must sync and soft-delete like runs, which is exactly what
-  the DB (ADR 0004) provides; kv-store is the *preference* seam. The split is principled —
-  the collapse/expand state (a genuine preference) *does* go to kv-store (§4), and the two
-  concerns divide on that axis.
+  training-progress *data* that must persist and ride iCloud device backup like runs, which
+  is what the training DB (ADR 0004) is for; kv-store is the *preference* seam. The split is
+  principled — the collapse/expand state (a genuine preference) *does* go to kv-store (§4),
+  and the two concerns divide on that axis.
+- **Soft-deleting marks (a `deleted_at` column) for uniformity with `runs`.** Rejected in
+  favour of hard-delete (Decision §2): a mark is a boolean existence fact with no history
+  worth retaining, and ADR 0004 gives v1 iCloud *device backup*, not row-level sync, so the
+  merge-hedge that motivates soft-delete on `runs` buys nothing here. Uniformity alone
+  didn't justify carrying a dead column; `DELETE` on un-mark is simpler and honest.
 - **Derive collapse state only (don't persist it).** Rejected by explicit owner requirement:
   the closing of groups must survive restarts (§4).
 - **One combined "hide/visibility" feature** (the earlier research framing). Superseded: the

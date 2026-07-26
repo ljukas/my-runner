@@ -21,8 +21,8 @@ lazily — add a term when a module gets named after it.
   directly (ADR 0023).
 - **Manual completion (mark)** — a user-set "this session is done" carrying no Run
   (no attempt, time, or segments), for mid-program migration; its own
-  `session_completions` row, soft-deletable to un-mark — never a synthetic Run
-  (ADR 0023).
+  `session_completions` row (per session; "mark week" = its three rows),
+  hard-deleted to un-mark — never a synthetic Run (ADR 0023).
 - **Week focus** — the Plan view that grays a completed week, moves it to the end,
   and collapses it to keep the next week in view; a pure projection over
   `completedSessionKeys`. The collapse/expand ("group closing") state persists

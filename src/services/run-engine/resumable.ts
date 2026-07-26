@@ -1,0 +1,73 @@
+import type { LocationFix } from '@/domain/geo';
+import { sessionTotalSeconds, type PlanSession } from '@/domain/plan';
+import type { RunSnapshotState } from '@/services/run-store/port';
+import type { RunEvent } from './types';
+
+/** Grace past the planned session length during which an interrupted run is still offered (spec §5). */
+export const RESUME_GRACE_MS = 30 * 60 * 1000;
+
+const EVENT_TYPES: RunEvent['type'][] = ['start', 'pause', 'resume', 'skip', 'end'];
+
+function isEvent(value: unknown): value is RunEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const event = value as Partial<RunEvent>;
+  if (typeof event.at !== 'number' || !Number.isFinite(event.at)) return false;
+  return EVENT_TYPES.some((type) => type === event.type);
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function parseFix(value: unknown): LocationFix | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const fix = value as Partial<LocationFix>;
+  if (typeof fix.timestamp !== 'number' || !Number.isFinite(fix.timestamp)) return null;
+  if (typeof fix.lat !== 'number' || !Number.isFinite(fix.lat)) return null;
+  if (typeof fix.lng !== 'number' || !Number.isFinite(fix.lng)) return null;
+  return {
+    timestamp: fix.timestamp,
+    lat: fix.lat,
+    lng: fix.lng,
+    altitude: numberOrNull(fix.altitude),
+    accuracy: numberOrNull(fix.accuracy),
+    speed: numberOrNull(fix.speed),
+  };
+}
+
+/**
+ * Narrows an untrusted `state_json` payload; null for anything the engine could not replay. An
+ * `end` event is such a case: the run it belongs to already finished, so there is nothing to recover.
+ */
+export function parseSnapshotState(value: unknown): RunSnapshotState | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const state = value as Partial<RunSnapshotState>;
+  if (typeof state.sessionKey !== 'string' || state.sessionKey === '') return null;
+  if (!Array.isArray(state.events) || state.events.length === 0) return null;
+  if (!state.events.every(isEvent)) return null;
+  if (state.events[0].type !== 'start') return null;
+  if (state.events.some((event) => event.type === 'end')) return null;
+  if (typeof state.lastAnnouncedIndex !== 'number' || !Number.isInteger(state.lastAnnouncedIndex)) {
+    return null;
+  }
+  if (typeof state.halfwayFired !== 'boolean') return null;
+  return {
+    sessionKey: state.sessionKey,
+    events: state.events.map((event) => ({ ...event })),
+    lastAnnouncedIndex: state.lastAnnouncedIndex,
+    halfwayFired: state.halfwayFired,
+    lastAcceptedFix: parseFix(state.lastAcceptedFix),
+  };
+}
+
+/**
+ * Freshness gate (spec §5) against the row's own `updated_at`, re-stamped every flush.
+ * why the `age >= 0` floor: a backwards device-clock jump would otherwise make an arbitrarily
+ * old snapshot look fresh.
+ */
+export function isSnapshotFresh(updatedAt: string, session: PlanSession, now: number): boolean {
+  const stampedAt = Date.parse(updatedAt);
+  if (Number.isNaN(stampedAt)) return false;
+  const age = now - stampedAt;
+  return age >= 0 && age < sessionTotalSeconds(session) * 1000 + RESUME_GRACE_MS;
+}

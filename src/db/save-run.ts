@@ -39,6 +39,9 @@ export const dbRunPersistence: RunLifecyclePersistence = {
       startedAt: record.startedAt,
       endedAt: record.endedAt,
       activeDurationS: record.activeDurationS,
+      // why: this path has no `'active'` row and therefore no `run_points` to re-derive from — the
+      // engine's live scalar is the only distance such a run will ever have.
+      distanceM: record.distanceM ?? null,
       createdAt: nowIso,
       updatedAt: nowIso,
     });

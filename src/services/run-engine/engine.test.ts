@@ -9,8 +9,11 @@ import {
 } from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
-import { RunEngine, endCountsAsCompleted } from './engine';
-import type { CompletedRunRecord, RunPersistence } from './types';
+import type { LocationTracker } from '@/services/location-tracker/port';
+import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
+import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
+import type { PointBatchScheduler } from './point-batch-scheduler';
+import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
 function makeFakeCue() {
@@ -61,26 +64,149 @@ const WALK_TRACK: LocationFix[] = Array.from({ length: 6 }, (_, i) =>
   fixAt(i, 59 + i * 0.000018, 18),
 );
 
-function makeEngine() {
+/** A snapshot state whose log is nothing but a start event at `FIX_START`. */
+function stateAtStart(overrides: Partial<RunSnapshotState> = {}): RunSnapshotState {
+  return {
+    sessionKey: 'w1d1',
+    events: [{ type: 'start', at: FIX_START }],
+    lastAnnouncedIndex: 0,
+    halfwayFired: false,
+    lastAcceptedFix: null,
+    ...overrides,
+  };
+}
+
+/** The `run_points` read path the composition root feeds `restore()`: ISO column → epoch ms. */
+function fromRunPoint(point: RunPoint): BufferedRunPoint {
+  return { ...point, timestamp: new Date(point.timestamp).getTime() };
+}
+
+function toSegmented(point: BufferedRunPoint): SegmentedFix {
+  return {
+    timestamp: point.timestamp,
+    lat: point.lat,
+    lng: point.lng,
+    altitude: point.altitude,
+    accuracy: point.accuracy,
+    speed: point.speed,
+    segmentSeq: point.segmentSeq,
+  };
+}
+
+/** Captures console.warn for tests that exercise a warned failure path. */
+async function withoutWarnings(body: () => Promise<void>): Promise<number> {
+  const original = console.warn;
+  let count = 0;
+  console.warn = () => void count++;
+  try {
+    await body();
+  } finally {
+    console.warn = original;
+  }
+  return count;
+}
+
+function makeEngine(options: { deferStartRun?: boolean; failStartRunTimes?: number } = {}) {
   let now = 1_000_000;
+  const calls: string[] = [];
   const saved: CompletedRunRecord[] = [];
+  const finalized: { runId: string; record: CompletedRunRecord }[] = [];
+  const flushes: { runId: string; points: RunPoint[]; state: RunSnapshotState }[] = [];
+  const trackerCalls: string[] = [];
+  let startRunFailures = options.failStartRunTimes ?? 0;
   let failSave = false;
-  const persistence: RunPersistence = {
+  let failFlush = false;
+  let deferFinalize = false;
+  let deferFlush = false;
+  let gateStartRun: (() => void) | undefined;
+  let gateFinalize: (() => void) | undefined;
+  let gateFlush: (() => void) | undefined;
+
+  const persistence: RunLifecyclePersistence = {
     saveRun: async (record) => {
+      calls.push('saveRun');
       if (failSave) throw new Error('db down');
       saved.push(record);
       return 'run-1';
     },
+    startRun: async () => {
+      calls.push('startRun');
+      if (options.deferStartRun) await new Promise<void>((resolve) => (gateStartRun = resolve));
+      if (startRunFailures > 0) {
+        startRunFailures -= 1;
+        throw new Error('db down');
+      }
+      return 'run-1';
+    },
+    finalizeRun: async (runId, record) => {
+      calls.push('finalizeRun');
+      if (deferFinalize) await new Promise<void>((resolve) => (gateFinalize = resolve));
+      if (failSave) throw new Error('db down');
+      finalized.push({ runId, record });
+      saved.push(record); // `saved` covers either persistence path, so record assertions stay one shape
+    },
   };
+
+  const runStore: RunStore = {
+    flush: async (runId, points, state) => {
+      calls.push('flush');
+      if (deferFlush) await new Promise<void>((resolve) => (gateFlush = resolve));
+      if (failFlush) throw new Error('flush rejected');
+      flushes.push({ runId, points, state });
+    },
+    loadSnapshot: async () => null,
+    clearSnapshot: async () => void calls.push('clearSnapshot'),
+  };
+
+  const tracker: LocationTracker = {
+    requestPermission: async () => 'granted',
+    getPermissionStatus: async () => 'granted',
+    start: async () => void trackerCalls.push('start'),
+    stop: async () => void trackerCalls.push('stop'),
+    onFix: () => () => {},
+  };
+
+  let armCount = 0;
+  let schedulerStops = 0;
+  let fireFlush = (): void => {};
+  const createScheduler = (flushNow: () => void): PointBatchScheduler => {
+    fireFlush = flushNow;
+    return { arm: () => void armCount++, stop: () => void schedulerStops++ };
+  };
+
   const fakeCue = makeFakeCue();
-  const engine = new RunEngine({ persistence, clock: () => now, cue: fakeCue.cue });
+  const engine = new RunEngine({
+    persistence,
+    runStore,
+    tracker,
+    cue: fakeCue.cue,
+    clock: () => now,
+    createScheduler,
+  });
   return {
     engine,
+    calls,
     saved,
+    finalized,
+    flushes,
+    trackerCalls,
     cues: fakeCue.cues,
     prepareCount: fakeCue.prepareCount,
     releaseCount: fakeCue.releaseCount,
+    armCount: () => armCount,
+    schedulerStops: () => schedulerStops,
+    flushedSeqs: () => flushes.flatMap((f) => f.points.map((p) => p.seq)),
+    flushedPoints: () => flushes.flatMap((f) => f.points),
+    lastFlush: () => flushes[flushes.length - 1],
     setFailSave: (v: boolean) => (failSave = v),
+    setFailFlush: (v: boolean) => (failFlush = v),
+    deferFinalize: () => (deferFinalize = true),
+    deferFlush: () => (deferFlush = true),
+    releaseStartRun: () => gateStartRun?.(),
+    releaseFinalize: () => gateFinalize?.(),
+    releaseFlush: () => gateFlush?.(),
+    fireFlush: () => fireFlush(),
+    setNow: (value: number) => (now = value),
     tick: (seconds: number) => {
       now += seconds * 1000;
       engine.heartbeat();
@@ -212,17 +338,21 @@ describe('skip', () => {
 
 describe('completion', () => {
   test('timeline exhaustion completes and persists a correct record', async () => {
-    const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
-    tick(30);
-    engine.pause();
-    engine.resume();
-    tick(50); // active 80 > 75 → done, capped at 75
-    expect(engine.getSnapshot().status).toBe('completed');
-    expect(engine.getSnapshot().activeElapsedSeconds).toBe(75);
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.tick(30);
+    h.engine.pause();
+    h.engine.resume();
+    h.tick(50); // active 80 > 75 → done, capped at 75
+    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(h.engine.getSnapshot().activeElapsedSeconds).toBe(75);
     await flush();
-    expect(engine.getSnapshot().savedRunId).toBe('run-1');
-    const record = saved[0];
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    // The run must land through the points-as-spine lifecycle, never the standalone saveRun path.
+    expect(h.calls).toContain('finalizeRun');
+    expect(h.calls).not.toContain('saveRun');
+    expect(h.finalized[0].runId).toBe('run-1');
+    const record = h.saved[0];
     expect(record.sessionKey).toBe('w1d1');
     expect(record.status).toBe('completed');
     expect(record.activeDurationS).toBe(75);
@@ -232,13 +362,16 @@ describe('completion', () => {
   });
 
   test('endEarly persists a partial run: reached segments only, last one truncated', async () => {
-    const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
-    tick(12); // 2s into segment 1 (run)
-    engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('endedEarly');
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.tick(12); // 2s into segment 1 (run)
+    h.engine.endEarly();
+    expect(h.engine.getSnapshot().status).toBe('endedEarly');
     await flush();
-    const record = saved[0];
+    expect(h.calls).toContain('finalizeRun');
+    expect(h.calls).not.toContain('saveRun');
+    expect(h.finalized[0].runId).toBe('run-1');
+    const record = h.saved[0];
     expect(record.status).toBe('partial');
     expect(record.activeDurationS).toBe(12);
     expect(record.segments).toHaveLength(2);
@@ -267,35 +400,36 @@ describe('completion', () => {
     });
   });
 
-  test('a failed save surfaces saveFailed', async () => {
-    const { engine, tick, setFailSave } = makeEngine();
-    setFailSave(true);
-    engine.start(SESSION);
-    tick(80);
-    await flush();
-    expect(engine.getSnapshot().saveFailed).toBe(true);
-    expect(engine.getSnapshot().savedRunId).toBeNull();
+  test('a failed save surfaces saveFailed and keeps the snapshot for the next launch', async () => {
+    const h = makeEngine();
+    h.setFailSave(true);
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await flush();
+    });
+    expect(h.engine.getSnapshot().saveFailed).toBe(true);
+    expect(h.engine.getSnapshot().savedRunId).toBeNull();
+    expect(h.calls).not.toContain('clearSnapshot');
+    expect(warnings).toBeGreaterThanOrEqual(1);
   });
 
   test('a slow save from a superseded run never stamps a later run', async () => {
-    let resolveSave: ((id: string) => void) | undefined;
-    const persistence: RunPersistence = {
-      saveRun: () => new Promise<string>((resolve) => (resolveSave = resolve)),
-    };
-    let now = 1_000_000;
-    const engine = new RunEngine({ persistence, clock: () => now, cue: makeFakeCue().cue });
-    engine.start(SESSION);
-    now += 80_000;
-    engine.heartbeat(); // completes run A; its save stays pending
-    expect(engine.getSnapshot().status).toBe('completed');
-    engine.reset();
-    engine.start({ ...SESSION, key: 'w1d2' });
-    resolveSave!('run-A');
+    const h = makeEngine();
+    h.deferFinalize();
+    h.engine.start(SESSION);
+    h.tick(80); // completes run A; its finalize stays pending
+    expect(h.engine.getSnapshot().status).toBe('completed');
     await flush();
-    const s = engine.getSnapshot();
+    h.engine.reset();
+    h.engine.start({ ...SESSION, key: 'w1d2' });
+    h.releaseFinalize();
+    await flush();
+    const s = h.engine.getSnapshot();
     expect(s.savedRunId).toBeNull();
     expect(s.sessionKey).toBe('w1d2');
     expect(s.status).toBe('running');
+    expect(h.calls).not.toContain('clearSnapshot'); // it would delete run B's recovery row
   });
 
   test('controls are inert after completion', async () => {
@@ -747,5 +881,402 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     engine.start(SESSION);
     expect(engine.getBufferedPoints()).toEqual([]);
     expect(engine.getSnapshot().distanceM).toBe(0);
+  });
+});
+
+describe('point persistence & lifecycle (T13)', () => {
+  test('startRun opens the active row before any flush — run_points cannot precede it', async () => {
+    const h = makeEngine({ deferStartRun: true });
+    h.engine.start(SESSION);
+    WALK_TRACK.forEach(h.feed);
+    h.fireFlush();
+    await flush();
+    expect(h.flushes).toEqual([]);
+    expect(h.engine.getBufferedPoints()).toHaveLength(WALK_TRACK.length); // batch waits, unharmed
+    h.releaseStartRun();
+    await flush();
+    expect(h.calls[0]).toBe('startRun');
+    expect(h.flushedSeqs()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(h.flushes[0].runId).toBe('run-1');
+  });
+
+  test('the flush persists ISO-stamped points, then drains the buffer', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    WALK_TRACK.forEach(h.feed);
+    expect(h.armCount()).toBeGreaterThan(0);
+    h.fireFlush();
+    await flush();
+    expect(h.flushedPoints()[0].timestamp).toBe(new Date(WALK_TRACK[0].timestamp).toISOString());
+    expect(h.flushedSeqs()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(h.engine.getBufferedPoints()).toEqual([]);
+  });
+
+  test('the flushed snapshot carries the log plus watermarks and no track', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    WALK_TRACK.forEach(h.feed);
+    h.fireFlush();
+    await flush();
+    const state = h.lastFlush().state;
+    expect(state.sessionKey).toBe('w1d1');
+    expect(state.events.map((e) => e.type)).toEqual(['start']);
+    expect(state.lastAnnouncedIndex).toBe(0);
+    expect(state.halfwayFired).toBe(false);
+    expect(state.lastAcceptedFix?.timestamp).toBe(WALK_TRACK[WALK_TRACK.length - 1].timestamp);
+    expect(state).not.toHaveProperty('points');
+  });
+
+  test('the cadence re-arms itself, so a paused run keeps re-stamping the snapshot', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.tick(5);
+    h.engine.pause();
+    const armedAtPause = h.armCount();
+    h.fireFlush();
+    await flush();
+    // No heartbeat runs while paused, so only the flush itself can re-open the window.
+    expect(h.armCount()).toBeGreaterThan(armedAtPause);
+    h.fireFlush();
+    await flush();
+    expect(h.flushes.length).toBeGreaterThanOrEqual(2);
+    expect(h.lastFlush().points).toEqual([]);
+    expect(h.lastFlush().state.events.map((e) => e.type)).toEqual(['start', 'pause']);
+  });
+
+  test('a rejected flush retains the exact batch and re-sends it once, gap-free', async () => {
+    const h = makeEngine();
+    h.setFailFlush(true);
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      WALK_TRACK.slice(0, 3).forEach(h.feed);
+      h.fireFlush();
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.flushes).toEqual([]);
+    expect(h.engine.getBufferedPoints().map((p) => p.seq)).toEqual([0, 1, 2]);
+    h.setFailFlush(false);
+    h.feed(WALK_TRACK[3]);
+    h.fireFlush();
+    await flush();
+    expect(h.flushedSeqs()).toEqual([0, 1, 2, 3]);
+    expect(h.engine.getBufferedPoints()).toEqual([]);
+  });
+
+  test('a rejected flush from a superseded run never re-enters the new run buffer', async () => {
+    const h = makeEngine();
+    h.deferFlush();
+    h.setFailFlush(true);
+    await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      WALK_TRACK.forEach(h.feed);
+      h.fireFlush();
+      await flush();
+      h.engine.reset();
+      h.engine.start(SESSION);
+      h.releaseFlush();
+      await flush();
+    });
+    expect(h.engine.getBufferedPoints()).toEqual([]);
+  });
+
+  test('finalize flushes the tail, then finalizes, then clears the snapshot', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.feed(fixAt(30, 59, 18));
+    h.tick(80);
+    await flush();
+    expect(h.calls[0]).toBe('startRun');
+    expect(h.flushedSeqs()).toEqual([0]);
+    expect(h.calls.lastIndexOf('flush')).toBeLessThan(h.calls.indexOf('finalizeRun'));
+    expect(h.calls.at(-1)).toBe('clearSnapshot');
+    expect(h.finalized[0].runId).toBe('run-1');
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(h.schedulerStops()).toBeGreaterThanOrEqual(1);
+  });
+
+  test('the snapshot is cleared only after finalizeRun resolves', async () => {
+    const h = makeEngine();
+    h.deferFinalize();
+    h.engine.start(SESSION);
+    h.tick(80);
+    await flush();
+    expect(h.calls).toContain('finalizeRun');
+    expect(h.calls).not.toContain('clearSnapshot');
+    expect(h.engine.getSnapshot().savedRunId).toBeNull();
+    h.releaseFinalize();
+    await flush();
+    expect(h.calls.at(-1)).toBe('clearSnapshot');
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+  });
+
+  test('a transient startRun failure is retried at the next cadence and the whole track still lands', async () => {
+    const h = makeEngine({ failStartRunTimes: 1 });
+    await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      WALK_TRACK.forEach(h.feed);
+      await flush();
+      h.fireFlush();
+      await flush();
+    });
+    expect(h.calls.filter((c) => c === 'startRun')).toHaveLength(2);
+    expect(h.flushedSeqs()).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  test('a permanently failing startRun still persists the run, carrying the live distance', async () => {
+    const h = makeEngine({ failStartRunTimes: Number.POSITIVE_INFINITY });
+    await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      WALK_TRACK.forEach(h.feed);
+      h.fireFlush();
+      await flush();
+      h.tick(80);
+      await flush();
+    });
+    expect(h.flushes).toEqual([]);
+    expect(h.calls).toContain('saveRun');
+    expect(h.calls).not.toContain('finalizeRun');
+    expect(h.saved).toHaveLength(1);
+    expect(h.saved[0].distanceM).toBeGreaterThan(0);
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+  });
+
+  test('location tracking follows the run, and reset+start leaves it on', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush();
+    expect(h.trackerCalls).toEqual(['start']);
+    h.tick(80); // completes
+    await flush();
+    expect(h.trackerCalls).toEqual(['start', 'stop']);
+    h.engine.reset();
+    h.engine.start(SESSION); // the session screen's own sequence
+    await flush();
+    expect(h.trackerCalls).toEqual(['start', 'stop', 'stop', 'start']);
+  });
+});
+
+describe('resume (T14, ADR 0021 §3)', () => {
+  /** Run a live GPS-tracked session, flush it, and hand back exactly what the DB would return. */
+  async function crashAfterFlush() {
+    const live = makeEngine();
+    live.engine.start(SESSION);
+    WALK_TRACK.forEach(live.feed);
+    const distanceM = live.engine.getSnapshot().distanceM;
+    live.fireFlush();
+    await flush();
+    return {
+      distanceM,
+      state: live.lastFlush().state,
+      points: live.flushedPoints().map(fromRunPoint),
+    };
+  }
+
+  test('restore reproduces elapsed and the pre-crash live distance', async () => {
+    const { distanceM, state, points } = await crashAfterFlush();
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    expect(h.engine.restore({ runId: 'run-1', session: SESSION, state, points })).toBe(true);
+    const s = h.engine.getSnapshot();
+    expect(s.status).toBe('running');
+    expect(s.sessionKey).toBe('w1d1');
+    expect(s.activeElapsedSeconds).toBe(20);
+    expect(s.segmentIndex).toBe(1);
+    expect(distanceM).toBeGreaterThan(0);
+    expect(s.distanceM).toBe(distanceM);
+    expect(h.calls).not.toContain('startRun'); // the active row is reused, never duplicated
+    await flush();
+    expect(h.trackerCalls).toEqual(['start']);
+  });
+
+  test('restore continues seq from the persisted maximum and re-buffers nothing', async () => {
+    const { state, points } = await crashAfterFlush();
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
+    expect(h.engine.getBufferedPoints()).toEqual([]);
+    h.feed(fixAt(20, 59.0004, 18));
+    expect(h.engine.getBufferedPoints().map((p) => p.seq)).toEqual([points.length]);
+    h.fireFlush();
+    await flush();
+    expect(h.flushedSeqs()).toEqual([points.length]);
+  });
+
+  test('post-resume distance stays equal to a fresh re-fold of the whole track, across the dead gap', async () => {
+    const { state, points } = await crashAfterFlush();
+    const h = makeEngine();
+    h.setNow(FIX_START + 40_000); // > MAX_GAP_S after the last persisted fix → the smoother resets
+    h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
+    [0, 1, 2, 3].forEach((i) => h.feed(fixAt(40 + i, 59.0004 + i * 0.000018, 18)));
+    const refold = smoothTrackBySegment(
+      [...points, ...h.engine.getBufferedPoints()].map(toSegmented),
+    );
+    expect(refold.distanceM).toBeGreaterThan(0);
+    expect(h.engine.getSnapshot().distanceM).toBe(refold.distanceM);
+  });
+
+  test('a resumed run finalizes into the same active row', async () => {
+    const { state, points } = await crashAfterFlush();
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
+    h.tick(60); // active 80 > total 75
+    await flush();
+    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(h.finalized[0].runId).toBe('run-1');
+    expect(h.calls).not.toContain('startRun');
+  });
+
+  test('restore rebuilds a paused run with frozen elapsed', () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 100_000);
+    const restored = h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart({
+        events: [
+          { type: 'start', at: FIX_START },
+          { type: 'pause', at: FIX_START + 12_000 },
+        ],
+        lastAnnouncedIndex: 1,
+      }),
+      points: [],
+    });
+    expect(restored).toBe(true);
+    const s = h.engine.getSnapshot();
+    expect(s.status).toBe('paused');
+    expect(s.activeElapsedSeconds).toBe(12);
+    expect(s.distanceM).toBe(0);
+  });
+
+  test('paused-ness comes from the last unmatched pause, not the last event (skip is legal while paused)', () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 100_000);
+    h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart({
+        events: [
+          { type: 'start', at: FIX_START },
+          { type: 'pause', at: FIX_START + 12_000 },
+          { type: 'skip', at: FIX_START + 13_000 },
+        ],
+        lastAnnouncedIndex: 1,
+      }),
+      points: [],
+    });
+    expect(h.engine.getSnapshot().status).toBe('paused');
+    expect(h.engine.getSnapshot().activeElapsedSeconds).toBe(12);
+    expect(h.engine.getSnapshot().segmentIndex).toBe(2); // the skip truncated the run segment
+    h.engine.resume(); // and the run is not wedged: elapsed advances again
+    h.tick(5);
+    expect(h.engine.getSnapshot().activeElapsedSeconds).toBe(17);
+  });
+
+  test('restore honours the cue watermarks — no re-announcing what was already spoken', () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000); // elapsed 20 → the already-announced run segment
+    h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart({ lastAnnouncedIndex: 1, halfwayFired: true }),
+      points: [],
+    });
+    expect(h.cues).toEqual([]);
+    h.tick(20); // 40s: into the walk, and past halfway (37.5s)
+    expect(h.cues).toEqual(['startWalk']);
+  });
+
+  test('restore refuses a run whose timeline expired while the app was dead', () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 200_000);
+    const restored = h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart(),
+      points: [],
+    });
+    expect(restored).toBe(false);
+    expect(h.engine.getSnapshot().status).toBe('idle');
+    expect(h.saved).toEqual([]);
+  });
+
+  test('restore refuses a log that never started and leaves the engine idle', () => {
+    const h = makeEngine();
+    const restored = h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart({ events: [], lastAnnouncedIndex: -1 }),
+      points: [],
+    });
+    expect(restored).toBe(false);
+    expect(h.engine.getSnapshot().status).toBe('idle');
+  });
+
+  test('restore leaves a live run alone', () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.tick(12);
+    const restored = h.engine.restore({
+      runId: 'run-9',
+      session: { ...SESSION, key: 'w1d2' },
+      state: stateAtStart({ sessionKey: 'w1d2' }),
+      points: [],
+    });
+    expect(restored).toBe(false);
+    const s = h.engine.getSnapshot();
+    expect(s.status).toBe('running');
+    expect(s.sessionKey).toBe('w1d1');
+    expect(s.activeElapsedSeconds).toBe(12);
+  });
+
+  test('isTimelineExhausted replays skips, so a shortened timeline expires earlier', () => {
+    const events = [
+      { type: 'start' as const, at: FIX_START },
+      { type: 'skip' as const, at: FIX_START + 5_000 },
+    ]; // warmup 10→5 ⇒ total 70
+    expect(isTimelineExhausted(SESSION, events, FIX_START + 69_000)).toBe(false);
+    expect(isTimelineExhausted(SESSION, events, FIX_START + 70_000)).toBe(true);
+    expect(isTimelineExhausted(SESSION, [], FIX_START + 70_000)).toBe(false);
+  });
+});
+
+describe('abandon (unresumable in-flight run)', () => {
+  test('an expired run is finalized as partial into its own row, then the engine returns to idle', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 200_000);
+    await h.engine.abandon({ runId: 'run-1', session: SESSION, state: stateAtStart() });
+    expect(h.calls).not.toContain('startRun');
+    expect(h.finalized).toHaveLength(1);
+    expect(h.finalized[0].runId).toBe('run-1');
+    expect(h.saved[0].status).toBe('partial');
+    expect(h.saved[0].activeDurationS).toBe(75); // capped at the timeline (ADR 0007)
+    expect(h.calls.at(-1)).toBe('clearSnapshot');
+    expect(h.engine.getSnapshot().status).toBe('idle');
+    await flush();
+    expect(h.trackerCalls).toContain('stop');
+  });
+
+  test('abandoning inside the final cool-down is still partial — only the runner can complete a run', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 70_000); // elapsed 70 ∈ cooldown [65,75)
+    await h.engine.abandon({ runId: 'run-1', session: SESSION, state: stateAtStart() });
+    expect(h.saved[0].status).toBe('partial');
+    expect(h.saved[0].activeDurationS).toBe(70);
+    expect(h.cues).not.toContain('complete');
+  });
+
+  test('abandon leaves a live run alone', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await h.engine.abandon({
+      runId: 'run-9',
+      session: { ...SESSION, key: 'w1d2' },
+      state: stateAtStart({ sessionKey: 'w1d2' }),
+    });
+    expect(h.engine.getSnapshot().status).toBe('running');
+    expect(h.engine.getSnapshot().sessionKey).toBe('w1d1');
+    expect(h.finalized).toEqual([]);
   });
 });

@@ -37,9 +37,10 @@ export interface RunSnapshotState {
   /** Halfway milestone flag — time-based, so not derivable from `lastAnnouncedIndex`; without it resume would re-announce halfway. */
   halfwayFired: boolean;
   /**
-   * Haversine anchor (last accepted fix), restored so the first post-resume delta
-   * measures from the right origin. Kept as the raw `LocationFix` (epoch-ms), not a
-   * `RunPoint`, so the ingest/dedupe path stays conversion-free. Null before the first fix.
+   * The last fix that committed distance, as the raw `LocationFix` (epoch-ms). Diagnostic only:
+   * resume re-derives the haversine anchor by re-folding `run_points`, since anchoring on an
+   * unpersisted fix would make resumed distance un-derivable from the stored track (ADR 0021 §3).
+   * Null before the first committed fix.
    */
   lastAcceptedFix: LocationFix | null;
 }

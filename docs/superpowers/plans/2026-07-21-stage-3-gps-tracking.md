@@ -385,7 +385,7 @@ each task — that is what the two reviewers attack.
 
 #### T23. Milestone-0 device checklist (external gate — documented, not run here)
 - [ ] Document the physical-device checklist (spec §10, ADR 0008 §7): release-config build on a real iPhone — 30+ min locked-phone GPS continuity, TTS audibility while locked, Spotify duck+recover, silent switch, Bluetooth headphones, phone-call interruption. TTS-while-locked failure → pre-recorded cue fallback (ADR 0009 §6).
-- **Done when:** checklist committed; stage is **not** declared complete until Lukas runs it on-device.
+- **Done when:** [docs/milestone-0-device-checklist.md](../../milestone-0-device-checklist.md) committed; the stage is **not** complete until it is run on-device.
 
 ## Exit criteria (spec §13)
 

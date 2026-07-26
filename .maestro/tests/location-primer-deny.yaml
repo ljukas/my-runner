@@ -1,0 +1,22 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - onboarding
+---
+# The primer's "Enable Location" CTA leading to a denial (stubbed, so no system alert).
+# These two flows are the sole owners of the primer's two CTAs (ADR 0016 text-first).
+- launchApp:
+    clearState: true
+    permissions:
+      location: deny
+- runFlow: ../helpers/onboarding-to-primer.yaml
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Enable Location"
+      - assertVisible: "Week 1 ·.*" # a denial advances exactly like "Not Now" (ADR 0008 §5)
+- tapOn: "Settings"
+- scrollUntilVisible:
+    element:
+      text: ".*Never"
+# Only iOS can grant this now, so the row defers to system Settings instead of offering a toggle.
+- assertVisible: "Open Settings"

@@ -1,0 +1,25 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - onboarding
+---
+# The primer's "Enable Location" CTA leading to a grant. These two flows are the sole
+# owners of the primer's two CTAs (ADR 0016 text-first).
+- launchApp:
+    clearState: true
+    permissions:
+      location: allow
+- runFlow: ../helpers/onboarding-to-primer.yaml
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Enable Location"
+      - assertVisible: "Week 1 ·.*" # granted → primer complete → plan list
+- tapOn: "Settings"
+# The Form scrolls; LabeledContent may merge its label and value into one element, so match
+# the value as a suffix rather than as the whole string.
+- scrollUntilVisible:
+    element:
+      text: ".*While Using the App"
+# Granted needs no escape hatch: no system-Settings deep link, no second ask.
+- assertNotVisible: "Open Settings"
+- assertNotVisible: "Enable Location"

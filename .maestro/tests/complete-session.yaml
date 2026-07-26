@@ -17,6 +17,9 @@ tags:
 - scrollUntilVisible:
     element:
       text: "Warm Up"
+# Granted but stationary → zero distance: the derived tiles and the splits card stay out.
+- assertNotVisible: "Distance"
+- assertNotVisible: "Interval Pace"
 - tapOn: "Done"
 - tapOn: "Log"
 - scrollUntilVisible:

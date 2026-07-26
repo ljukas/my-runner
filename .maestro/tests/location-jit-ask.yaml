@@ -1,0 +1,25 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - onboarding
+---
+# "Not Now" leaves the permission undetermined: the ask must arrive just in time at the first run
+# start and never cold before the primer (ADR 0008 §2).
+- launchApp:
+    clearState: true
+    permissions:
+      location: unset
+- runFlow: ../helpers/complete-onboarding.yaml
+- tapOn: "Settings"
+- scrollUntilVisible:
+    element:
+      text: "Ask Next Time Or When I Share"
+- assertVisible: "Enable Location"
+- tapOn: "Plan"
+- runFlow: ../helpers/start-w1d1.yaml
+- extendedWaitUntil:
+    visible: "Allow While Using.*App"
+    timeout: 15000
+- tapOn:
+    text: "Don.t Allow"
+- assertVisible: "Location is off"
+- assertVisible: "Open Settings"

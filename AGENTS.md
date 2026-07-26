@@ -99,6 +99,7 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   Argent's own flow record/replay (`flow-*` tools) is a dev-loop convenience (e.g.
   re-profiling after a fix), not a second E2E layer — regression flows live only in
   `.maestro/`.
+- **Device gate:** what E2E cannot reach (locked-phone GPS continuity, cue audibility, ducking, silent switch, Bluetooth, call interruption) is covered by [docs/milestone-0-device-checklist.md](docs/milestone-0-device-checklist.md).
 
 # Comments & documentation
 

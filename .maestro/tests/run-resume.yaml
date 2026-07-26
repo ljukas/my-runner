@@ -1,0 +1,52 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# A killed run is only resumable while its timeline is still live, and elapsed is derived from
+# the WALL CLOCK (ADR 0007). The E2E build's compressed w1d1 is 0:40 end to end — shorter than
+# a stopApp plus a cold relaunch of this binary — so a *running* run is always exhausted by the
+# time the app is back and detectResumableRun correctly abandons it instead of offering it.
+# Pausing first is what makes this deterministic: active elapsed freezes at the pause event, so
+# the timeline cannot expire while the process is dead, however slow the relaunch is.
+- runFlow: ../helpers/start-first-session.yaml
+- tapOn: "Pause"
+- assertVisible: "Paused"
+# The snapshot (event log + watermarks) is written on a ~5 s cadence, so the `pause` event needs
+# one more tick to reach active_run_snapshot before the process dies — without it the restored
+# log has no pause and the wall clock exhausts the timeline. Maestro has no sleep command: this
+# waits for something that cannot happen while the run is paused, and the timeout IS the wait
+# (optional, so the inevitable miss warns instead of failing the flow).
+- extendedWaitUntil:
+    notVisible: "Paused"
+    timeout: 12000
+    optional: true
+    label: "Wait ~12 s — more than 2x POINT_FLUSH_MS (5000) so the pause event reaches active_run_snapshot; Maestro has no sleep"
+# Pause froze elapsed under 0:20; the same value has to come back after the kill.
+- assertVisible: "0:[0-3][0-9] / 0:40"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      text: "Resume run?"
+    timeout: 60000
+- assertVisible: "Week 1 · Day 1 was interrupted.*"
+# The sheet's Resume (the run screen's transport control is also labelled "Resume" — that one
+# is tapped further down, after this sheet is gone).
+- tapOn: "Resume"
+# Restored from the event log, not restarted: the run comes back paused, carrying the elapsed
+# it had when the app died. A run rebuilt from the wall clock would read well past 0:20 by now.
+- assertVisible: "Paused"
+- assertVisible: "0:[01][0-9] / 0:40"
+# A restore that silently restarted would read 0:0x; the real one keeps its pre-kill elapsed.
+- assertNotVisible: "0:0[0-5] / 0:40"
+- tapOn: "Resume"
+- tapOn: "Resume"
+- extendedWaitUntil:
+    visible: "Nice work.*"
+    timeout: 120000
+- tapOn: "Done"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertNotVisible: "Partial"

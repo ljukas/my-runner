@@ -1,0 +1,18 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# A running compressed session (0:40) outlives its timeline while the process is dead, so the run is
+# finalized as partial at next launch instead of being offered for resume (ADR 0007 wall clock).
+- runFlow: ../helpers/start-first-session.yaml
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Week 1 ·.*"
+    timeout: 120000
+- assertNotVisible: "Resume run?"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertVisible: "Partial"

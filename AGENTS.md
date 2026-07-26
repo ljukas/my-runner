@@ -136,3 +136,4 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0019 — App variants via dynamic app.config.ts selected by APP_VARIANT](docs/adr/0019-app-variants-dynamic-config.md)
 - [ADR 0020 — iOS-only for now: Android support deferred](docs/adr/0020-ios-only-android-deferred.md)
 - [ADR 0022 — Active-run Live Activity via first-party expo-widgets, updated locally](docs/adr/0022-active-run-live-activity-expo-widgets.md)
+- [ADR 0023 — Completion as a projection over two sources (runs ∪ manual marks); week-focus derives from it](docs/adr/0023-session-completion-projection-manual-marks.md)

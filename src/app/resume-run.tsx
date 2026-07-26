@@ -28,9 +28,13 @@ export default function ResumeRunScreen() {
       return;
     }
     // A false resume means the run expired between detection and the tap, so finalizing is the only
-    // outcome left; show the saved run rather than returning silently.
+    // outcome left; show the saved run rather than returning silently. `celebrate` because this is a
+    // fresh finish either way — the same acknowledgement (and bottom "Done") an ended-early run gets.
     await discardResumableRun(candidate);
-    router.replace({ pathname: '/run-summary/[id]', params: { id: candidate.runId } });
+    router.replace({
+      pathname: '/run-summary/[id]',
+      params: { id: candidate.runId, celebrate: '1' },
+    });
   };
 
   return (

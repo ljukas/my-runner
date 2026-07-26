@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { CueId } from '@/domain/cues';
+import {
+  smoothTrack,
+  smoothTrackBySegment,
+  type LocationFix,
+  type SegmentedFix,
+} from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
 import { RunEngine, endCountsAsCompleted } from './engine';
@@ -37,6 +43,24 @@ const SESSION: PlanSession = {
   ], // total 75
 };
 
+const FIX_START = 1_000_000; // makeEngine's initial clock — the run's start event lands here
+
+function fixAt(offsetSec: number, lat: number, lng: number, accuracy = 5): LocationFix {
+  return {
+    timestamp: FIX_START + Math.round(offsetSec * 1000),
+    lat,
+    lng,
+    altitude: 42,
+    accuracy,
+    speed: 2,
+  };
+}
+
+// ~2 m/s northbound at 1 Hz, 6 fixes, all inside warmup [0,10) of SESSION.
+const WALK_TRACK: LocationFix[] = Array.from({ length: 6 }, (_, i) =>
+  fixAt(i, 59 + i * 0.000018, 18),
+);
+
 function makeEngine() {
   let now = 1_000_000;
   const saved: CompletedRunRecord[] = [];
@@ -62,6 +86,11 @@ function makeEngine() {
       engine.heartbeat();
     },
     advance: (seconds: number) => (now += seconds * 1000),
+    // Drive a fix as production does: the engine's clock is the fix's own timestamp.
+    feed: (fix: LocationFix) => {
+      now = fix.timestamp;
+      engine.heartbeat(fix.timestamp, fix);
+    },
   };
 }
 
@@ -559,5 +588,164 @@ describe('segmentEndsAt', () => {
     tick(75); // exhausts the 75s timeline
     expect(engine.getSnapshot().status).toBe('completed');
     expect(engine.getSnapshot().segmentEndsAt).toBeNull();
+  });
+});
+
+describe('GPS fix ingestion (T12, ADR 0021)', () => {
+  test('live distanceM equals a fresh smoothed fold of the same fixes (live == fresh fold)', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    WALK_TRACK.forEach(feed);
+    const expected = smoothTrack(WALK_TRACK).distanceM;
+    expect(expected).toBeGreaterThan(0);
+    expect(engine.getSnapshot().distanceM).toBe(expected);
+    expect(engine.getSnapshot().paceSecPerKm).toBeGreaterThan(0);
+  });
+
+  test('a fresh fold of the buffered points, timestamps through the run_points ISO round-trip, matches live distance (live == re-derived, ADR 0021 §3)', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    // Fractional-ms fixes: live folds the rounded timestamps, so only the buffered (rounded) stream re-folds equal.
+    const track: LocationFix[] = Array.from({ length: 6 }, (_, i) => ({
+      timestamp: FIX_START + i * 1000 + 0.4,
+      lat: 59 + i * 0.000018,
+      lng: 18,
+      altitude: 42,
+      accuracy: 5,
+      speed: 2,
+    }));
+    track.forEach(feed);
+    // Reconstruct exactly what save-run's rollupFromPoints feeds smoothTrackBySegment: int-ms → ISO → getTime.
+    const refold = smoothTrackBySegment(
+      engine.getBufferedPoints().map((p): SegmentedFix => ({
+        timestamp: new Date(new Date(p.timestamp).toISOString()).getTime(),
+        lat: p.lat,
+        lng: p.lng,
+        altitude: p.altitude,
+        accuracy: p.accuracy,
+        speed: p.speed,
+        segmentSeq: p.segmentSeq,
+      })),
+    );
+    expect(refold.distanceM).toBeGreaterThan(0);
+    expect(refold.distanceM).toBe(engine.getSnapshot().distanceM);
+  });
+
+  test('each buffered point is tagged with the current full-timeline segment index + a monotonic seq', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed(fixAt(5, 59, 18)); // warmup [0,10) → index 0
+    feed(fixAt(12, 59.00004, 18)); // run [10,30) → index 1
+    const points = engine.getBufferedPoints();
+    expect(points.map((p) => p.segmentSeq)).toEqual([0, 1]);
+    expect(points.map((p) => p.seq)).toEqual([0, 1]);
+  });
+
+  test('the buffered timestamp is normalized to integer ms (survives the run_points ISO round-trip)', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed({ timestamp: FIX_START + 3500.7, lat: 59, lng: 18, altitude: 42, accuracy: 5, speed: 2 });
+    const [point] = engine.getBufferedPoints();
+    expect(Number.isInteger(point.timestamp)).toBe(true);
+    expect(point.timestamp).toBe(Math.round(FIX_START + 3500.7));
+  });
+
+  test('a fix with accuracy > 50 m is rejected — not buffered, no distance', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed(fixAt(2, 59, 18, 60));
+    expect(engine.getBufferedPoints()).toEqual([]);
+    expect(engine.getSnapshot().distanceM).toBe(0);
+  });
+
+  test('a fix with null accuracy is rejected', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed({ timestamp: FIX_START + 2000, lat: 59, lng: 18, altitude: 42, accuracy: null, speed: 2 });
+    expect(engine.getBufferedPoints()).toEqual([]);
+  });
+
+  test('no ingestion while paused', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed(fixAt(2, 59, 18));
+    const countRunning = engine.getBufferedPoints().length;
+    const distanceRunning = engine.getSnapshot().distanceM;
+    engine.pause();
+    feed(fixAt(4, 59.00004, 18));
+    expect(engine.getSnapshot().status).toBe('paused');
+    expect(engine.getBufferedPoints().length).toBe(countRunning);
+    expect(engine.getSnapshot().distanceM).toBe(distanceRunning);
+  });
+
+  test('a duplicate-timestamp fix is buffered but adds no distance (smoother de-dupes on dt ≤ 0)', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed(fixAt(2, 59, 18));
+    feed(fixAt(4, 59.00004, 18));
+    const distanceBefore = engine.getSnapshot().distanceM;
+    const countBefore = engine.getBufferedPoints().length;
+    feed(fixAt(4, 59.00004, 18)); // same timestamp
+    expect(engine.getSnapshot().distanceM).toBe(distanceBefore);
+    expect(engine.getBufferedPoints().length).toBe(countBefore + 1); // full accuracy-passed stream is persisted
+  });
+
+  test('a fix on the completing heartbeat is dropped: finalize precedes ingest, so live and the re-fold both exclude it', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    feed(fixAt(30, 59, 18)); // mid-run → buffered
+    const beforeCount = engine.getBufferedPoints().length;
+    expect(beforeCount).toBeGreaterThan(0);
+    feed(fixAt(80, 59.0004, 18)); // elapsed 80 ≥ total 75 → completes before ingest runs
+    expect(engine.getSnapshot().status).toBe('completed');
+    expect(engine.getBufferedPoints().length).toBe(beforeCount);
+  });
+
+  test('an ingestion throw is caught — timing and cues keep advancing', () => {
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args);
+    try {
+      const { engine, feed, cues } = makeEngine();
+      engine.start(SESSION);
+      feed(fixAt(2, 59, 18)); // one good fix
+      const evil = {
+        timestamp: FIX_START + 3000,
+        lng: 18,
+        altitude: 42,
+        accuracy: 5,
+        speed: 2,
+        get lat(): number {
+          throw new Error('smoother boom');
+        },
+      } as unknown as LocationFix;
+      feed(evil); // throws while spreading the fix, inside the ingest try/catch
+      feed(fixAt(12, 59.00004, 18)); // next good fix crosses into the run segment
+      const snap = engine.getSnapshot();
+      expect(snap.status).toBe('running');
+      expect(snap.segmentIndex).toBe(1);
+      expect(cues).toContain('startRun'); // cue path was never stalled
+      expect(warnings.length).toBeGreaterThanOrEqual(1);
+      expect(engine.getBufferedPoints().length).toBe(2); // evil fix mutated nothing
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test('start() and reset() clear the ingest accumulator', () => {
+    const { engine, feed } = makeEngine();
+    engine.start(SESSION);
+    WALK_TRACK.forEach(feed);
+    expect(engine.getBufferedPoints().length).toBe(WALK_TRACK.length);
+    expect(engine.getSnapshot().distanceM).toBeGreaterThan(0);
+
+    engine.reset();
+    expect(engine.getBufferedPoints()).toEqual([]);
+    expect(engine.getSnapshot().distanceM).toBe(0);
+    expect(engine.getSnapshot().paceSecPerKm).toBeNull();
+
+    engine.start(SESSION);
+    expect(engine.getBufferedPoints()).toEqual([]);
+    expect(engine.getSnapshot().distanceM).toBe(0);
   });
 });

@@ -22,9 +22,25 @@ export interface RunSnapshot {
   nextSegment: { kind: SegmentKind; seconds: number } | null;
   activeElapsedSeconds: number;
   totalSeconds: number;
+  /** Live smoothed distance in metres (ADR 0021 §3); 0 before the first committed fix / when GPS is off. */
+  distanceM: number;
+  /** Overall pace in seconds per km; null until distance exceeds 0. */
+  paceSecPerKm: number | null;
   /** Set once persistence resolves after completion/end-early. */
   savedRunId: string | null;
   saveFailed: boolean;
+}
+
+/** `timestamp` is normalized integer epoch-ms so the `run_points` int-ms→ISO write round-trips losslessly and the finalize re-fold matches live distance (ADR 0021 §3). */
+export interface BufferedRunPoint {
+  seq: number;
+  segmentSeq: number;
+  timestamp: number;
+  lat: number;
+  lng: number;
+  altitude: number | null;
+  accuracy: number | null;
+  speed: number | null;
 }
 
 export interface CompletedSegmentRecord {

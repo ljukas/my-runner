@@ -1,8 +1,17 @@
 import { SEGMENT_ENTRY_CUE } from '@/domain/cues';
+import {
+  accuracyFilter,
+  createSmootherState,
+  smoothFix,
+  type LocationFix,
+  type SmootherState,
+} from '@/domain/geo';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
+import { paceSecPerKm } from '@/domain/run-stats';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import type { CueService } from '@/services/cue-service/port';
 import type {
+  BufferedRunPoint,
   Clock,
   CompletedRunRecord,
   EngineStatus,
@@ -22,6 +31,8 @@ const IDLE_SNAPSHOT: RunSnapshot = {
   nextSegment: null,
   activeElapsedSeconds: 0,
   totalSeconds: 0,
+  distanceM: 0,
+  paceSecPerKm: null,
   savedRunId: null,
   saveFailed: false,
 };
@@ -92,6 +103,12 @@ export class RunEngine {
   private plannedTotalS = 0;
   private lastRunIndex = -1;
 
+  // GPS ingest state (ADR 0021 §3): folded live so the snapshot distance equals the finalize re-fold; cleared per run.
+  private smootherState: SmootherState = createSmootherState();
+  private distanceM = 0;
+  private pendingPoints: BufferedRunPoint[] = [];
+  private nextSeq = 0;
+
   constructor(deps: { persistence: RunPersistence; cue: CueService; clock?: Clock }) {
     this.persistence = deps.persistence;
     this.cue = deps.cue;
@@ -112,6 +129,7 @@ export class RunEngine {
     this.plannedTotalS = sessionTotalSeconds(session);
     // The final run is announced as "last run", not a generic "start running".
     this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
+    this.resetIngestState();
     this.cue.prepare();
     this.refresh();
   }
@@ -143,14 +161,17 @@ export class RunEngine {
     this.finalize('endedEarly');
   }
 
-  heartbeat(now: number = this.clock()): void {
+  heartbeat(now: number = this.clock(), fix?: LocationFix): void {
     if (this.status !== 'running' && this.status !== 'paused') return;
     const elapsed = activeElapsedMs(this.events, now) / 1000;
-    if (positionAt(this.timeline(), elapsed).done) {
+    const pos = positionAt(this.timeline(), elapsed);
+    if (pos.done) {
       this.finalize('completed');
       return;
     }
+    // Timing/cues derive first; GPS ingestion can neither stall nor throw out of them.
     this.refresh(now);
+    if (this.status === 'running' && fix) this.ingestFix(fix, pos.index);
   }
 
   reset(): void {
@@ -163,6 +184,7 @@ export class RunEngine {
     this.runGeneration += 1;
     this.lastAnnouncedIndex = -1;
     this.halfwayFired = false;
+    this.resetIngestState();
     this.snapshot = IDLE_SNAPSHOT;
     this.cue.release();
     this.emit();
@@ -174,6 +196,9 @@ export class RunEngine {
   };
 
   getSnapshot = (): RunSnapshot => this.snapshot;
+
+  /** Buffered accuracy-passed points for incremental `run_points` flush (ADR 0021 §3); a shallow copy so array mutation can't reach the engine's buffer. */
+  getBufferedPoints = (): readonly BufferedRunPoint[] => this.pendingPoints.slice();
 
   // --- derivation ---
 
@@ -211,6 +236,8 @@ export class RunEngine {
       totalSeconds: total,
       savedRunId: this.savedRunId,
       saveFailed: this.saveFailed,
+      distanceM: this.distanceM,
+      paceSecPerKm: paceSecPerKm(this.distanceM, elapsed),
     };
     if (pos.done) {
       this.snapshot = {
@@ -251,6 +278,50 @@ export class RunEngine {
     if (!this.halfwayFired && this.plannedTotalS > 0 && elapsed >= this.plannedTotalS / 2) {
       this.halfwayFired = true;
       this.cue.announce('halfway');
+    }
+  }
+
+  private resetIngestState(): void {
+    this.smootherState = createSmootherState();
+    this.distanceM = 0;
+    this.pendingPoints = [];
+    this.nextSeq = 0;
+  }
+
+  // Same smoother the finalize re-fold re-runs over run_points, so live distance == re-derived (ADR 0021 §3):
+  // the integer-ms timestamp survives the ISO round-trip, and the full accuracy-passed stream is buffered (no re-gate — the smoother owns velocity).
+  private ingestFix(fix: LocationFix, segmentSeq: number): void {
+    let buffered = false;
+    try {
+      if (!accuracyFilter(fix)) return;
+      const timestamp = Math.round(fix.timestamp);
+      const step = smoothFix(this.smootherState, { ...fix, timestamp });
+      const point: BufferedRunPoint = {
+        seq: this.nextSeq,
+        segmentSeq,
+        timestamp,
+        lat: fix.lat,
+        lng: fix.lng,
+        altitude: fix.altitude,
+        accuracy: fix.accuracy,
+        speed: fix.speed,
+      };
+      this.smootherState = step.state;
+      this.distanceM += step.acceptedDeltaMeters;
+      this.pendingPoints.push(point);
+      this.nextSeq += 1;
+      buffered = true;
+    } catch (error) {
+      // Fault-isolated: timing/cues already ran this heartbeat, so a GPS/smoother throw only drops a fix.
+      console.warn('[run-engine] fix ingestion failed; timing and cues unaffected', error);
+    }
+    if (buffered) {
+      this.snapshot = {
+        ...this.snapshot,
+        distanceM: this.distanceM,
+        paceSecPerKm: paceSecPerKm(this.distanceM, this.snapshot.activeElapsedSeconds),
+      };
+      this.emit();
     }
   }
 

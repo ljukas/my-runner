@@ -1,0 +1,37 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# The offer sheet's second CTA. Declining still finalizes the interrupted run as partial, so its track
+# stays reachable from the Log — the sheet's Resume branch is tests/run-resume.yaml, the launch-time
+# expiry branch tests/run-abandon.yaml. Killing the run mid-flight is all it takes to be offered: the
+# compressed 0:40 timeline is still live after the ~3.5 s a stopApp with a relaunch costs.
+- runFlow: ../helpers/start-first-session.yaml
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      text: "Resume run.*"
+    timeout: 60000
+- tapOn: "Save as Partial"
+# The declined run's summary replaces the sheet: partial, and deliberately not celebratory — this
+# path passes no `celebrate` param, so there is no headline and no bottom "Done" CTA either.
+- assertVisible: "Partial"
+- assertNotVisible: "Good effort.*"
+# Which leaves the modal's native gesture, as in tests/log-revisit.yaml: a swipe *down* started on the
+# large-title bar, above the scroll content. Retried because this summary arrives by replacing a
+# formSheet, making its presentation the least-proven thing here. "Partial" is summary-only — the Plan
+# list behind it has no such label — so its absence is what confirms the dismissal.
+- retry:
+    maxRetries: 3
+    commands:
+      - swipe:
+          start: "50%, 12%"
+          end: "50%, 92%"
+          duration: 600
+      - assertNotVisible: "Partial"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertVisible: "Partial"

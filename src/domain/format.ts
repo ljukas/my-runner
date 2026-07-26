@@ -94,27 +94,34 @@ export function formatRunDate(iso: string, locale?: string): string {
 }
 
 /**
- * Kilometres to two decimals (`2310 → "2.31 km"`). Negative clamps to 0 and
- * non-finite renders `"0.00 km"`, never `"NaN km"` (matches formatPace's guard).
+ * Kilometres as a value/unit pair for the stat tiles (`2310 → { value: '2.31', unit: 'km' }`).
+ * Negative clamps to 0 and non-finite renders `'0.00'`, never `'NaN'`.
  */
+export function distanceParts(meters: number): { value: string; unit: 'km' } {
+  const safe = Number.isFinite(meters) ? Math.max(0, meters) : 0;
+  return { value: (safe / 1000).toFixed(2), unit: 'km' };
+}
+
+/** Kilometres to two decimals (`2310 → "2.31 km"`). */
 export function formatDistanceKm(meters: number): string {
-  if (!Number.isFinite(meters)) {
-    return '0.00 km';
-  }
-  return `${(Math.max(0, meters) / 1000).toFixed(2)} km`;
+  const { value, unit } = distanceParts(meters);
+  return `${value} ${unit}`;
 }
 
 /**
- * Average pace as `m:ss /km` (`389 → "6:29 /km"`). Nullish, 0, negative, and
- * non-finite render the `--:-- /km` placeholder; seconds round to nearest.
+ * Average pace as a value/unit pair (`389 → { value: '6:29', unit: '/km' }`). Nullish, 0, negative
+ * and non-finite render the `--:--` placeholder value; seconds round to nearest.
  */
-export function formatPace(secondsPerKm: number | null): string {
+export function paceParts(secondsPerKm: number | null): { value: string; unit: '/km' } {
   if (secondsPerKm == null || !Number.isFinite(secondsPerKm)) {
-    return '--:-- /km';
+    return { value: '--:--', unit: '/km' };
   }
   const seconds = Math.round(secondsPerKm);
-  if (seconds <= 0) {
-    return '--:-- /km';
-  }
-  return `${formatClock(seconds)} /km`;
+  return { value: seconds <= 0 ? '--:--' : formatClock(seconds), unit: '/km' };
+}
+
+/** Average pace as `m:ss /km` (`389 → "6:29 /km"`). */
+export function formatPace(secondsPerKm: number | null): string {
+  const { value, unit } = paceParts(secondsPerKm);
+  return `${value} ${unit}`;
 }

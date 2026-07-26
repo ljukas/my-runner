@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useRef } from 'react';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
@@ -21,6 +22,7 @@ import {
 } from '@/domain/plan';
 import { useTheme } from '@/hooks/use-theme';
 import { useActivePlan } from '@/services/active-plan';
+import { locationTracker } from '@/services/location-tracker';
 import { runEngine } from '@/services/run-engine';
 
 export default function SessionSheet() {
@@ -29,6 +31,7 @@ export default function SessionSheet() {
   const colors = useTheme();
   const plan = useActivePlan();
   const session = getSession(plan, key);
+  const starting = useRef(false);
   const { data: attempts, updatedAt } = useLiveQuery(
     db
       .select({ id: runs.id })
@@ -38,6 +41,31 @@ export default function SessionSheet() {
   );
 
   if (!session) return <Redirect href="/" />;
+
+  const startSession = async () => {
+    // The handler is async now, so a second tap could start the run twice.
+    if (starting.current) return;
+    starting.current = true;
+    try {
+      // The just-in-time ask, reached only when the primer was skipped — the prompt is never cold
+      // (ADR 0008 §2). Denial still starts the run: timer-only (§5).
+      if ((await locationTracker.getPermissionStatus()) === 'undetermined') {
+        await locationTracker.requestPermission();
+      }
+    } catch (error) {
+      console.warn('[session] location ask failed', error);
+    }
+    // The engine's start() no-ops unless idle, so reset any prior finished run
+    // here (its state lingers harmlessly until now — no screen reads it between
+    // runs). This is why the summary no longer needs to reset the engine on "Done".
+    runEngine.reset();
+    runEngine.start(session);
+    // Replace, not push: the run screen is a full-screen modal, so the session
+    // sheet must leave the stack — otherwise the lingering formSheet bleeds into
+    // the accessibility tree behind the run/summary modals and occludes their
+    // controls (e.g. the summary's "Done").
+    router.replace('/run');
+  };
 
   return (
     <View className="gap-6 bg-background px-6 pt-8">
@@ -64,23 +92,7 @@ export default function SessionSheet() {
           <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
         </StatList>
       </Card>
-      <Island.Button
-        fill
-        label="Start Session"
-        onPress={() => {
-          // The engine's start() no-ops unless idle, so reset any prior
-          // finished run here (its state lingers harmlessly until now — no
-          // screen reads it between runs). This is why the summary no longer
-          // needs to reset the engine on "Done".
-          runEngine.reset();
-          runEngine.start(session);
-          // Replace, not push: the run screen is a full-screen modal, so the
-          // session sheet must leave the stack — otherwise the lingering
-          // formSheet bleeds into the accessibility tree behind the run/summary
-          // modals and occludes their controls (e.g. the summary's "Done").
-          router.replace('/run');
-        }}
-      />
+      <Island.Button fill label="Start Session" onPress={() => void startSession()} />
     </View>
   );
 }

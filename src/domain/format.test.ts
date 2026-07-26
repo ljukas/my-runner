@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   clockParts,
+  distanceParts,
   durationWords,
   formatClock,
   formatCountdown,
@@ -9,6 +10,7 @@ import {
   formatMinutes,
   formatPace,
   formatRunDate,
+  paceParts,
   sessionSummary,
   sessionTitle,
 } from './format';
@@ -166,5 +168,37 @@ describe('formatPace', () => {
     expect(formatPace(-Infinity)).toBe('--:-- /km');
     expect(formatPace(NaN)).toBe('--:-- /km');
     expect(formatPace(null)).toBe('--:-- /km');
+  });
+});
+
+describe('distanceParts', () => {
+  test('splits the value from its unit for the stat tiles', () => {
+    expect(distanceParts(2310)).toEqual({ value: '2.31', unit: 'km' });
+    expect(distanceParts(0)).toEqual({ value: '0.00', unit: 'km' });
+  });
+
+  test('agrees with formatDistanceKm on every guarded input', () => {
+    for (const meters of [0, 999, 2314, -5, NaN, Infinity, -Infinity]) {
+      const { value, unit } = distanceParts(meters);
+      expect(`${value} ${unit}`).toBe(formatDistanceKm(meters));
+    }
+  });
+});
+
+describe('paceParts', () => {
+  test('splits the value from its unit for the stat tiles', () => {
+    expect(paceParts(389)).toEqual({ value: '6:29', unit: '/km' });
+  });
+
+  test('degenerate paces keep the placeholder value', () => {
+    expect(paceParts(null)).toEqual({ value: '--:--', unit: '/km' });
+    expect(paceParts(0)).toEqual({ value: '--:--', unit: '/km' });
+  });
+
+  test('agrees with formatPace on every guarded input', () => {
+    for (const pace of [389, 389.6, 0, -5, NaN, Infinity, null]) {
+      const { value, unit } = paceParts(pace);
+      expect(`${value} ${unit}`).toBe(formatPace(pace));
+    }
   });
 });

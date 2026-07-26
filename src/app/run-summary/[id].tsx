@@ -9,6 +9,7 @@ import { Island } from '@/components/island';
 import { RunStatGrid } from '@/components/run-stat-grid';
 import { RunSummaryHeadline } from '@/components/run-summary-headline';
 import { SegmentBreakdown } from '@/components/segment-breakdown';
+import { SegmentSplits } from '@/components/segment-splits';
 import { db } from '@/db/client';
 import { runs, runSegments } from '@/db/schema';
 import { sessionTitle } from '@/domain/format';
@@ -112,6 +113,7 @@ export default function RunSummaryScreen() {
             <RunSummaryHeadline run={run} celebrate={celebrating} />
             <RunStatGrid run={run} segments={segments} />
             <SegmentBreakdown segments={segments} />
+            <SegmentSplits segments={segments} />
           </>
         ) : null}
       </ScrollView>

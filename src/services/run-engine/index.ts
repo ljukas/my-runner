@@ -113,6 +113,15 @@ export async function discardResumableRun(candidate: ResumableRun): Promise<void
   }
 }
 
+/** Re-arms tracking after location is granted mid-run: this run's start() bailed out while the
+ *  permission was missing, and nothing else retries (ADR 0008 §5). */
+export async function retryTracking(): Promise<void> {
+  const { status } = runEngine.getSnapshot();
+  if (status !== 'running' && status !== 'paused') return;
+  if ((await locationTracker.getPermissionStatus()) !== 'granted') return;
+  await locationTracker.start();
+}
+
 export function useRunEngine() {
   return useSyncExternalStore(runEngine.subscribe, runEngine.getSnapshot);
 }

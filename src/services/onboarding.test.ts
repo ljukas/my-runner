@@ -4,23 +4,36 @@ import { ONBOARDING_STEPS, createOnboarding } from './onboarding';
 import { fakeStorage } from './test-helpers';
 
 describe('createOnboarding', () => {
-  test('the welcome and audio-cues steps are pending on first launch', () => {
+  test('every versioned step is pending on first launch', () => {
     const onboarding = createOnboarding(fakeStorage());
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1', 'audio-cues-v1']);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
+      'welcome-v1',
+      'audio-cues-v1',
+      'location-primer-v1',
+    ]);
   });
 
-  test('a user who already finished welcome sees only the newer audio-cues step', () => {
+  test('a user who already finished welcome sees only the newer steps', () => {
     const onboarding = createOnboarding(fakeStorage());
     onboarding.completeStep('welcome-v1');
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['audio-cues-v1']);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
+      'audio-cues-v1',
+      'location-primer-v1',
+    ]);
+  });
+
+  test('an upgrading user sees only the appended location primer', () => {
+    const onboarding = createOnboarding(fakeStorage());
+    onboarding.completeStep('welcome-v1');
+    onboarding.completeStep('audio-cues-v1');
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['location-primer-v1']);
   });
 
   test('completing every step empties pending idempotently and persists', () => {
     const storage = fakeStorage();
     const onboarding = createOnboarding(storage);
-    onboarding.completeStep('welcome-v1');
-    onboarding.completeStep('audio-cues-v1');
-    onboarding.completeStep('audio-cues-v1'); // idempotent
+    for (const step of ONBOARDING_STEPS) onboarding.completeStep(step.id);
+    onboarding.completeStep('location-primer-v1'); // idempotent
     expect(onboarding.pendingSteps()).toEqual([]);
     expect(createOnboarding(storage).pendingSteps()).toEqual([]);
   });

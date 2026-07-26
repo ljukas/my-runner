@@ -72,19 +72,30 @@ export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>
  * Apple iOS system colors, per color scheme. Access via `useStatColors()`. */
 export const StatColors: Record<
   'light' | 'dark',
-  { running: string; intervals: string; activeTime: string; longestRun: string }
+  {
+    running: string;
+    intervals: string;
+    activeTime: string;
+    longestRun: string;
+    distance: string;
+    pace: string;
+  }
 > = {
   light: {
     running: '#FF3B30', // systemRed
     intervals: '#FF9500', // systemOrange
     activeTime: '#007AFF', // systemBlue
     longestRun: '#30B0C7', // systemTeal
+    distance: '#5856D6', // systemIndigo
+    pace: '#AF52DE', // systemPurple
   },
   dark: {
     running: '#FF453A',
     intervals: '#FF9F0A',
     activeTime: '#0A84FF',
     longestRun: '#40CBE0',
+    distance: '#5E5CE6',
+    pace: '#BF5AF2',
   },
 };
 

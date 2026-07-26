@@ -12,10 +12,13 @@ import {
   accessibilityHidden,
   font,
   frame,
+  lineLimit,
   monospacedDigit,
+  multilineTextAlignment,
   padding,
 } from '@expo/ui/swift-ui/modifiers';
 import { useKeepAwake } from 'expo-keep-awake';
+import * as Linking from 'expo-linking';
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -25,9 +28,15 @@ import { Island } from '@/components/island';
 import { RunProgressBar } from '@/components/run-progress-bar';
 import { SkiaCountdown } from '@/components/skia-countdown';
 import { SegmentSymbols } from '@/constants/theme';
-import { SEGMENT_KIND_LABEL, formatClock } from '@/domain/format';
+import { SEGMENT_KIND_LABEL, formatClock, formatDistanceKm, formatPace } from '@/domain/format';
+import { useLocationPermission, locationTracker } from '@/services/location-tracker';
 import { useSegmentColors, useTheme } from '@/hooks/use-theme';
-import { endCountsAsCompleted, runEngine, useRunEngine } from '@/services/run-engine';
+import {
+  endCountsAsCompleted,
+  retryTracking,
+  runEngine,
+  useRunEngine,
+} from '@/services/run-engine';
 import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
 import { useSetting } from '@/services/settings-store';
 
@@ -43,6 +52,7 @@ export default function RunScreen() {
   const colors = useTheme();
   const segmentColors = useSegmentColors();
   const keepAwake = useSetting('keepScreenAwake');
+  const locationStatus = useLocationPermission();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const paused = snapshot.status === 'paused';
 
@@ -69,6 +79,11 @@ export default function RunScreen() {
     }
   }, [finished, saveSettled, snapshot.savedRunId, router]);
 
+  useEffect(() => {
+    if (locationStatus !== 'granted') return;
+    void retryTracking().catch((error) => console.warn('[run] tracking restart failed', error));
+  }, [locationStatus]);
+
   const remaining = useSegmentClock(snapshot.segmentIndex, snapshot.status);
 
   if (snapshot.status === 'idle') return <Redirect href="/" />;
@@ -82,6 +97,40 @@ export default function RunScreen() {
       {keepAwake ? <KeepAwakeWhileMounted /> : null}
       <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
+          {locationStatus !== null && locationStatus !== 'granted' ? (
+            <Island.Label
+              systemImage="location.slash"
+              title="Location is off"
+              tone="secondary"
+              modifiers={[font({ textStyle: 'footnote' })]}
+            />
+          ) : null}
+          {locationStatus !== null && locationStatus !== 'granted' ? (
+            <Island.Text
+              tone="secondary"
+              modifiers={[
+                font({ textStyle: 'caption' }),
+                multilineTextAlignment('center'),
+                lineLimit(2),
+              ]}
+            >
+              {keepAwake
+                ? 'Distance is not recorded. Cues keep playing while the screen stays on.'
+                : 'Distance is not recorded. Cues stop when the screen sleeps.'}
+            </Island.Text>
+          ) : null}
+          {locationStatus !== null && locationStatus !== 'granted' ? (
+            <Island.Button
+              inline
+              variant="secondary"
+              label={locationStatus === 'denied' ? 'Open Settings' : 'Enable Location'}
+              onPress={() =>
+                void (locationStatus === 'denied'
+                  ? Linking.openSettings()
+                  : locationTracker.requestPermission())
+              }
+            />
+          ) : null}
           <Spacer />
           {/* Icon stacked above the label so each is centred on its own line: a
               lone centred icon and centred text keep a fixed centre and only
@@ -165,6 +214,13 @@ export default function RunScreen() {
           <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
             {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
           </Island.Text>
+          {/* Only with location granted can these numbers ever move; otherwise the row is absent
+              rather than a permanent 0.00 km. */}
+          {locationStatus === 'granted' || snapshot.distanceM > 0 ? (
+            <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
+              {`${formatDistanceKm(snapshot.distanceM)} · ${formatPace(snapshot.paceSecPerKm)}`}
+            </Island.Text>
+          ) : null}
           <Spacer />
         </VStack>
       </Island>

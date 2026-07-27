@@ -315,9 +315,17 @@ screen's current value as the default — not by forking the components.
 - **`docs/adr/0008-background-execution-location-heartbeat.md` §5** — names
   `useKeepAwake` as the denied-location support. Still true; gains one line that
   it is now automatic rather than a user setting. **No supersede.**
-- **`docs/adr/0009-cue-audio-tts-prerecorded-fallback.md` §7** — foreground-only
-  haptics. Unchanged, and now the *reason* the lock exists; worth a
-  cross-reference.
+- **`docs/adr/0009-cue-audio-tts-prerecorded-fallback.md`** — its foreground-only
+  haptics *decision* is unchanged and is now the reason the lock exists, but the
+  ADR describes the mechanism as a persistent setting in six places: lines 49,
+  52, **102-103** (§7: "the run screen's keep-awake toggle (default on,
+  persisted; spec §8)"), 131 and 154. These need **rewriting** to the per-run
+  lock, not merely a cross-reference. **No supersede** — the decision stands, only
+  its mechanism changed.
+
+  *(Corrected 2026-07-27 after task 1's review pass: the original inventory here
+  was built by grepping the literal token `keepScreenAwake`, which matches none
+  of these — every stale reference is hyphenated prose.)*
 - **`docs/superpowers/specs/2026-07-13-apple-style-onboarding-design.md`** — §2
   items 2 and 4 apply to the welcome screen only; the primers follow §4 here.
 

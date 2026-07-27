@@ -1,1 +1,13 @@
-{ "recommendations": ["expo.vscode-expo-tools"] }
+{
+  "recommendations": [
+    "expo.vscode-expo-tools",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "redhat.vscode-yaml",
+    "github.vscode-github-actions"
+  ],
+  // Biome would register a second `source.fixAll` / organize-imports provider and
+  // format .ts against its own defaults, contradicting .prettierrc (ADR 0014).
+  "unwantedRecommendations": ["biomejs.biome"]
+}

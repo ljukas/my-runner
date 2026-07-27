@@ -38,7 +38,7 @@ export default function ResumeRunScreen() {
   };
 
   return (
-    <View className="gap-6 bg-background px-6 pt-8">
+    <View className="gap-8 bg-background px-6 pt-8">
       <View className="gap-2">
         <Text variant="subtitle" accessibilityRole="header">
           Resume run?
@@ -47,6 +47,7 @@ export default function ResumeRunScreen() {
           {`${sessionTitle(candidate.session.key)} was interrupted. Resume to pick up where you left off, or save what you ran so far.`}
         </Text>
       </View>
+
       <View className="gap-3">
         <Island.Button fill label="Resume" onPress={() => void decide(true)} />
         <Island.Button

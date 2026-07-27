@@ -1,12 +1,14 @@
 {
-  "enabledPlugins": {
-    "expo@claude-plugins-official": true,
-    "vercel-plugin@vercel-vercel-plugin": false,
-    "vercel@claude-plugins-official": false
-  },
   "permissions": {
     "allow": [
       "mcp__argent"
     ]
+  },
+  "enabledPlugins": {
+    "vercel-plugin@vercel-vercel-plugin": false,
+    "vercel@claude-plugins-official": false,
+    "claude-code-setup@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true,
+    "expo@claude-plugins-official": true
   }
 }

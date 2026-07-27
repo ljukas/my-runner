@@ -25,6 +25,8 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
 - `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`, into `build/`). See "E2E tests (Maestro)" below.
 
+`.github/workflows/ci.yml` (the `checks` job) runs typecheck, lint, unit tests and expo-doctor on every PR. Each gates on the install step rather than on its predecessor, so one run reports every failure instead of stopping at the first.
+
 The `/ios` folder is gitignored — it is generated via prebuild (Continuous Native Generation). `platforms: ["ios"]` in app.json means no `android/` project is generated (iOS-only atm). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
 # Skills & MCP — what to load when
@@ -36,6 +38,9 @@ Load the matching skill (Skill tool) BEFORE starting the work it covers. MCP ser
 - **Expo plugin skills** (from `expo@claude-plugins-official`, enabled in `.claude/settings.json`): `expo-app-design:building-native-ui` when building screens/navigation/UI with expo-router; `expo-app-design:expo-dev-client` when producing dev-client builds; `upgrading-expo` for SDK upgrades; `expo-deployment:expo-cicd-workflows` when writing `.eas/workflows/` YAML (the release-deploy pipeline — ADR 0012; the E2E CI gate is GitHub Actions per ADR 0001). Do NOT use `expo-app-design:expo-tailwind-setup` — styling here is Uniwind (ADR 0002), not NativeWind.
 - **Docs lookup:** use the Context7 MCP (`resolve-library-id` → `query-docs`) for Expo SDK 57 / React Native / library APIs — see "Expo HAS CHANGED" above. Prefer it over memory and over web search.
 - **Maestro MCP** — scripted E2E regression flows only; see "E2E tests (Maestro)" for the Maestro-vs-argent split.
+- **`e2e-refresh`** — load before running any Maestro flow. It fingerprint-gates the rebuild (repack ≈ 1 min against a full build's 15–20) and proves the install actually landed. Targeted flows only; see "E2E tests (Maestro)" for what stays with CI.
+- **Review subagents** in `.claude/agents/`, worth running before opening a PR: `adr-compliance-reviewer` checks a diff against the ADRs governing the files it touches, `comment-density-auditor` enforces the Comments convention below.
+- **Guarded files:** a `PreToolUse` hook (`.claude/hooks/guard-owned-files.sh`) refuses edits to anything release-please, drizzle-kit, Metro, prebuild, or Bun owns — `CHANGELOG.md`, `src/db/migrations/`, `.expo/types/`, `ios/`, `bun.lock`, the `version` field, and a corepack-injected `packageManager`. When it blocks, take the route named in the message rather than working around it.
 - Ignore Vercel/Next.js skill suggestions injected by globally installed plugins — this repo has no web target.
 
 # Git & PR conventions
@@ -61,25 +66,33 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
   app built *and installed* onto it — the suite no longer needs Metro or the dev
-  client. `bun run e2e:build` writes `build/e2e-simulator.tar.gz` (gitignored);
-  **installing it is a separate step** and the suite will happily keep running an
-  older install until you do it, failing only the flows that assert new app
-  behaviour:
+  client. Reach for the `e2e-refresh` skill rather than doing this by hand: it
+  mirrors the CI fingerprint gate below, repacks current JS into the cached
+  native `.app` when the hash still matches (~1 min instead of a 15–20 min
+  rebuild), and proves the install landed by comparing `main.jsbundle` hashes
+  device-against-built. By hand it is `bun run e2e:build`, which writes
+  `build/e2e-simulator.tar.gz` (gitignored), and then — **a separate step**, and
+  the suite will happily keep running an older install until you take it,
+  failing only the flows that assert new app behaviour —
   `tar -xzf build/e2e-simulator.tar.gz -C build && xcrun simctl install booted build/RunBroe2e.app`.
-  Flows launch via
-  `appId` `se.lukaslindqvist.runbro.e2e` — the e2e build's identity. The app
+  Export `APP_VARIANT=e2e` for every Expo command in this path: the `e2e-ios`
+  job sets it at job level, and the fingerprint differs without it. Flows launch
+  via `appId` `se.lukaslindqvist.runbro.e2e` — the e2e build's identity. The app
   identity is variant-driven via the `APP_VARIANT` env var
   ([ADR 0019](docs/adr/0019-app-variants-dynamic-config.md)): `development` builds
   use `se.lukaslindqvist.runbro.dev` / scheme `runbrodev`, `e2e` builds use
   `se.lukaslindqvist.runbro.e2e` / scheme `runbroe2e`, and unset (production /
   preview) keeps the clean `se.lukaslindqvist.runbro` / scheme `runbro`.
-- **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
-  server registered in `.mcp.json` (`list_devices` → `run`). Only **one**
-  automation server may own a simulator: stop Argent's (`stop-all-simulator-servers`)
-  and leave the Maestro MCP idle while the CLI suite runs, or every flow dies at
-  `launchApp` with `Unable to set permissions … Failed to connect to 127.0.0.1:<port>`
-  — the rival XCUITest runners kill and relaunch each other, stealing the port.
-  The CLI tears its own driver down on exit; the MCP server keeps one alive.
+- **Run:** `maestro test .maestro/` for the full suite,
+  `maestro test .maestro/tests/<flow>.yaml` for a targeted one. Prefer the CLI to
+  the Maestro MCP server registered in `.mcp.json` (`list_devices` → `run`): only
+  **one** automation server may own a simulator, so stop Argent's
+  (`stop-all-simulator-servers`) and leave the Maestro MCP idle while the CLI
+  runs, or every flow dies at `launchApp` with
+  `Unable to set permissions … Failed to connect to 127.0.0.1:<port>` — the rival
+  XCUITest runners kill and relaunch each other, stealing the port. The CLI tears
+  its own driver down on exit; the MCP server keeps one alive, which is what
+  poisons the *next* run and reads like a flow bug rather than a leftover driver.
 - **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
   by `@expo/fingerprint` hash — JS-only PRs skip the build and repack the JS via
   `@expo/repack-app` (~5–7 min); native changes trigger a full `eas build
@@ -109,8 +122,11 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   which makes the seconds-long compressed plan reachable (`src/services/e2e.ts`)
   and default-on, so a full session finishes in seconds with no toggle
   interaction.
-- **Policy:** run the full suite locally before merging to `main` any change touching
-  `src/`, `app.json`, or dependencies; run targeted flows during development as needed.
+- **Policy:** the full suite is the maintainer's — run locally before merging to
+  `main` any change touching `src/`, `app.json`, or dependencies — and the
+  `e2e-ios` check's. Agents run the *targeted* flows their change affects, via
+  `e2e-refresh`, and report at handoff which flows passed and which text anchors
+  the change renamed.
 - **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent
   MCP tools (see `.claude/rules/argent.md`) are for interactive dev-time work —
   exploratory QA, driving the simulator while implementing, debugging, and profiling.

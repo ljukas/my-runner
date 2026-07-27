@@ -24,13 +24,30 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Install dependencies (frozen)
+        id: install
         run: bun ci
 
+      # Typecheck and the type-aware lint rules both read .expo/types/router.d.ts.
       - name: Generate expo-router typed routes
         run: bunx expo customize tsconfig.json
 
+      # Each check gates on the install rather than on its predecessor, so one
+      # run reports every failure instead of stopping at the first.
       - name: Typecheck
+        if: steps.install.outcome == 'success'
         run: bun run typecheck
 
+      # ADR 0014 makes Prettier formatting and Uniwind class ordering lint
+      # errors, so this is a correctness gate, not a style preference.
+      - name: Lint
+        if: steps.install.outcome == 'success'
+        run: bun run lint
+
+      # Pure-TS domain/ and services/ suites — no RN runtime, no simulator.
+      - name: Unit tests
+        if: steps.install.outcome == 'success'
+        run: bun test
+
       - name: Expo doctor
+        if: steps.install.outcome == 'success'
         run: bunx expo-doctor

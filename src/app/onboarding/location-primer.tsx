@@ -38,8 +38,8 @@ export default function LocationPrimerScreen() {
             />
           </View>
           <Text variant="footnote" tone="secondary">
-            Not Now is fine &mdash; every run is still timed, you&rsquo;ll just need the screen on
-            to hear the coach, and runs won&rsquo;t have distance. You can change this later in
+            Not Now is fine &mdash; every run is still timed, and the screen stays on so you can
+            hear the coach, but runs won&rsquo;t have distance. You can change this later in
             Settings.
           </Text>
         </View>

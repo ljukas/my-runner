@@ -38,9 +38,8 @@ import {
   useRunEngine,
 } from '@/services/run-engine';
 import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
-import { useSetting } from '@/services/settings-store';
 
-/** useKeepAwake is unconditional, so the toggle mounts/unmounts this child. */
+/** useKeepAwake takes no enabled flag, so conditionality is expressed by mounting. */
 function KeepAwakeWhileMounted() {
   useKeepAwake();
   return null;
@@ -51,7 +50,6 @@ export default function RunScreen() {
   const router = useRouter();
   const colors = useTheme();
   const segmentColors = useSegmentColors();
-  const keepAwake = useSetting('keepScreenAwake');
   const locationStatus = useLocationPermission();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const paused = snapshot.status === 'paused';
@@ -94,7 +92,9 @@ export default function RunScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      {keepAwake ? <KeepAwakeWhileMounted /> : null}
+      {/* With no location there is no background heartbeat, so a sleeping screen
+          would silence the cues (ADR 0008 §5). */}
+      {locationStatus !== 'granted' ? <KeepAwakeWhileMounted /> : null}
       <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
           {locationStatus !== null && locationStatus !== 'granted' ? (
@@ -114,9 +114,7 @@ export default function RunScreen() {
                 lineLimit(2),
               ]}
             >
-              {keepAwake
-                ? 'Distance is not recorded. Cues keep playing while the screen stays on.'
-                : 'Distance is not recorded. Cues stop when the screen sleeps.'}
+              Distance is not recorded. The screen stays on so cues keep playing.
             </Island.Text>
           ) : null}
           {locationStatus !== null && locationStatus !== 'granted' ? (

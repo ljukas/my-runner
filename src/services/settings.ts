@@ -4,8 +4,6 @@ import { readJson, type StringStorage } from './storage';
 export interface SettingsValues {
   /** Dev/E2E only: swap the NHS plan for the seconds-long compressed plan. */
   useCompressedPlan: boolean;
-  /** Keep the display on for the whole run (spec decisions log). */
-  keepScreenAwake: boolean;
   /** Speak the routine transition/control cues (start running/walking, warm-up,
    * cool-down, paused/resumed). ADR 0009. */
   intervalCuesEnabled: boolean;
@@ -21,7 +19,6 @@ export function createSettingsStore(storage: StringStorage) {
   // vary EXPO_PUBLIC_E2E.
   const defaults: SettingsValues = {
     useCompressedPlan: isE2EBuild(),
-    keepScreenAwake: true,
     intervalCuesEnabled: true,
     milestoneCuesEnabled: true,
   };
@@ -36,7 +33,6 @@ export function createSettingsStore(storage: StringStorage) {
     const values = parsed as Partial<SettingsValues>;
     return {
       useCompressedPlan: values.useCompressedPlan ?? defaults.useCompressedPlan,
-      keepScreenAwake: values.keepScreenAwake ?? defaults.keepScreenAwake,
       intervalCuesEnabled: values.intervalCuesEnabled ?? defaults.intervalCuesEnabled,
       milestoneCuesEnabled: values.milestoneCuesEnabled ?? defaults.milestoneCuesEnabled,
     };

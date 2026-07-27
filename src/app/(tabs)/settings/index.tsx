@@ -33,9 +33,6 @@ export default function SettingsScreen() {
             <Text>{Constants.expoConfig?.version ?? '—'}</Text>
           </LabeledContent>
         </Section>
-        <Section title="Display">
-          <SettingsToggle label="Keep screen awake" settingKey="keepScreenAwake" />
-        </Section>
         <Section
           title="Coaching"
           footer={
@@ -55,7 +52,7 @@ export default function SettingsScreen() {
             <Text>
               {location === 'granted'
                 ? 'Location measures your distance and route, and keeps cues playing while your phone is locked.'
-                : "Without location, runs are still timed correctly -- but distance isn't recorded and cues need the screen on."}
+                : "Without location, runs are still timed correctly -- but distance isn't recorded, and the screen stays on so cues keep playing."}
             </Text>
           }
         >

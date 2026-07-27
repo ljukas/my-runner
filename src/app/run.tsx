@@ -25,10 +25,12 @@ import { View } from 'react-native';
 
 import { UNSAVED_RUN_ID } from '@/app/run-summary/[id]';
 import { Island } from '@/components/island';
+import { RunLock } from '@/components/run-lock';
 import { RunProgressBar } from '@/components/run-progress-bar';
 import { SkiaCountdown } from '@/components/skia-countdown';
 import { SegmentSymbols } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock, formatDistanceKm, formatPace } from '@/domain/format';
+import { shouldHoldDisplayAwake } from '@/domain/run-display';
 import { useLocationPermission, locationTracker } from '@/services/location-tracker';
 import { useSegmentColors, useTheme } from '@/hooks/use-theme';
 import {
@@ -52,6 +54,9 @@ export default function RunScreen() {
   const segmentColors = useSegmentColors();
   const locationStatus = useLocationPermission();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
+  // Never persisted: a lock is a mode, not a preference, so every run — even a
+  // resumed one — starts unlocked.
+  const [locked, setLocked] = useState(false);
   const paused = snapshot.status === 'paused';
 
   useEffect(() => {
@@ -92,11 +97,15 @@ export default function RunScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      {/* With no location there is no background heartbeat, so a sleeping screen
-          would silence the cues (ADR 0008 §5). */}
-      {locationStatus !== 'granted' ? <KeepAwakeWhileMounted /> : null}
+      {shouldHoldDisplayAwake(locked, locationStatus) ? <KeepAwakeWhileMounted /> : null}
       <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
+          {/* In flow rather than an overlay: the banner below then keeps its own
+              rows instead of running under the lock's caption. */}
+          <HStack>
+            <Spacer />
+            <RunLock locked={locked} onLockedChange={setLocked} />
+          </HStack>
           {locationStatus !== null && locationStatus !== 'granted' ? (
             <Island.Label
               systemImage="location.slash"
@@ -122,6 +131,7 @@ export default function RunScreen() {
               inline
               variant="secondary"
               label={locationStatus === 'denied' ? 'Open Settings' : 'Enable Location'}
+              disabled={locked}
               onPress={() =>
                 void (locationStatus === 'denied'
                   ? Linking.openSettings()
@@ -175,6 +185,7 @@ export default function RunScreen() {
                   size={30}
                   color={colors.textSecondary}
                   label="End"
+                  disabled={locked}
                   onPress={() => setEndDialogOpen(true)}
                 />
               </ConfirmationDialog.Trigger>
@@ -194,6 +205,7 @@ export default function RunScreen() {
               size={48}
               color={colors.text}
               label={paused ? 'Resume' : 'Pause'}
+              disabled={locked}
               onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
             />
             <Island.IconButton
@@ -201,6 +213,7 @@ export default function RunScreen() {
               size={30}
               color={colors.textSecondary}
               label="Skip"
+              disabled={locked}
               onPress={() => runEngine.skipSegment()}
             />
           </HStack>

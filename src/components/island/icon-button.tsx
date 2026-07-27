@@ -3,7 +3,9 @@ import {
   accessibilityLabel,
   buttonStyle,
   contentShape,
+  disabled as disabledModifier,
   frame,
+  opacity,
   shapes,
 } from '@expo/ui/swift-ui/modifiers';
 import type { ComponentProps } from 'react';
@@ -22,12 +24,14 @@ export function IslandIconButton({
   size,
   color,
   label,
+  disabled = false,
   onPress,
 }: {
   systemName: SystemImageName;
   size: number;
   color: ColorValue;
   label: string;
+  disabled?: boolean;
   onPress?: () => void;
 }) {
   // The visible glyph stays `size`; the tap region is floored at the 44pt HIG
@@ -42,6 +46,10 @@ export function IslandIconButton({
         frame({ width: target, height: target }),
         contentShape(shapes.rectangle()),
         accessibilityLabel(label),
+        disabledModifier(disabled),
+        // The glyph's `color` reaches SwiftUI as an explicit `foregroundStyle`,
+        // which outranks the disabled rendering — so dim the control by hand.
+        opacity(disabled ? 0.35 : 1),
       ]}
     >
       <Image systemName={systemName} size={size} color={color} />

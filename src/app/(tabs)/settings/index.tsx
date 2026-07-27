@@ -38,7 +38,8 @@ export default function SettingsScreen() {
           footer={
             <Text>
               Interval Cues call out each walk/run switch. Milestone Cues add motivational spots —
-              halfway, your last run, and finishing.
+              halfway, your last run, and finishing. A gentle vibration accompanies each cue while
+              the screen is on — lock the run screen to keep it on.
             </Text>
           }
         >

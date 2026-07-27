@@ -1,5 +1,13 @@
 import { Button, Text } from '@expo/ui/swift-ui';
-import { buttonStyle, controlSize, font, frame, padding, tint } from '@expo/ui/swift-ui/modifiers';
+import {
+  buttonStyle,
+  controlSize,
+  disabled as disabledModifier,
+  font,
+  frame,
+  padding,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import { PixelRatio, Platform } from 'react-native';
 
 import { Button as PillButton } from '@/components/ui/button';
@@ -25,29 +33,34 @@ export function IslandButton({
   variant = 'primary',
   label,
   onPress,
+  disabled = false,
   fill = false,
   inline = false,
 }: {
   variant?: IslandButtonVariant;
   label: string;
   onPress: () => void;
+  disabled?: boolean;
   fill?: boolean;
   inline?: boolean;
 }) {
   const colors = useTheme();
 
   if (!inline && Platform.OS !== 'ios') {
-    return <PillButton variant={variant} label={label} onPress={onPress} />;
+    return <PillButton variant={variant} label={label} onPress={onPress} disabled={disabled} />;
   }
 
+  // Unlike the icon button, the bordered styles dim themselves when disabled:
+  // the label carries no explicit foreground color to outrank the treatment.
   const modifiers =
     variant === 'primary'
       ? [
           buttonStyle(isGlassAvailable() ? 'glassProminent' : 'borderedProminent'),
           controlSize('large'),
           tint(colors.primaryFill),
+          disabledModifier(disabled),
         ]
-      : [buttonStyle('bordered'), controlSize('large')];
+      : [buttonStyle('bordered'), controlSize('large'), disabledModifier(disabled)];
   const role = variant === 'destructive' ? 'destructive' : undefined;
 
   const button = fill ? (

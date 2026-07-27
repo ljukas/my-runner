@@ -31,6 +31,14 @@ jobs:
       - name: Generate expo-router typed routes
         run: bunx expo customize tsconfig.json
 
+      # Metro normally writes the resolved @theme into node_modules/uniwind/uniwind.css,
+      # and the Prettier class sorter reads it to order custom tokens. A fresh install
+      # only has the stub, so without this the sorter treats bg-background-element and
+      # friends as unknown classes — the reason lint can pass locally and fail here.
+      # Flags mirror withUniwindConfig in metro.config.js.
+      - name: Generate Uniwind artifacts
+        run: bunx uniwind generate-artifacts --css ./src/global.css --dts ./src/uniwind-types.d.ts
+
       # Each check gates on the install rather than on its predecessor, so one
       # run reports every failure instead of stopping at the first.
       - name: Typecheck

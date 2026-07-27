@@ -53,17 +53,26 @@ export function OnboardingStepScreen({
 
   return (
     <View className="flex-1 bg-background" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
-      {/* Full-width ScrollView so the scroll indicator sits at the screen edge;
-          horizontal inset lives on the content. The footnote scrolls WITH the
-          content (not pinned) so it can't dominate the screen at large Dynamic
-          Type — only the CTA stays pinned. */}
-      <ScrollView contentInsetAdjustmentBehavior="automatic">
-        <View className="px-6 pt-10 pb-6">
+      {/* Full-width ScrollView so the scroll indicator sits at the screen edge; the
+          horizontal inset lives on the content and matches the CTA block's, so the
+          footnote and the buttons share one edge. `flexGrow` + `mt-auto` settle the
+          footnote against the buttons when the content is short — the relationship
+          Apple's welcome template draws — yet let it flow, and scroll, at large
+          Dynamic Type where pinning it would eat the screen.
+          NOT a native `Stack.Toolbar`: a bottom toolbar sizes itself and exposes no
+          height control (`StackToolbarViewProps` is children/hidden/background only),
+          so it clips a block of a footnote plus two stacked full-width buttons. It
+          fits a single CTA — see run-summary — but not this. */}
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={{ flexGrow: 1 }}
+      >
+        <View className="flex-1 px-6 pt-10 pb-3">
           {children}
-          {footnote ? <View className="pt-8">{footnote}</View> : null}
+          {footnote ? <View className="mt-auto pt-8">{footnote}</View> : null}
         </View>
       </ScrollView>
-      <View className="gap-3 px-6 pt-2">
+      <View className="gap-3 px-6 pt-3">
         <Island.Button fill label={buttonLabel} onPress={press(onPrimaryPress)} />
         {secondaryLabel ? (
           <Island.Button

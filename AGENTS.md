@@ -23,7 +23,7 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun test` — runs the unit suites (pure-TS `domain/` and `services/`; no RN runtime needed)
 - `bun run typecheck` — `tsc --noEmit`. Depends on two **gitignored generated files**: `expo-env.d.ts` and `.expo/types/router.d.ts` (typed routes). In a fresh clone or worktree it fails (`TS2882` on `@/global.css`, then route-typing errors) until you start the dev server once — `bun expo start` on any free port, kill it as soon as `.expo/types/router.d.ts` appears. Never copy `.expo/types/router.d.ts` from another checkout: it encodes that branch's route files and produces misleading type errors on this one.
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
-- `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`). See "E2E tests (Maestro)" below.
+- `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`, into `build/`). See "E2E tests (Maestro)" below.
 
 The `/ios` folder is gitignored — it is generated via prebuild (Continuous Native Generation). `platforms: ["ios"]` in app.json means no `android/` project is generated (iOS-only atm). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
@@ -60,8 +60,13 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 `e2e-ios` required check) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
 
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
-  app built via `eas build --local -p ios -e e2e-simulator` and installed onto
-  it — the suite no longer needs Metro or the dev client. Flows launch via
+  app built *and installed* onto it — the suite no longer needs Metro or the dev
+  client. `bun run e2e:build` writes `build/e2e-simulator.tar.gz` (gitignored);
+  **installing it is a separate step** and the suite will happily keep running an
+  older install until you do it, failing only the flows that assert new app
+  behaviour:
+  `tar -xzf build/e2e-simulator.tar.gz -C build && xcrun simctl install booted build/RunBroe2e.app`.
+  Flows launch via
   `appId` `se.lukaslindqvist.runbro.e2e` — the e2e build's identity. The app
   identity is variant-driven via the `APP_VARIANT` env var
   ([ADR 0019](docs/adr/0019-app-variants-dynamic-config.md)): `development` builds

@@ -24,13 +24,42 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Install dependencies (frozen)
+        id: install
         run: bun ci
 
+      # Typecheck and the type-aware lint rules both read .expo/types/router.d.ts.
       - name: Generate expo-router typed routes
         run: bunx expo customize tsconfig.json
 
+      # Metro normally writes the resolved @theme into node_modules/uniwind/uniwind.css,
+      # and the Prettier class sorter reads it to order custom tokens. A fresh install
+      # only has the stub, so without this the sorter treats bg-background-element and
+      # friends as unknown classes — the reason lint can pass locally and fail here.
+      # Flags mirror withUniwindConfig in metro.config.js.
+      - name: Generate Uniwind artifacts
+        run: bunx uniwind generate-artifacts --css ./src/global.css --dts ./src/uniwind-types.d.ts
+
+      # Each check gates on the install rather than on its predecessor, so one
+      # run reports every failure instead of stopping at the first. The
+      # `!cancelled()` is what buys that: a bare `if` is implicitly ANDed with
+      # success(), which silently skips these once any earlier step fails (a
+      # lint failure used to hide the expo-doctor result entirely). Prefer it
+      # over always() so cancelling a run still stops the job.
       - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
 
+      # ADR 0014 makes Prettier formatting and Uniwind class ordering lint
+      # errors, so this is a correctness gate, not a style preference.
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run lint
+
+      # Pure-TS domain/ and services/ suites — no RN runtime, no simulator.
+      - name: Unit tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun test
+
       - name: Expo doctor
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bunx expo-doctor

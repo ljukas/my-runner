@@ -1,12 +1,28 @@
 {
-  "enabledPlugins": {
-    "expo@claude-plugins-official": true,
-    "vercel-plugin@vercel-vercel-plugin": false,
-    "vercel@claude-plugins-official": false
-  },
   "permissions": {
     "allow": [
       "mcp__argent"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-owned-files.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "vercel-plugin@vercel-vercel-plugin": false,
+    "vercel@claude-plugins-official": false,
+    "neon@claude-plugins-official": false,
+    "claude-code-setup@claude-plugins-official": true,
+    "explanatory-output-style@claude-plugins-official": true,
+    "expo@claude-plugins-official": true
   }
 }

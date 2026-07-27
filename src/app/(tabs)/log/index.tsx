@@ -25,9 +25,15 @@ import { useRouter } from 'expo-router';
 
 import { Island } from '@/components/island';
 import { db } from '@/db/client';
-import { runNotDeleted } from '@/db/queries';
+import { runIsResult } from '@/db/queries';
 import { runs } from '@/db/schema';
-import { clockParts, formatClock, formatRunDate, sessionTitle } from '@/domain/format';
+import {
+  clockParts,
+  formatClock,
+  formatDistanceKm,
+  formatRunDate,
+  sessionTitle,
+} from '@/domain/format';
 
 /**
  * One combined VoiceOver label per history row. The row is a Button (so it
@@ -40,17 +46,22 @@ function rowA11yLabel(run: {
   startedAt: string;
   status: string;
   activeDurationS: number;
+  distanceM: number | null;
 }) {
   const { value, unit } = clockParts(run.activeDurationS);
   const partial = run.status === 'partial' ? 'partial, ' : '';
-  return `${sessionTitle(run.sessionKey)}, ${formatRunDate(run.startedAt)}, ${partial}duration ${value} ${unit}`;
+  let label = `${sessionTitle(run.sessionKey)}, ${formatRunDate(run.startedAt)}, ${partial}duration ${value} ${unit}`;
+  if (run.distanceM) {
+    label += `, ${formatDistanceKm(run.distanceM)}`;
+  }
+  return label;
 }
 
 export default function LogScreen() {
   const router = useRouter();
 
   const { data: visible } = useLiveQuery(
-    db.select().from(runs).where(runNotDeleted).orderBy(desc(runs.startedAt)),
+    db.select().from(runs).where(runIsResult).orderBy(desc(runs.startedAt)),
   );
 
   if (visible.length === 0) {
@@ -96,6 +107,14 @@ export default function LogScreen() {
                 <Island.Text modifiers={[monospacedDigit(), lineLimit(1), layoutPriority(1)]}>
                   {formatClock(run.activeDurationS)}
                 </Island.Text>
+                {run.distanceM ? (
+                  <Island.Text
+                    tone="secondary"
+                    modifiers={[font({ textStyle: 'footnote' }), monospacedDigit()]}
+                  >
+                    {formatDistanceKm(run.distanceM)}
+                  </Island.Text>
+                ) : null}
                 <Image
                   systemName="chevron.right"
                   modifiers={[

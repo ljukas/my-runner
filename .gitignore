@@ -41,7 +41,10 @@ example
 /ios
 /android
 
-# local build artifacts (eas build --local output, extracted .app bundles)
+# local build artifacts: `bun run e2e:build` writes build/e2e-simulator.tar.gz; the
+# build-*.tar.gz / *.app patterns catch a bare `eas build --local`, which drops its
+# timestamped artifact in the cwd instead.
+/build/
 build-*.tar.gz
 *.app
 

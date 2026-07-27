@@ -1,15 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Fresh install → w1d1 session just started. The E2E build runs the compressed
-# plan by default (EXPO_PUBLIC_E2E), so no Developer toggle step is needed.
+# Fresh install, location granted → w1d1 session just started. The E2E build runs the
+# compressed plan by default (EXPO_PUBLIC_E2E), so no Developer toggle step is needed.
 - runFlow: launch-and-onboard.yaml
-# "Day 1" repeats in every week section — the first match is Week 1's.
-- scrollUntilVisible:
-    element:
-      text: "Day 1"
-      index: 0
-- tapOn:
-    text: "Day 1"
-    index: 0
-- assertVisible: "Week 1 · Day 1"
-- tapOn: "Start Session"
+- runFlow: start-w1d1.yaml

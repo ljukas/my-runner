@@ -1,0 +1,55 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# A force-quit run comes back resumable: detection offers one whose snapshot is fresher than the
+# session length + RESUME_GRACE_MS (0:40 + 30 min here) and whose timeline has time left — elapsed
+# *plus* dead time, and a stopApp with a relaunch of this binary costs ~3.5 s end to end
+# (tests/run-abandon.yaml owns the expired case). Pausing first freezes active elapsed at the pause
+# event, so the value that comes back cannot drift with how slow the relaunch is.
+- runFlow: ../helpers/start-first-session.yaml
+- tapOn: "Pause"
+- assertVisible: "Paused"
+# The snapshot is written on a ~5 s cadence, so the `pause` event needs one more tick to reach
+# active_run_snapshot before the process dies. Maestro has no sleep command, so the timeout IS the
+# wait: an unsatisfiable condition, optional so the inevitable miss warns instead of failing.
+# Unsatisfiable *positively* — `notVisible` would also be satisfied by one poll reading a partial
+# hierarchy, ending the wait early; a paused run finishing is the bug, not the wait.
+- extendedWaitUntil:
+    visible: "Nice work.*"
+    timeout: 12000
+    optional: true
+    label: "Wait ~12 s — more than 2x POINT_FLUSH_MS (5000) so the pause event reaches active_run_snapshot; Maestro has no sleep"
+# The frozen elapsed, held to the same band as the restored run below. Asserted before the kill so a
+# pause that landed late fails here, legibly: how long Maestro spends settling the animated run
+# screen before it dispatches the tap sets this value (~1 s under CI's Reduce Motion, ~6 s without).
+- assertVisible: "0:[01][0-9] / 0:40"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      text: "Resume run.*"
+    timeout: 60000
+- assertVisible: "Week 1 · Day 1 was interrupted.*"
+# The sheet's Resume (the run screen's transport control is also labelled "Resume" — that one is
+# tapped next, once this sheet is gone).
+- tapOn: "Resume"
+# Replayed from the event log, not restarted: only a log carrying the `pause` event comes back
+# paused, and it comes back with the elapsed it had when the app died. A run rebuilt from the wall
+# clock, or started afresh, would be running.
+- assertVisible: "Paused"
+- assertVisible: "0:[01][0-9] / 0:40"
+# The transport control, un-freezing the restored run so it can finish. That it relabelled is
+# asserted, not assumed (the run-controls.yaml pattern): a tap that never registered would otherwise
+# surface 120 s later as the completion wait timing out.
+- tapOn: "Resume"
+- assertVisible: "Pause"
+- extendedWaitUntil:
+    visible: "Nice work.*"
+    timeout: 120000
+- tapOn: "Done"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertNotVisible: "Partial"

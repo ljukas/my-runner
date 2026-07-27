@@ -9,8 +9,7 @@ import { createReleaseScheduler, RELEASE_DEBOUNCE_MS } from './release-scheduler
 
 /**
  * iOS cue adapter (ADR 0003, ADR 0009): expo-speech spoken over a ducked
- * expo-audio session, with a Pulsar haptic accent. Stage 2 is foreground-only —
- * no `shouldPlayInBackground`, no background modes.
+ * expo-audio session, with a Pulsar haptic accent.
  *
  * Haptic accent per cue, chosen from Pulsar's designed preset library and
  * meaning-mapped per Software Mansion's "Haptics is music": crisp/assertive to
@@ -28,6 +27,7 @@ const CUE_HAPTIC: Record<CueId, () => void> = {
   complete: () => Presets.applause(), // celebration
   paused: () => Presets.System.impactSoft(),
   resumed: () => Presets.System.impactMedium(),
+  resuming: () => Presets.System.impactMedium(),
 };
 
 const warn = (context: string) => (error: unknown) =>
@@ -55,7 +55,7 @@ export const cueService: CueService = {
     void setAudioModeAsync({
       playsInSilentMode: true, // the silent switch can't mute coaching cues
       interruptionMode: 'duckOthers', // music dips, keeps playing, recovers
-      // No shouldPlayInBackground in Stage 2 — locked-screen cues are Stage 3.
+      shouldPlayInBackground: true, // cues stay audible while the phone is locked (ADR 0008)
     }).catch(warn('prepare'));
   },
 

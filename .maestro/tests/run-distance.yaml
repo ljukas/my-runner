@@ -1,0 +1,57 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+onFlowComplete:
+  - setLocation:
+      latitude: 59.3293
+      longitude: 18.0686
+---
+# The Stage-3 payload on a moving run: distance and pace on the summary, in the per-segment
+# card, and in the Log row.
+#
+# `travel` is the only Maestro primitive that produces a *moving* fix stream — a static
+# setLocation never accumulates distance, and stepped setLocation jumps are rejected by the
+# ADR 0021 velocity gate. What this flow cannot force is whether the iOS simulator hands those
+# fixes to expo-location with a usable horizontal accuracy (the ADR 0021 filter needs
+# 0 < accuracy <= 50 m). That is deliberately left unguarded: this is the only automated cover
+# for the stage's headline payload, so a simulator that cannot produce fixes has to turn this
+# flow red once rather than skip its assertions and report green forever.
+- launchApp:
+    clearState: true
+    permissions:
+      location: inuse
+- runFlow: ../helpers/complete-onboarding.yaml
+# Park the simulator somewhere real before the run opens the fix stream.
+- setLocation:
+    latitude: 59.3293
+    longitude: 18.0686
+- runFlow: ../helpers/start-w1d1.yaml
+# ~100 m due north at a slow jog: ~36 s of movement against the 0:40 compressed session, at a
+# speed the velocity gate accepts (6.5 m/s ceiling) and far above the 1.5 m near-stationary
+# deadband. Blocking for its duration, which is why nothing is asserted until it returns.
+- travel:
+    points:
+      - "59.3293,18.0686"
+      - "59.32975,18.0686"
+      - "59.33020,18.0686"
+    speed: 2.8
+- extendedWaitUntil:
+    visible:
+      text: "Nice work.*"
+    timeout: 120000
+- assertVisible: "Distance"
+- assertVisible: "Avg Pace"
+- scrollUntilVisible:
+    element:
+      text: "Interval Pace"
+# The fastest run interval is badged (T17b); it sits below the fold in that card.
+- scrollUntilVisible:
+    element:
+      text: "Fastest"
+# The same distance reaches the Log row.
+- tapOn: "Done"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertVisible: '[0-9]+\.[0-9]+ km'

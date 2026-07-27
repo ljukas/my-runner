@@ -1,0 +1,45 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# Location denied → the session still runs correctly, and the run screen says plainly what is
+# lost (ADR 0008 §5). Denied is terminal for the just-in-time ask: the engine reads 'denied',
+# not 'undetermined', so nothing prompts on the way in.
+- launchApp:
+    clearState: true
+    permissions:
+      location: never
+- runFlow: ../helpers/complete-onboarding.yaml
+- runFlow: ../helpers/start-w1d1.yaml
+- tapOn:
+    text: "Don.t Allow"
+    optional: true
+# The honest banner. Its body varies with the keep-screen-awake setting, so match only the
+# invariant opening sentence.
+- assertVisible: "Location is off"
+- assertVisible: "Distance is not recorded.*"
+# Denied can only be changed in system Settings; "Enable Location" is the undetermined-state CTA.
+- assertVisible: "Open Settings"
+# T17: with no location the row is absent, not a misleading permanent 0.00 km.
+- assertNotVisible: "0.00 km · --:-- /km"
+- extendedWaitUntil:
+    visible:
+      text: "Nice work.*"
+    timeout: 120000
+# No GPS → no distance: the four time tiles stay, the two derived tiles and the per-segment
+# pace card are absent. They would render in the same viewport as "Active Time", so their
+# absence here is real rather than below-the-fold.
+- assertVisible: "Active Time"
+- scrollUntilVisible:
+    element:
+      text: "Warm Up"
+- assertNotVisible: "Interval Pace"
+- assertNotVisible: "Avg Pace"
+- assertNotVisible: "Distance"
+- tapOn: "Done"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+# The row's distance string is rendered only when the run recorded one.
+- assertNotVisible: "[0-9]+.[0-9]+ km"

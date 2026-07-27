@@ -19,11 +19,13 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun install` — install dependencies (`bun ci` for a frozen, reproducible install)
 - `bun expo install <package>` — add a dependency at the Expo SDK-compatible version (use this instead of `bun add` for anything Expo touches)
 - `bun run start` — `expo run:ios`: compile and install the iOS dev-client build and start the Metro dev server. Required on first run and after any native change (new native dependency, config plugin, native app.json fields). The app uses expo-dev-client, not Expo Go. To start Metro only — when the app is already installed, or you just need typed routes regenerated — run `bun expo start` directly. (iOS-only atm; there is no `run:android` script.)
-- `bun run lint` — `expo lint` against the committed `eslint.config.js` (ADR 0014: includes Prettier formatting + Uniwind class sorting as lint errors, and type-aware `no-floating-promises` in `src/`; `bun run lint --fix` auto-formats)
+- `bun run lint` — `expo lint` against the committed `eslint.config.js` (ADR 0014: includes Prettier formatting + Uniwind class sorting as lint errors, and type-aware `no-floating-promises` in `src/`; `bun run lint --fix` auto-formats). The class sorter reads the app's `@theme` out of `node_modules/uniwind/uniwind.css`, which **Metro rewrites in place** — a fresh install only ships a stub, so before Metro has run the custom `bg-background-*`/`text-foreground-*` tokens sort as *unknown* classes (hoisted to the front of the `className`) and lint disagrees with a warm checkout. Regenerate without booting Metro via `bunx uniwind generate-artifacts --css ./src/global.css --dts ./src/uniwind-types.d.ts` (the flags mirror `metro.config.js`; CI does this in the `checks` job).
 - `bun test` — runs the unit suites (pure-TS `domain/` and `services/`; no RN runtime needed)
 - `bun run typecheck` — `tsc --noEmit`. Depends on two **gitignored generated files**: `expo-env.d.ts` and `.expo/types/router.d.ts` (typed routes). In a fresh clone or worktree it fails (`TS2882` on `@/global.css`, then route-typing errors) until you start the dev server once — `bun expo start` on any free port, kill it as soon as `.expo/types/router.d.ts` appears. Never copy `.expo/types/router.d.ts` from another checkout: it encodes that branch's route files and produces misleading type errors on this one.
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
-- `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`). See "E2E tests (Maestro)" below.
+- `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`, into `build/`). See "E2E tests (Maestro)" below.
+
+`.github/workflows/ci.yml` (the `checks` job) runs typecheck, lint, unit tests and expo-doctor on every PR. Each gates on the install step rather than on its predecessor, so one run reports every failure instead of stopping at the first.
 
 The `/ios` folder is gitignored — it is generated via prebuild (Continuous Native Generation). `platforms: ["ios"]` in app.json means no `android/` project is generated (iOS-only atm). Never edit native projects directly; configure everything through `app.json` and config plugins.
 
@@ -36,6 +38,9 @@ Load the matching skill (Skill tool) BEFORE starting the work it covers. MCP ser
 - **Expo plugin skills** (from `expo@claude-plugins-official`, enabled in `.claude/settings.json`): `expo-app-design:building-native-ui` when building screens/navigation/UI with expo-router; `expo-app-design:expo-dev-client` when producing dev-client builds; `upgrading-expo` for SDK upgrades; `expo-deployment:expo-cicd-workflows` when writing `.eas/workflows/` YAML (the release-deploy pipeline — ADR 0012; the E2E CI gate is GitHub Actions per ADR 0001). Do NOT use `expo-app-design:expo-tailwind-setup` — styling here is Uniwind (ADR 0002), not NativeWind.
 - **Docs lookup:** use the Context7 MCP (`resolve-library-id` → `query-docs`) for Expo SDK 57 / React Native / library APIs — see "Expo HAS CHANGED" above. Prefer it over memory and over web search.
 - **Maestro MCP** — scripted E2E regression flows only; see "E2E tests (Maestro)" for the Maestro-vs-argent split.
+- **`e2e-refresh`** — load before running any Maestro flow. It fingerprint-gates the rebuild (repack ≈ 1 min against a full build's 15–20) and proves the install actually landed. Targeted flows only; see "E2E tests (Maestro)" for what stays with CI.
+- **Review subagents** in `.claude/agents/`, worth running before opening a PR: `adr-compliance-reviewer` checks a diff against the ADRs governing the files it touches, `comment-density-auditor` enforces the Comments convention below.
+- **Guarded files:** a `PreToolUse` hook (`.claude/hooks/guard-owned-files.sh`) refuses edits to anything release-please, drizzle-kit, Metro, prebuild, or Bun owns — `CHANGELOG.md`, `src/db/migrations/`, `.expo/types/`, `ios/`, `bun.lock`, the `version` field, and a corepack-injected `packageManager`. When it blocks, take the route named in the message rather than working around it.
 - Ignore Vercel/Next.js skill suggestions injected by globally installed plugins — this repo has no web target.
 
 # Git & PR conventions
@@ -60,16 +65,34 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 `e2e-ios` required check) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
 
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
-  app built via `eas build --local -p ios -e e2e-simulator` and installed onto
-  it — the suite no longer needs Metro or the dev client. Flows launch via
-  `appId` `se.lukaslindqvist.runbro.e2e` — the e2e build's identity. The app
+  app built *and installed* onto it — the suite no longer needs Metro or the dev
+  client. Reach for the `e2e-refresh` skill rather than doing this by hand: it
+  mirrors the CI fingerprint gate below, repacks current JS into the cached
+  native `.app` when the hash still matches (~1 min instead of a 15–20 min
+  rebuild), and proves the install landed by comparing `main.jsbundle` hashes
+  device-against-built. By hand it is `bun run e2e:build`, which writes
+  `build/e2e-simulator.tar.gz` (gitignored), and then — **a separate step**, and
+  the suite will happily keep running an older install until you take it,
+  failing only the flows that assert new app behaviour —
+  `tar -xzf build/e2e-simulator.tar.gz -C build && xcrun simctl install booted build/RunBroe2e.app`.
+  Export `APP_VARIANT=e2e` for every Expo command in this path: the `e2e-ios`
+  job sets it at job level, and the fingerprint differs without it. Flows launch
+  via `appId` `se.lukaslindqvist.runbro.e2e` — the e2e build's identity. The app
   identity is variant-driven via the `APP_VARIANT` env var
   ([ADR 0019](docs/adr/0019-app-variants-dynamic-config.md)): `development` builds
   use `se.lukaslindqvist.runbro.dev` / scheme `runbrodev`, `e2e` builds use
   `se.lukaslindqvist.runbro.e2e` / scheme `runbroe2e`, and unset (production /
   preview) keeps the clean `se.lukaslindqvist.runbro` / scheme `runbro`.
-- **Run:** `maestro test .maestro/` for the full suite, or through the Maestro MCP
-  server registered in `.mcp.json` (`list_devices` → `run`).
+- **Run:** `maestro test .maestro/` for the full suite,
+  `maestro test .maestro/tests/<flow>.yaml` for a targeted one. Prefer the CLI to
+  the Maestro MCP server registered in `.mcp.json` (`list_devices` → `run`): only
+  **one** automation server may own a simulator, so stop Argent's
+  (`stop-all-simulator-servers`) and leave the Maestro MCP idle while the CLI
+  runs, or every flow dies at `launchApp` with
+  `Unable to set permissions … Failed to connect to 127.0.0.1:<port>` — the rival
+  XCUITest runners kill and relaunch each other, stealing the port. The CLI tears
+  its own driver down on exit; the MCP server keeps one alive, which is what
+  poisons the *next* run and reads like a flow bug rather than a leftover driver.
 - **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
   by `@expo/fingerprint` hash — JS-only PRs skip the build and repack the JS via
   `@expo/repack-app` (~5–7 min); native changes trigger a full `eas build
@@ -87,18 +110,45 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   https://docs.maestro.dev/llms.txt for flow syntax.
   If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI
   `Text`, wrap it in a container (`HStack`) — the id doesn't surface otherwise.
+  `@expo/ui` `LabeledContent` surfaces one merged element (`"Access, Never"`),
+  so match its value as a suffix (`.*Never`), never on its own.
+- **Location permission values:** on the iOS simulator Maestro's `location` key
+  takes `inuse` / `always` / `never` / `unset` — *not* the `allow` / `deny` the
+  cheat sheet documents for every other permission (they map to
+  `simctl privacy grant|revoke location[-always]`, and an unknown value fails
+  the flow before it launches). `inuse` is the one that matches what the app
+  actually requests (When-In-Use, ADR 0008).
 - **Compressed plan:** the `e2e-simulator` build sets `EXPO_PUBLIC_E2E=1`,
   which makes the seconds-long compressed plan reachable (`src/services/e2e.ts`)
   and default-on, so a full session finishes in seconds with no toggle
   interaction.
-- **Policy:** run the full suite locally before merging to `main` any change touching
-  `src/`, `app.json`, or dependencies; run targeted flows during development as needed.
+- **Policy:** the full suite is the maintainer's — run locally before merging to
+  `main` any change touching `src/`, `app.json`, or dependencies — and the
+  `e2e-ios` check's. Agents run the *targeted* flows their change affects, via
+  `e2e-refresh`, and report at handoff which flows passed and which text anchors
+  the change renamed.
 - **Tool split:** Maestro is for scripted, repeatable E2E regression flows; the Argent
   MCP tools (see `.claude/rules/argent.md`) are for interactive dev-time work —
   exploratory QA, driving the simulator while implementing, debugging, and profiling.
   Argent's own flow record/replay (`flow-*` tools) is a dev-loop convenience (e.g.
   re-profiling after a fix), not a second E2E layer — regression flows live only in
   `.maestro/`.
+- **Device gate:** what E2E cannot reach (locked-phone GPS continuity, cue audibility, ducking, silent switch, Bluetooth, call interruption) is covered by [docs/milestone-0-device-checklist.md](docs/milestone-0-device-checklist.md).
+
+# Comments & documentation
+
+Architecture lives in ADRs; code should be self-explanatory. Comment only to add
+what the code and types cannot carry — when in doubt, delete the comment and fix
+the name or the type instead. (Retro: the first Stage-3 files landed ~49% comment
+lines, port files ~80% — JSDoc restating architecture and types. Don't repeat that.)
+
+- **Explain WHY, not WHAT** — never restate the code, the signature, or the types.
+- **Don't re-describe architecture** — reference the ADR (`// per ADR 0008`); don't re-explain ports/adapters, the event-log engine, etc.
+- **Rationale goes where it lives:** durable design → an ADR; why-this-change → the commit/PR body (Conventional Commits); a local non-obvious choice → a one-line `// why:` at the site.
+- **Types are the source of truth** (strict TS, [ADR 0014](docs/adr/0014-eslint-prettier-linting-stack.md)) — never write types in JSDoc (`@param {T}`, `@returns`, `@enum`, `@private`).
+- **JSDoc an exported symbol only** when its contract isn't obvious from the signature: units, ranges, rounding, null/empty semantics, ordering, side effects, throws. One line where possible; skip `@param`/`@returns` that add nothing.
+- **No** narrative JSDoc on internal/domain helpers; **no** commented-out code; keep interface comments free of implementation detail (if you can't, the abstraction is too shallow).
+- Non-obvious code: simplify it first; comment only what can't be simplified.
 
 # Architecture
 
@@ -135,5 +185,6 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0018 — Free-run route generation: on-device pure-JS loop heuristic behind a Route-generator port](docs/adr/0018-free-run-route-generation.md)
 - [ADR 0019 — App variants via dynamic app.config.ts selected by APP_VARIANT](docs/adr/0019-app-variants-dynamic-config.md)
 - [ADR 0020 — iOS-only for now: Android support deferred](docs/adr/0020-ios-only-android-deferred.md)
+- [ADR 0021 — On-device GPS track smoothing; no map-matching](docs/adr/0021-on-device-gps-track-smoothing.md)
 - [ADR 0022 — Active-run Live Activity via first-party expo-widgets, updated locally](docs/adr/0022-active-run-live-activity-expo-widgets.md)
 - [ADR 0023 — Completion as a projection over two sources (runs ∪ manual marks); week-focus derives from it](docs/adr/0023-session-completion-projection-manual-marks.md)

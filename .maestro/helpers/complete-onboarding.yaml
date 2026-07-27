@@ -1,19 +1,16 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Onboarding is two steps: the welcome, then the spoken-coach intro (audio-cues-v1).
-# Assert each step's unique copy, tap its one CTA, and land on the next.
-- assertVisible: "Welcome to"
-# Retry the tap + its landing assertion together: the E2E build's larger binary
-# (Skia/Reanimated) launches slowly, so a screen can be visible but not yet
-# interactive when Maestro taps — the tap silently no-ops. Re-tapping until the
-# next screen appears absorbs that transient miss instead of failing the flow.
+# Completes all three onboarding steps, dismissing the location primer with "Not Now".
+# Callers that need location pre-grant it via launchApp (see launch-and-onboard.yaml); the primer's
+# own two CTAs are owned by tests/location-primer-allow.yaml and tests/location-primer-deny.yaml.
+- runFlow: onboarding-to-primer.yaml
+# Skip the primer: every caller stubs the location answer on its own launchApp, so tapping
+# "Enable Location" here would only re-read an answer iOS has already recorded.
+# tests/location-permission.yaml owns the primer's own CTA. "Not Now" is an exact element
+# text — the footnote that repeats the words is one long string, and Maestro matches text as
+# an anchored full match (ADR 0016).
 - retry:
     maxRetries: 3
     commands:
-      - tapOn: "Continue"
-      - assertVisible: "running coach" # audio-cues step heading
-- retry:
-    maxRetries: 3
-    commands:
-      - tapOn: "Continue"
+      - tapOn: "Not Now"
       - assertVisible: "Week 1 ·.*" # plan list

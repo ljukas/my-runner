@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme, View } from 'react-native';
 
+import { ResumeRunGate } from '@/components/resume-run-gate';
 import { Text } from '@/components/ui/text';
 import { Colors } from '@/constants/theme';
 import { db } from '@/db/client';
@@ -54,6 +55,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <OnboardingGate />
+      <ResumeRunGate />
       <Stack
         screenOptions={{
           headerLargeTitleStyle: { color: colors.text },
@@ -71,6 +73,19 @@ export default function RootLayout() {
             headerShown: false,
             // Paint the whole sheet container (incl. the bottom safe-area inset the
             // content view no longer covers under fitToContents) with the theme background.
+            contentStyle: {
+              backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].background,
+            },
+          }}
+        />
+        <Stack.Screen
+          name="resume-run"
+          options={{
+            presentation: 'formSheet',
+            sheetAllowedDetents: 'fitToContents',
+            // Not swipe-dismissible: an undecided dismissal would leave the run `'active'` and invisible.
+            gestureEnabled: false,
+            headerShown: false,
             contentStyle: {
               backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].background,
             },

@@ -9,6 +9,7 @@ import { Island } from '@/components/island';
 import { RunStatGrid } from '@/components/run-stat-grid';
 import { RunSummaryHeadline } from '@/components/run-summary-headline';
 import { SegmentBreakdown } from '@/components/segment-breakdown';
+import { SegmentSplits } from '@/components/segment-splits';
 import { db } from '@/db/client';
 import { runs, runSegments } from '@/db/schema';
 import { sessionTitle } from '@/domain/format';
@@ -60,19 +61,19 @@ export default function RunSummaryScreen() {
   // view (an explicit width — the RN host has no intrinsic one). Shared by the
   // summary and the edge states so the save-failure apology (which also arrives
   // celebrating) keeps its CTA.
-  const doneToolbar = celebrating ? (
+  const doneToolbar = (
     <Stack.Toolbar placement="bottom">
       {/* hidesSharedBackground drops the toolbar's glass capsule so only our
           filled CTA shows; width - 32 = 16 pt/side to align with the scroll
           content's px-4 cards, and the bottom padding is the real safe-area
           inset (hidesSharedBackground strips the toolbar's own). */}
-      <Stack.Toolbar.View hidesSharedBackground>
+      <Stack.Toolbar.View hidesSharedBackground hidden={!celebrating}>
         <View style={{ width: width - 32, paddingBottom: Math.max(insets.bottom, 8) }}>
           <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
         </View>
       </Stack.Toolbar.View>
     </Stack.Toolbar>
-  ) : null;
+  );
 
   // Edge states: the save-failure sentinel (synchronous — no row to wait for), a
   // read error, or an id with no matching run. The session title only exists for
@@ -112,6 +113,7 @@ export default function RunSummaryScreen() {
             <RunSummaryHeadline run={run} celebrate={celebrating} />
             <RunStatGrid run={run} segments={segments} />
             <SegmentBreakdown segments={segments} />
+            <SegmentSplits segments={segments} />
           </>
         ) : null}
       </ScrollView>

@@ -92,3 +92,36 @@ export function formatRunDate(iso: string, locale?: string): string {
     day: 'numeric',
   });
 }
+
+/**
+ * Kilometres as a value/unit pair for the stat tiles (`2310 → { value: '2.31', unit: 'km' }`).
+ * Negative clamps to 0 and non-finite renders `'0.00'`, never `'NaN'`.
+ */
+export function distanceParts(meters: number): { value: string; unit: 'km' } {
+  const safe = Number.isFinite(meters) ? Math.max(0, meters) : 0;
+  return { value: (safe / 1000).toFixed(2), unit: 'km' };
+}
+
+/** Kilometres to two decimals (`2310 → "2.31 km"`). */
+export function formatDistanceKm(meters: number): string {
+  const { value, unit } = distanceParts(meters);
+  return `${value} ${unit}`;
+}
+
+/**
+ * Average pace as a value/unit pair (`389 → { value: '6:29', unit: '/km' }`). Nullish, 0, negative
+ * and non-finite render the `--:--` placeholder value; seconds round to nearest.
+ */
+export function paceParts(secondsPerKm: number | null): { value: string; unit: '/km' } {
+  if (secondsPerKm == null || !Number.isFinite(secondsPerKm)) {
+    return { value: '--:--', unit: '/km' };
+  }
+  const seconds = Math.round(secondsPerKm);
+  return { value: seconds <= 0 ? '--:--' : formatClock(seconds), unit: '/km' };
+}
+
+/** Average pace as `m:ss /km` (`389 → "6:29 /km"`). */
+export function formatPace(secondsPerKm: number | null): string {
+  const { value, unit } = paceParts(secondsPerKm);
+  return `${value} ${unit}`;
+}

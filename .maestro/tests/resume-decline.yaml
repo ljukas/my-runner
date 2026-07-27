@@ -1,0 +1,26 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# The offer sheet's second CTA. Declining still finalizes the interrupted run as partial, so its track
+# stays reachable from the Log — the sheet's Resume branch is tests/run-resume.yaml, the launch-time
+# expiry branch tests/run-abandon.yaml. Killing the run mid-flight is all it takes to be offered: the
+# compressed 0:40 timeline is still live after the ~3.5 s a stopApp with a relaunch costs.
+- runFlow: ../helpers/start-first-session.yaml
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      text: "Resume run.*"
+    timeout: 60000
+- tapOn: "Save as Partial"
+# The declined run's summary replaces the sheet, acknowledged like any other fresh finish
+# (`celebrate`): the ended-early headline and the bottom "Done", not a Log revisit's neutral date.
+- assertVisible: "Good effort.*"
+- assertVisible: "Partial"
+- tapOn: "Done"
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"
+- assertVisible: "Partial"

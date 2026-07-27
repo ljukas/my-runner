@@ -19,6 +19,15 @@ import { IslandHost } from './host';
 type IslandButtonVariant = 'primary' | 'secondary' | 'destructive';
 
 /**
+ * Height a `fill` button's host must reserve. A Host needs an explicit size —
+ * `matchContents` collapses a full-width button — so anything stacking these
+ * (`Island.View`) has to size itself from the same number.
+ */
+export function islandButtonHeight(): number {
+  return Math.round(50 * Math.min(PixelRatio.getFontScale(), 2));
+}
+
+/**
  * The app's SwiftUI buttons, named once (ADR 0013): the `borderedProminent` +
  * `tint` primary CTA (Liquid Glass where the build supports it), plus `bordered`
  * `secondary` and `destructive` variants. Threads `useTheme()` /
@@ -84,11 +93,7 @@ export function IslandButton({
   if (inline) return button;
 
   return fill ? (
-    <IslandHost
-      style={{ width: '100%', height: Math.round(50 * Math.min(PixelRatio.getFontScale(), 2)) }}
-    >
-      {button}
-    </IslandHost>
+    <IslandHost style={{ width: '100%', height: islandButtonHeight() }}>{button}</IslandHost>
   ) : (
     <IslandHost matchContents>{button}</IslandHost>
   );

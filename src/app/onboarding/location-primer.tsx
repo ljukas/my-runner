@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { PixelRatio, View } from 'react-native';
+import { View } from 'react-native';
 
 import { FeatureRow } from '@/components/feature-row';
 import { OnboardingStepScreen } from '@/components/onboarding-step-screen';
@@ -29,45 +29,37 @@ export default function LocationPrimerScreen() {
         completeAndAdvance(router, 'location-primer-v1');
       }}
       footnote={
-        <View className="gap-2">
-          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <SymbolView
-              name={{ ios: 'checkmark.circle', android: 'check_circle' }}
-              size={Math.round(20 * Math.min(PixelRatio.getFontScale(), 1.6))}
-              tintColor={colors.primary}
-            />
-          </View>
-          <Text variant="footnote" tone="secondary">
-            Not Now is fine &mdash; every run is still timed, and the screen stays on so you can
-            hear the coach, but runs won&rsquo;t have distance. You can change this later in
-            Settings.
-          </Text>
-        </View>
+        <Text variant="footnote" tone="secondary">
+          Not Now is fine &mdash; every run is still timed, and the screen stays on so you can hear
+          the coach, but runs won&rsquo;t have distance. You can change this later in Settings.
+        </Text>
       }
     >
       <View className="mt-6 items-center">
         <SymbolView
           name={{ ios: 'location.fill', android: 'my_location' }}
-          size={72}
+          size={64}
           tintColor={colors.primary}
         />
       </View>
-      <View className="pt-9">
-        <Text variant="largeTitle" accessibilityRole="header">
-          Track your route
-        </Text>
-        <Text variant="largeTitle" accessibilityRole="header">
-          and your pace
+      <View className="pt-10">
+        <Text variant="title1" accessibilityRole="header">
+          Track your route and your pace
         </Text>
       </View>
-      <View className="gap-6 pt-7">
-        <FeatureRow symbol={{ ios: 'map.fill', android: 'map' }} title="Distance and pace">
+      <View className="gap-5 pt-5">
+        <FeatureRow
+          symbol={{ ios: 'map.fill', android: 'map' }}
+          title="Distance and pace"
+          template="primer"
+        >
           Every run records how far you went and how fast, so you can watch yourself getting
           stronger week by week.
         </FeatureRow>
         <FeatureRow
           symbol={{ ios: 'lock.iphone', android: 'phonelink_lock' }}
           title="Coaching in your pocket"
+          template="primer"
         >
           Location is what lets the coach keep talking after your screen turns off — put the phone
           away and just listen.
@@ -75,6 +67,7 @@ export default function LocationPrimerScreen() {
         <FeatureRow
           symbol={{ ios: 'hand.raised.fill', android: 'front_hand' }}
           title="Stays on your phone"
+          template="primer"
         >
           Your route never leaves this device. No account, no servers, nothing shared.
         </FeatureRow>

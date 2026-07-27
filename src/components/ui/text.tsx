@@ -16,6 +16,7 @@ export const textVariants = cva('', {
       title: 'text-5xl font-semibold',
       largeTitle: 'text-[34px] font-bold',
       subtitle: 'text-[32px] font-semibold',
+      title1: 'text-[28px] font-bold',
       footnote: 'text-[13px]',
       small: 'text-sm font-medium',
       smallBold: 'text-sm font-bold',

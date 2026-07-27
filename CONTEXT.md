@@ -14,6 +14,19 @@ lazily — add a term when a module gets named after it.
   `partial`, soft-deleted via `deleted_at`).
 - **Run engine** — the wall-clock, event-log state machine that derives the
   active run's state (ADR 0007).
+- **Completion** — a Session counts as completed when it has either a completed
+  **Run** *or* a **manual completion**. The set of completed session keys
+  (`completedSessionKeys`) is a pure projection unioning both sources; next-session
+  sequencing (`nextSessionKey`) and **week focus** read that set, never `runs`
+  directly (ADR 0023).
+- **Manual completion (mark)** — a user-set "this session is done" carrying no Run
+  (no attempt, time, or segments), for mid-program migration; its own
+  `session_completions` row (per session; "mark week" = its three rows),
+  hard-deleted to un-mark — never a synthetic Run (ADR 0023).
+- **Week focus** — the Plan view that grays a completed week, moves it to the end,
+  and collapses it to keep the next week in view; a pure projection over
+  `completedSessionKeys`. The collapse/expand ("group closing") state persists
+  across sessions as a **plan-view** kv-store preference (ADR 0023).
 
 ## View layer
 

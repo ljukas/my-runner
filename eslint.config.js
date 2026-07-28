@@ -2,6 +2,7 @@
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended');
+const unusedImports = require('eslint-plugin-unused-imports');
 
 module.exports = defineConfig([
   expoConfig,
@@ -18,6 +19,22 @@ module.exports = defineConfig([
     },
     rules: {
       '@typescript-eslint/no-floating-promises': 'error',
+    },
+  },
+  {
+    // Deleting unused imports has to be an ESLint fixer — ESLint re-parses
+    // between fix passes, while a second on-save rewriter (TypeScript's
+    // organizeImports) applied offsets computed before Prettier's rewrite and
+    // ate code. .vscode/settings.json therefore runs `source.fixAll.eslint` alone.
+    plugins: { 'unused-imports': unusedImports },
+    rules: {
+      // Superseded by the fork below; leaving both on double-reports every hit.
+      '@typescript-eslint/no-unused-vars': 'off',
+      'unused-imports/no-unused-imports': 'error',
+      'unused-imports/no-unused-vars': [
+        'warn',
+        { vars: 'all', args: 'none', ignoreRestSiblings: true, caughtErrors: 'all' },
+      ],
     },
   },
   {

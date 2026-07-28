@@ -30,7 +30,7 @@ Two facts dominate the decision:
 
 ## Decision
 
-Stay on ESLint through `expo lint`, hardened three ways:
+Stay on ESLint through `expo lint`, hardened four ways:
 
 1. **Prettier is the formatter, enforced through ESLint** via
    `eslint-plugin-prettier/recommended` (the Expo-documented flat-config wiring:
@@ -44,6 +44,17 @@ Stay on ESLint through `expo lint`, hardened three ways:
    `error`, scoped to `src/**/*.{ts,tsx}` with `projectService: true`. A dropped
    promise around the run engine's event log or expo-sqlite writes is silent data
    loss; fire-and-forget calls must be marked with `void`.
+4. **Unused-import removal** via `eslint-plugin-unused-imports`:
+   `unused-imports/no-unused-imports` at `error` — the only rule in this stack that
+   can actually delete an unused import, since `@typescript-eslint/no-unused-vars`
+   reports without a fixer. Removal has to live in ESLint rather than in the
+   editor: the on-save pass is `source.fixAll.eslint` alone, because adding
+   TypeScript's `organizeImports` alongside it put two whole-file rewriters in one
+   save pass, and TypeScript's offsets — computed before Prettier's rewrite —
+   deleted real code. ESLint re-parses between its own fix passes, so its fixers
+   cannot go stale. `unused-imports/no-unused-vars` (same options) replaces the
+   `@typescript-eslint` rule so unused *values* stay a non-destructive warning and
+   nothing is double-reported.
 
 Generated files are exempt from linting — Metro regenerates
 `src/uniwind-types.d.ts` and drizzle-kit regenerates `src/db/migrations/` in
@@ -53,6 +64,9 @@ their own styles, so formatting them fights the generators.
 
 - The lint gate is `bun run lint` (joins `bun test` / `bun run typecheck`; all
   three belong in the future EAS `checks` job — ADR 0001).
+- Unused imports fail `bun run lint` and are deleted by `--fix` and by an editor
+  save; unused locals and params stay warnings, which `expo lint` does not fail on
+  (it passes `--max-warnings` only when given one).
 - Known limitation: class sorting is not theme-aware. Uniwind declares theme
   tokens via `@layer theme`/`@variant` rather than Tailwind v4 `@theme` blocks,
   so utilities like `bg-primary` are unknown to the sorter and are grouped

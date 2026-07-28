@@ -17,7 +17,7 @@ export function Footer({ className, style, children, ...props }: ViewProps) {
   const insets = useSafeAreaInsets();
   return (
     <View
-      className={cn('gap-3 px-6 pt-3', className)}
+      className={cn('gap-5 px-8 pt-3', className)}
       style={[{ paddingBottom: Math.max(insets.bottom, 16) }, style]}
       {...props}
     >

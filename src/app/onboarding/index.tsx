@@ -30,7 +30,7 @@ export default function WelcomeScreen() {
     >
       <Image
         source={require('@/assets/images/icon.png')}
-        className="mt-6 h-[88px] w-[88px] self-center rounded-[20px]"
+        className="h-22 w-22 self-center rounded-[20xp]"
         style={{ borderCurve: 'continuous' } as any}
       />
       <View className="pt-9">

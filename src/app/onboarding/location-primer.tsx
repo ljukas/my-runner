@@ -31,11 +31,11 @@ export default function LocationPrimerScreen() {
       footnote={
         <Text variant="footnote" tone="secondary">
           Not Now is fine &mdash; every run is still timed, and the screen stays on so you can hear
-          the coach, but runs won&rsquo;t have distance. You can change this later in Settings.
+          the coach. You can change this later in Settings.
         </Text>
       }
     >
-      <View className="mt-6 items-center">
+      <View className="items-center">
         <SymbolView
           name={{ ios: 'location.fill', android: 'my_location' }}
           size={64}

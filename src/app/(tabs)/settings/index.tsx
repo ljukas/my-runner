@@ -26,14 +26,6 @@ export default function SettingsScreen() {
     <Island useViewportSizeMeasurement>
       <Form>
         <Section
-          title="About"
-          footer={<Text>No account, no sign-in. Your runs stay on this device.</Text>}
-        >
-          <LabeledContent label="Version">
-            <Text>{Constants.expoConfig?.version ?? '—'}</Text>
-          </LabeledContent>
-        </Section>
-        <Section
           title="Coaching"
           footer={
             <Text>
@@ -70,6 +62,15 @@ export default function SettingsScreen() {
             />
           ) : null}
         </Section>
+        <Section
+          title="About"
+          footer={<Text>No account, no sign-in. Your runs stay on this device.</Text>}
+        >
+          <LabeledContent label="Version">
+            <Text>{Constants.expoConfig?.version ?? '—'}</Text>
+          </LabeledContent>
+        </Section>
+
         {__DEV__ ? (
           <Section title="Developer">
             <SettingsToggle label="Compressed Plan" settingKey="useCompressedPlan" />

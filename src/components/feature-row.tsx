@@ -35,6 +35,7 @@ export function FeatureRow({
 }) {
   const colors = useTheme();
   const metrics = templates[template];
+
   return (
     <View className={metrics.row}>
       <View
@@ -48,6 +49,7 @@ export function FeatureRow({
           tintColor={colors.primary}
         />
       </View>
+
       <View className={metrics.body}>
         <Text className="font-semibold">{title}</Text>
         <Text tone="secondary">{children}</Text>

@@ -52,22 +52,13 @@ export function OnboardingStepScreen({
 
   return (
     <View className="flex-1 bg-background">
-      {/* Full-width ScrollView so the scroll indicator sits at the screen edge; the
-          horizontal inset lives on the content and matches the Footer's, so the copy
-          lines up whether it is scrolling or pinned. */}
-      <ScrollView contentInsetAdjustmentBehavior="automatic">
-        <View className="px-6 pt-10 pb-3">{children}</View>
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerClassName="px-6 pb-3">
+        {children}
       </ScrollView>
-      {/* Footnote and CTAs are one pinned block on a shared width, the relationship
-          Apple's welcome template draws. Pinned rather than scrolled, so at very large
-          Dynamic Type it takes screen from the content above rather than sliding out
-          of reach beneath the CTA. */}
-      <Footer>
+
+      <Footer className="absolute right-0 bottom-0 left-0">
         {footnote}
-        {/* One island either way: a lone CTA is a standalone `Island.Button` (as the
-            session sheet does), and a pair goes inside a single `Island.View` so the
-            gap between them is SwiftUI spacing rather than RN spacing between two
-            separate Hosts. */}
+
         {secondaryLabel ? (
           <Island.View count={2}>
             <Island.Button inline fill label={buttonLabel} onPress={press(onPrimaryPress)} />

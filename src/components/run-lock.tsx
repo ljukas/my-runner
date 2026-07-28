@@ -15,7 +15,7 @@ import { Island } from '@/components/island';
 import { useTheme } from '@/hooks/use-theme';
 import { haptics } from '@/services/haptics';
 
-const GLYPH_SIZE = 24;
+const GLYPH_SIZE = 32;
 const TAP_TARGET = 44;
 // Seconds: SwiftUI's `minimumDuration` is a Double in seconds, not milliseconds.
 const UNLOCK_HOLD_SECONDS = 1.2;
@@ -54,7 +54,7 @@ export function RunLock({
   // `trailing`: a centred stack would slide the glyph inboard the moment the
   // wider caption appears under it, moving the target the finger just tapped.
   return (
-    <VStack spacing={4} alignment="trailing">
+    <VStack spacing={4} alignment="center">
       <Image
         systemName="lock.display"
         size={GLYPH_SIZE}

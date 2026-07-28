@@ -92,6 +92,7 @@ export default function SessionSheet() {
           <StatList.Row label="Completed" value={updatedAt ? `${attempts.length}×` : '—'} />
         </StatList>
       </Card>
+
       <Island.Button fill label="Start Session" onPress={() => void startSession()} />
     </View>
   );

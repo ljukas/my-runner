@@ -30,7 +30,6 @@ import { RunProgressBar } from '@/components/run-progress-bar';
 import { SkiaCountdown } from '@/components/skia-countdown';
 import { SegmentSymbols } from '@/constants/theme';
 import { SEGMENT_KIND_LABEL, formatClock, formatDistanceKm, formatPace } from '@/domain/format';
-import { shouldHoldDisplayAwake } from '@/domain/run-display';
 import { useLocationPermission, locationTracker } from '@/services/location-tracker';
 import { useSegmentColors, useTheme } from '@/hooks/use-theme';
 import {
@@ -54,8 +53,7 @@ export default function RunScreen() {
   const segmentColors = useSegmentColors();
   const locationStatus = useLocationPermission();
   const [endDialogOpen, setEndDialogOpen] = useState(false);
-  // Never persisted: a lock is a mode, not a preference, so every run — even a
-  // resumed one — starts unlocked.
+
   const [locked, setLocked] = useState(false);
   const paused = snapshot.status === 'paused';
 
@@ -97,47 +95,45 @@ export default function RunScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      {shouldHoldDisplayAwake(locked, locationStatus) ? <KeepAwakeWhileMounted /> : null}
+      {locked ? <KeepAwakeWhileMounted /> : null}
       <Island useViewportSizeMeasurement>
         <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
           {/* In flow rather than an overlay: the banner below then keeps its own
               rows instead of running under the lock's caption. */}
-          <HStack>
-            <Spacer />
-            <RunLock locked={locked} onLockedChange={setLocked} />
-          </HStack>
           {locationStatus !== null && locationStatus !== 'granted' ? (
-            <Island.Label
-              systemImage="location.slash"
-              title="Location is off"
-              tone="secondary"
-              modifiers={[font({ textStyle: 'footnote' })]}
-            />
-          ) : null}
-          {locationStatus !== null && locationStatus !== 'granted' ? (
-            <Island.Text
-              tone="secondary"
-              modifiers={[
-                font({ textStyle: 'caption' }),
-                multilineTextAlignment('center'),
-                lineLimit(2),
-              ]}
-            >
-              Distance is not recorded. The screen stays on so cues keep playing.
-            </Island.Text>
-          ) : null}
-          {locationStatus !== null && locationStatus !== 'granted' ? (
-            <Island.Button
-              inline
-              variant="secondary"
-              label={locationStatus === 'denied' ? 'Open Settings' : 'Enable Location'}
-              disabled={locked}
-              onPress={() =>
-                void (locationStatus === 'denied'
-                  ? Linking.openSettings()
-                  : locationTracker.requestPermission())
-              }
-            />
+            <VStack spacing={24}>
+              <VStack spacing={8} alignment="center">
+                <Island.Label
+                  systemImage="location.slash"
+                  title="Location is off"
+                  tone="secondary"
+                  modifiers={[font({ textStyle: 'footnote' })]}
+                />
+
+                <Island.Text
+                  tone="secondary"
+                  modifiers={[
+                    font({ textStyle: 'caption' }),
+                    multilineTextAlignment('center'),
+                    lineLimit(2),
+                  ]}
+                >
+                  Distance and pace unavailable.
+                </Island.Text>
+              </VStack>
+
+              <Island.Button
+                inline
+                variant="secondary"
+                label={locationStatus === 'denied' ? 'Open Settings' : 'Enable Location'}
+                disabled={locked}
+                onPress={() =>
+                  void (locationStatus === 'denied'
+                    ? Linking.openSettings()
+                    : locationTracker.requestPermission())
+                }
+              />
+            </VStack>
           ) : null}
           <Spacer />
           {/* Icon stacked above the label so each is centred on its own line: a
@@ -232,6 +228,12 @@ export default function RunScreen() {
               {`${formatDistanceKm(snapshot.distanceM)} · ${formatPace(snapshot.paceSecPerKm)}`}
             </Island.Text>
           ) : null}
+
+          <VStack>
+            <Spacer />
+            <RunLock locked={locked} onLockedChange={setLocked} />
+          </VStack>
+
           <Spacer />
         </VStack>
       </Island>

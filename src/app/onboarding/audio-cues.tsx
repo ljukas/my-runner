@@ -18,7 +18,7 @@ export default function AudioCuesScreen() {
         </Text>
       }
     >
-      <View className="mt-6 items-center">
+      <View className="items-center">
         <SymbolView
           name={{ ios: 'speaker.wave.2.fill', android: 'volume_up' }}
           size={64}

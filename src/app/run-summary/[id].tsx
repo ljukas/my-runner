@@ -2,8 +2,7 @@ import { ContentUnavailableView } from '@expo/ui/swift-ui';
 import { asc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ScrollView, useWindowDimensions, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { RunStatGrid } from '@/components/run-stat-grid';
@@ -13,6 +12,7 @@ import { SegmentSplits } from '@/components/segment-splits';
 import { db } from '@/db/client';
 import { runs, runSegments } from '@/db/schema';
 import { sessionTitle } from '@/domain/format';
+import { Footer } from '@/components/ui/footer';
 
 /**
  * A dynamic segment can't be empty, so a failed save routes here with this
@@ -32,8 +32,6 @@ export const UNSAVED_RUN_ID = 'unsaved';
  */
 export default function RunSummaryScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
   const celebrating = celebrate === '1';
 
@@ -55,53 +53,30 @@ export default function RunSummaryScreen() {
   const loaded = runLoaded !== undefined && segmentsLoaded !== undefined;
   const failed = runError !== undefined || segmentsError !== undefined;
 
-  // The bottom "Done" acknowledges a fresh finish; a revisit dismisses via the
-  // header xmark. A native bottom toolbar so iOS owns the placement and the
-  // scroll-edge fade; a full-width filled CTA hosted in the toolbar's custom
-  // view (an explicit width — the RN host has no intrinsic one). Shared by the
-  // summary and the edge states so the save-failure apology (which also arrives
-  // celebrating) keeps its CTA.
-  const doneToolbar = (
-    <Stack.Toolbar placement="bottom">
-      {/* hidesSharedBackground drops the toolbar's glass capsule so only our
-          filled CTA shows; width - 32 = 16 pt/side to align with the scroll
-          content's px-4 cards, and the bottom padding is the real safe-area
-          inset (hidesSharedBackground strips the toolbar's own). */}
-      <Stack.Toolbar.View hidesSharedBackground hidden={!celebrating}>
-        <View style={{ width: width - 32, paddingBottom: Math.max(insets.bottom, 8) }}>
-          <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
-        </View>
-      </Stack.Toolbar.View>
-    </Stack.Toolbar>
-  );
-
-  // Edge states: the save-failure sentinel (synchronous — no row to wait for), a
-  // read error, or an id with no matching run. The session title only exists for
-  // a real run, so the header title clears here.
   if (id === UNSAVED_RUN_ID || failed || (loaded && !run)) {
     const unsaved = id === UNSAVED_RUN_ID;
     return (
-      <>
-        <Stack.Screen options={{ title: '' }}>{doneToolbar}</Stack.Screen>
+      <View className="flex-1 bg-background-grouped">
+        <Island>
+          <ContentUnavailableView
+            title={unsaved ? 'Run not saved' : 'Run unavailable'}
+            systemImage={unsaved ? 'exclamationmark.triangle' : 'questionmark.circle'}
+            description={unsaved ? "This run couldn't be saved." : "This run isn't available."}
+          />
+        </Island>
 
-        <View className="flex-1 bg-background-grouped">
-          <Island>
-            <ContentUnavailableView
-              title={unsaved ? 'Run not saved' : 'Run unavailable'}
-              systemImage={unsaved ? 'exclamationmark.triangle' : 'questionmark.circle'}
-              description={unsaved ? "This run couldn't be saved." : "This run isn't available."}
-            />
-          </Island>
-        </View>
-      </>
+        {celebrating ? (
+          <Footer>
+            <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
+          </Footer>
+        ) : null}
+      </View>
     );
   }
 
   return (
     <>
-      <Stack.Screen options={{ title: run ? sessionTitle(run.sessionKey) : '' }}>
-        {doneToolbar}
-      </Stack.Screen>
+      <Stack.Screen options={{ title: run ? sessionTitle(run.sessionKey) : '' }} />
 
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
@@ -117,6 +92,12 @@ export default function RunSummaryScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      {celebrating ? (
+        <Footer>
+          <Island.Button fill label="Done" onPress={() => router.dismissAll()} />
+        </Footer>
+      ) : null}
     </>
   );
 }

@@ -36,13 +36,15 @@ export function RunLock({
 
   if (!locked) {
     return (
-      <Island.IconButton
-        systemName="lock.open.display"
-        size={GLYPH_SIZE}
-        color={colors.textSecondary}
-        label="Lock screen"
-        onPress={() => onLockedChange(true)}
-      />
+      <Island matchContents>
+        <Island.IconButton
+          systemName="lock.open.display"
+          size={GLYPH_SIZE}
+          color={colors.textSecondary}
+          label="Lock screen"
+          onPress={() => onLockedChange(true)}
+        />
+      </Island>
     );
   }
 
@@ -51,27 +53,29 @@ export function RunLock({
     haptics.confirm();
   };
 
-  // `trailing`: a centred stack would slide the glyph inboard the moment the
-  // wider caption appears under it, moving the target the finger just tapped.
   return (
-    <VStack spacing={4} alignment="center">
-      <Image
-        systemName="lock.display"
-        size={GLYPH_SIZE}
-        color={colors.text}
-        modifiers={[
-          frame({ width: TAP_TARGET, height: TAP_TARGET }),
-          contentShape(shapes.rectangle()),
-          onLongPressGesture(unlock, UNLOCK_HOLD_SECONDS),
-          symbolEffect({ effect: 'pulse' }, { options: { repeat: { count: 2 } } }),
-          accessibilityAddTraits(['isButton']),
-          accessibilityLabel('Unlock screen'),
-          accessibilityHint('Press and hold to unlock'),
-        ]}
-      />
-      <Island.Text tone="secondary" modifiers={[font({ textStyle: 'caption' })]}>
-        Hold to unlock
-      </Island.Text>
-    </VStack>
+    <Island matchContents>
+      {/* The caption only widens the centred stack, so the glyph's centre — the
+          target the finger just tapped — does not move when it appears. */}
+      <VStack spacing={4} alignment="center">
+        <Image
+          systemName="lock.display"
+          size={GLYPH_SIZE}
+          color={colors.text}
+          modifiers={[
+            frame({ width: TAP_TARGET, height: TAP_TARGET }),
+            contentShape(shapes.rectangle()),
+            onLongPressGesture(unlock, UNLOCK_HOLD_SECONDS),
+            symbolEffect({ effect: 'pulse' }, { options: { repeat: { count: 2 } } }),
+            accessibilityAddTraits(['isButton']),
+            accessibilityLabel('Unlock screen'),
+            accessibilityHint('Press and hold to unlock'),
+          ]}
+        />
+        <Island.Text tone="secondary" modifiers={[font({ textStyle: 'caption' })]}>
+          Hold to unlock
+        </Island.Text>
+      </VStack>
+    </Island>
   );
 }

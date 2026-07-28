@@ -83,25 +83,35 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
      the same point size, so a centred phase icon+label wobbles the whole
      Spacer-centred column a few px per segment — the phase-label block is given a
      fixed `frame({ height })` to hold the layout still.
-   - *Realized 2026-07-27 (the accessibility seam):* **a Host's RN *siblings* can
-     lose their accessibility identity entirely, while RN hosted inside it keeps
-     one.** Observed on an iOS 26.5 simulator against the hierarchy VoiceOver and
-     Maestro's `inspect_screen` read — *not* argent's a11y bridge, which AGENTS.md
-     records as blind to every island screen in this app: RN hosted *inside* a Host
-     through `RNHostView` does surface via its own RN accessibility props, whereas
-     RN placed as a **sibling** of a Host renders and takes touches yet is
-     **absent** from that hierarchy, invisible to VoiceOver as much as to Maestro.
-     That is a real VoiceOver defect rather than a selector problem, and it is how
-     the run summary's RN "Done" button came to paint and tap while being
-     unfindable (fixed by making it an `Island.Button`). The rule that follows:
-     **RN owns the screen root and SwiftUI goes into it as islands, with RN content
-     hosted *inside* a Host — never parked beside one.** A screen-sized Island is
-     fine under that rule; the run screen is exactly this shape (an RN root, one
-     viewport-sized Island, RN hosted within it). A screen that is *nothing but* an
+   - *Realized 2026-07-27, narrowed 2026-07-28 (the accessibility seam):* **RN that
+     OVERLAPS a Host loses its accessibility identity; RN merely laid out beside one
+     keeps it.** Observed on an iOS 26.5 simulator against the hierarchy VoiceOver
+     and Maestro's `inspect_screen` read — *not* argent's a11y bridge, which
+     AGENTS.md records as blind to every island screen in this app. An absolutely
+     positioned RN `Pressable` stacked over a screen-covering
+     `Island useViewportSizeMeasurement` painted and took a coordinate tap while
+     being **absent** from that hierarchy — a real VoiceOver defect, and the same
+     shape as the run summary's RN "Done" that painted and tapped while unfindable
+     beneath a lingering form sheet (`session/[key].tsx:63-67`).
+
+     **The first draft of this note blamed siblinghood, and shipped code falsifies
+     that.** `run-summary/[id].tsx:81-99` lays an RN `ScrollView` beside
+     `Footer → Island.Button fill "Done"` — a real Host — and CI-gated flows assert
+     the RN strings inside it on that very screen (`run-distance.yaml:42-43`
+     "Distance"/"Avg Pace"; `complete-session.yaml` "Nice work.*", "Warm Up"),
+     while `segment-breakdown.tsx` records VoiceOver already speaking its RN legend.
+     `session/[key].tsx` is the same shape. Non-overlapping RN siblings are
+     therefore fine; **z-order over a Host is the hazard.**
+
+     The rule that follows: **RN owns the screen root and SwiftUI goes into it as
+     islands, sized to their content and laid out in flow.** Do not stack RN over a
+     Host, and prefer several content-sized islands to one screen-covering one — a
+     viewport-sized Island makes every RN sibling an overlap risk by construction,
+     which is why the run screen was inverted. A screen that is *nothing but* an
      Island is fine where it renders no RN at all: Plan, Log and Settings are
      pure-SwiftUI leaves and stay that way, since giving Settings RN ownership at
      the row level — RN rows with SwiftUI controls inside them — would force a Host
-     per row, which this section already forbids.
+     per row, which ADR 0005 §1 already forbids.
    - *Realized 2026-07-27 (native chrome vs. the CTA block):* `Stack.Toolbar` is
      for header and quick actions — the run-summary header's `xmark` is its only
      remaining use — and **not** for a screen's primary call to action. It was

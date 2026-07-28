@@ -1,10 +1,22 @@
 # Run Lock & Primer Polish — Design Spec
 
 **Date:** 2026-07-27
-**Status:** Approved pending final user review
+**Status:** Implemented with exceptions (see §3's outstanding copy rows and §6) —
+amended 2026-07-28 to describe the shipped code
 **References:** Apple Health feature-intro sheets ("Shared Passwords and Passkeys",
 "Blood Pressure Log", "Support Your Mental Wellbeing", "Test Your Hearing"),
 provided as screenshots 2026-07-27
+
+> **Three things changed during implementation.** The sections below are amended
+> rather than left as designed, and each delta is marked *Shipped*.
+> **(1) The forced-awake path is gone** — the display is held awake *only* while
+> locked (`{locked ? <KeepAwakeWhileMounted /> : null}`), and the run-screen
+> banner shortened to "Distance and pace unavailable.", mentioning neither cues
+> nor the screen. **(2) The unlock shipped at fallback tier 3** (pure SwiftUI
+> `onLongPressGesture`), so there is no progress ring, and the hold constant is
+> **seconds** — `UNLOCK_HOLD_SECONDS = 1.2` — not milliseconds. **(3) The lock
+> sits below the stats, centred**, not top-right. §1 and every decisions-log row
+> left unmarked record the situation as it stood on 2026-07-27.
 
 ## 1. Overview
 
@@ -60,16 +72,16 @@ looking at".
 | Topic | Decision |
 |---|---|
 | Control identity | One **lock**, not a screen-awake toggle: locked = display held awake **and** transport controls inert. Merging them is what makes the padlock icon correct rather than borrowed — it names the user's situation, not the mechanism |
-| Placement | Run screen only, top-right, apart from the transport row. Settings' **Display** section is deleted |
+| Placement | Run screen only, apart from the transport row. Settings' **Display** section is deleted. *Shipped:* centred **below the stats** rather than top-right, on its own line, so the "Hold to unlock" caption can appear under it without crowding the metrics |
 | Icon | `lock.open.display` → `lock.display`. Literal, and the touch-lock half resolves the collision with the Nike Run Club / Apple Fitness padlock convention |
 | Lifetime | **Per-run, not persisted.** A lock is a mode, not a preference. Every run — including a resumed one — starts unlocked. `keepScreenAwake` is deleted from settings entirely |
 | Default | Unlocked. The flagship scenario (spec §6) is a pocketed locked phone, where screen-on is pure battery waste |
 | Lock gesture | Plain tap. Entering a safe state needs no ceremony |
-| Unlock gesture | **Press and hold 1.2 s** (Apple Watch Water Lock deliberateness) with a circular progress ring around the icon. Asymmetric on purpose: only leaving a safe state needs ceremony |
-| Forced-awake path | Independent of the lock: with location not granted the display is held awake regardless, because cues would otherwise die (ADR 0008 §5). Controls stay live — nobody is locked out of Pause by declining a permission |
+| Unlock gesture | **Press and hold 1.2 s** (Apple Watch Water Lock deliberateness). Asymmetric on purpose: only leaving a safe state needs ceremony. *Shipped:* §2.5 tier 3, so **no progress ring** — a `symbolEffect` pulse plus the "Hold to unlock" caption carries the affordance |
+| Forced-awake path | ~~Independent of the lock: with location not granted the display is held awake regardless~~ — **dropped before merge.** A forced screen-on run spends battery the runner never agreed to, and the lock is the honest place to offer that trade instead. The display is held awake only while locked; ADR 0008 §5 now carries the resulting honesty gap as a **named open risk** |
 | Durable explanation | Settings **Coaching** footer — where a user wondering *why don't I feel the buzz* would look |
 | Primer scoping | The two primers only (`audio-cues`, `location-primer`); the welcome screen keeps its own template |
-| Recording | Amend the master spec; no new ADR. ADRs 0008 §5 and 0009 §7 stay true and gain the lock as their mechanism |
+| Recording | Amend the master spec; no new ADR. ~~ADRs 0008 §5 and 0009 §7 stay true and gain the lock as their mechanism~~ — *this is the prediction that failed: 0009 §7's mechanism and 0008 §5's whole degraded mode both needed rewriting (see §5). No supersede either way* |
 
 ## 2. The run lock
 
@@ -77,47 +89,62 @@ looking at".
 
 | | Display | Touches | Haptic cues | Audio cues |
 |---|---|---|---|---|
-| **Unlocked** (default) | sleeps on the system's schedule | live | none once asleep | continue via location heartbeat |
-| **Locked** | held awake | inert | **live for the whole run** | continue |
+| **Unlocked** (default) | sleeps on the system's schedule | live | none once asleep | continue via the location heartbeat — *only with location granted* |
+| **Locked** | held awake | inert | **live for as long as the lock is on** | continue |
 
 Unlocked is the pocket run: let it sleep, listen. Locked is the opt-in that buys
 the haptic channel, paid for with the display — and it earns that cost by making
 a pocketed screen-on phone safe from an accidental Pause, which is the reason a
 screen-on pocket run was uncomfortable in the first place.
 
-### 2.2 Two independent rules
+The audio-cues column has one exception the shipped build does not cover. With
+location denied there is no background heartbeat, so an unlocked run loses the
+coach the moment the display sleeps; nothing forces the display awake for it (see
+the dropped forced-awake row above) and the banner does not mention it. ADR 0008
+§5 carries that as an open risk rather than this spec resolving it.
+
+### 2.2 One rule
 
 ```
-display held awake  =  locked  ||  location !== 'granted'
+display held awake  =  locked
 touches locked      =  locked
 ```
 
-The second term of the first rule is the one piece of behaviour the app decides
-for the user rather than offering: with no location there is no background
-heartbeat, so a sleeping screen silences the coach. That is not a preference, so
-the app arranges it and says so plainly in the run-screen banner. Touch-locking
-is never forced.
+*Amended 2026-07-28.* This was designed as two rules, the first reading
+`locked || location !== 'granted'` so a location-denied run could not lose its
+cues to a sleeping screen. **That second term was dropped before merge:** it is
+the app spending the runner's battery on a decision the runner never made, and
+the lock is the honest place to offer that trade instead. The lock is now the
+sole input to both rules, and the run-screen banner reports only what is
+measurably lost — "Distance and pace unavailable." The cost of dropping the term
+is recorded as a named open risk in ADR 0008's Consequences, not absorbed here.
 
 ### 2.3 Composition
 
 `KeepAwakeWhileMounted` (`src/app/run.tsx:44`) is unchanged — `useKeepAwake`
 takes no enabled argument, so conditionality is expressed by mounting, and that
-remains the correct shape. Only what drives it changes, from
-`useSetting('keepScreenAwake')` to the rule above.
+remains the correct shape. What drives it is the lock alone:
+`{locked ? <KeepAwakeWhileMounted /> : null}`.
 
 Locking is applied by putting `disabled(locked)` on every interactive element
-except the lock itself: the End / Pause / Skip buttons (`run.tsx:167-208`) and
-the location banner's CTA (`run.tsx:122-133`). SwiftUI's native dimming of a
-disabled control *is* the "you are locked" feedback, so no overlay is drawn and
-no hit-testing is intercepted. The run screen is already
-`gestureEnabled: false` (`src/app/_layout.tsx:96`), so swipe-dismissal needs no
-further work.
+except the lock itself: the End / Pause / Skip buttons and the location banner's
+CTA. SwiftUI's native dimming of a disabled control *is* the "you are locked"
+feedback, so no overlay is drawn and no hit-testing is intercepted. The run
+screen is already `gestureEnabled: false` (`src/app/_layout.tsx:96`), so
+swipe-dismissal needs no further work.
 
-`Island.IconButton` gains no new props: the lock is a distinct component
-(§2.5) because it carries a gesture and an animation that the plain icon button
-should not learn about. It is outside the disabled set by construction — it
-renders as RN inside `RNHostView`, where a SwiftUI `disabled` modifier does not
-reach it.
+***Shipped: `disabled` is a prop on both island buttons.*** This section
+originally asserted that `Island.IconButton` gains no new props, which was
+unsatisfiable next to the requirement above — neither island button exposes a
+`modifiers` escape hatch, so `disabled(locked)` had nowhere to go. Both
+`Island.IconButton` and `Island.Button` therefore take `disabled`, defaulting to
+`false`, and apply the modifier themselves (only the icon button gained it here;
+the location CTA had already made it a prop on `Island.Button`). The icon button
+additionally dims itself by hand: its explicit glyph `color` reaches SwiftUI as a
+`foregroundStyle` that outranks the disabled rendering, so the modifier alone
+would leave a disabled control looking live. The lock stays a distinct component
+(§2.5) because it carries a gesture the plain icon button should not learn about,
+and it is outside the disabled set simply by never being passed the prop.
 
 **Lifetime.** Locked state lives and dies with the run screen. A run that
 completes while locked still navigates to the summary (`run.tsx:74-79`) — that is
@@ -130,6 +157,12 @@ stop there as they would anywhere else. The lock buys the haptic channel against
 the screen timing out, not against the user deliberately switching the phone off.
 
 ### 2.4 Unlock: two clocks, on purpose
+
+> *Moot as shipped, retained as a constraint.* Tier 3 (§2.5) has no ring, so
+> there is only the recognizer's clock and nothing to keep separate. Everything
+> below binds again the moment anyone adds a progress ring. Note the units differ
+> per tier: RNGH's `minDuration` below is **milliseconds**; the SwiftUI modifier
+> that shipped takes **seconds**.
 
 The unlock is gated by the gesture recognizer's own duration and the ring is
 decoration driven separately. They must not share a clock.
@@ -161,8 +194,9 @@ not a cue: it does not touch `CueService` or ADR 0009.
 
 ### 2.5 Mechanism, risk, and fallback tiers
 
-The lock renders as an RN element inside `RNHostView` within the SwiftUI tree
-(the mechanism ADR 0005 provides, used at `run.tsx:156-165`).
+~~The lock renders as an RN element inside `RNHostView` within the SwiftUI
+tree.~~ *As shipped it is pure SwiftUI — tier 3 below; the RN path was never
+taken, so nothing in this section's risk analysis was put on the critical path.*
 
 **Highest-risk assumption in this spec:** that RNGH gestures are recognized
 there. Two unknowns compound. First, `GestureHandlerRootView` is required to wrap
@@ -183,14 +217,29 @@ Resolve it with a spike before building the ring, and degrade in this order:
    gate (a captured timestamp compared on completion, never the animation's
    callback). Uses RN's own responder system; keeps the two-clock rule, by
    discipline rather than by construction.
-3. **Pure SwiftUI** — `onLongPressGesture(handler, 1200)` on the lock button
-   (`@expo/ui/swift-ui/modifiers`). Guaranteed to work, but the modifier fires
-   only on completion and exposes no press stream, so there is no ring. Feedback
-   degrades to a `symbolEffect` pulse plus the caption. Ship this rather than
-   stall.
+3. **Pure SwiftUI** — `onLongPressGesture(handler, 1.2)` on the lock glyph
+   (`@expo/ui/swift-ui/modifiers`). The second argument is SwiftUI's
+   `minimumDuration`: a `Double` in **seconds**, not the milliseconds tier 1's
+   RNGH `minDuration` takes. Guaranteed to work, but the modifier fires only on
+   completion and exposes no press stream, so there is no ring. Feedback degrades
+   to a `symbolEffect` pulse plus the caption. Ship this rather than stall.
 
 Tier 3 remains a correct, shippable control. The ring is an enhancement, and the
 spec should not let it block the lock.
+
+***Shipped: tier 3.*** `src/components/run-lock.tsx` carries the whole control —
+no ring, no RNGH, and no `GestureHandlerRootView` added to the root layout, so
+the highest-risk assumption above was never put on the critical path. The
+constant is `UNLOCK_HOLD_SECONDS = 1.2`.
+
+One finding the tiers did not anticipate: the two states must be **separate
+subtrees**, because a SwiftUI `Button` outranks a long press attached to it in
+the gesture arena and swallows the hold. Unlocked is an `Island.IconButton`;
+locked drops the Button entirely and puts `onLongPressGesture` on a plain
+`Image`, which then has to rebuild by hand what the button gave it for free — a
+44 pt `frame`, `contentShape(shapes.rectangle())` so the whole frame hit-tests,
+and its own `accessibilityAddTraits(['isButton'])` / `accessibilityLabel` /
+`accessibilityHint`. The glyph is 32 pt on that 44 pt target.
 
 ### 2.6 Feedback and accessibility
 
@@ -201,11 +250,13 @@ tap, because a disabled Pause swallows the tap that would trigger the disclosure
 and a runner who cannot find Pause needs the answer immediately rather than
 progressively.
 
-`IslandIconButton`'s `label` is the only text an icon-only control exposes, so it
-is simultaneously the VoiceOver name and the Maestro anchor
-(`src/components/island/icon-button.tsx:18`, ADR 0016): **"Lock screen"** /
-**"Unlock screen"**, with `accessibilityHint` carrying the press-and-hold
-instruction. The 44 pt minimum target is already floored by that component.
+An icon-only control's label is the only text it exposes, so it is simultaneously
+the VoiceOver name and the Maestro anchor (ADR 0016): **"Lock screen"** /
+**"Unlock screen"**. Unlocked inherits its label and the 44 pt floor from
+`Island.IconButton`, which exposes no hint prop — a plain tap needs none. Locked
+is not a Button (§2.5), so it declares the `isButton` trait, the label, the 44 pt
+frame *and* the `accessibilityHint` carrying the press-and-hold instruction
+itself; both halves of the control had to be checked separately for this reason.
 
 ## 3. Settings and copy
 
@@ -215,9 +266,9 @@ instruction. The 44 pt minimum target is already floored by that component.
 | `src/services/settings.test.ts:11,46,50,60,70,81` | assertions updated for the shrunken shape |
 | `src/app/(tabs)/settings/index.tsx:36-38` | **Display** section deleted — the toggle was its only row |
 | Settings **Coaching** footer | gains the durable explanation: vibration accompanies cues only while the screen is on, and the run screen's lock is how to keep it there |
-| `src/app/run.tsx:117-119` | the two-way `keepAwake` fork collapses; with location off the display is always held, so it is one string — distance isn't recorded, cues keep playing |
-| `src/app/onboarding/location-primer.tsx:41` | "you'll just need the screen on to hear the coach" → the app arranges this itself; stop assigning the user a job |
-| `src/app/(tabs)/settings/index.tsx:58` | same correction |
+| `src/app/run.tsx` banner | *Shipped differently:* with the forced-awake path dropped the banner can only speak to measurement, so it is one short string — **"Distance and pace unavailable."** — regrouped into a `VStack` above its own Enable Location / Open Settings CTA. It mentions neither cues nor the screen. (The pure helper `src/domain/run-display.ts`, extracted for the two-term rule, is left orphaned by this.) |
+| `src/app/onboarding/location-primer.tsx` footnote | ~~"you'll just need the screen on to hear the coach" → the app arranges this itself~~ — **outstanding.** It now reads "the screen stays on so you can hear the coach", i.e. it still says the app arranges it, which the dropped forced-awake path made false |
+| `src/app/(tabs)/settings/index.tsx` Location footer | Same intent, same outcome: "the screen stays on so cues keep playing" is still shipping and is no longer true. **These two rows are the inventory ADR 0008's open-risk bullet points at**; the Coaching footer's "lock the run screen to keep it on" did land |
 
 `location-primer.tsx:72` ("Location is what lets the coach keep talking after
 your screen turns off — put the phone away and just listen") and
@@ -243,7 +294,7 @@ decisions log, Presentation row).
 Taken from the reference screenshots (602 px ≈ 393 pt, ÷1.53) against exact
 current values read from the code:
 
-| | Reference | Current | Change |
+| | Reference | Current (pre-change, 2026-07-27) | Change |
 |---|---|---|---|
 | Hero symbol | ~52–56 pt | 72 pt | shrink |
 | Hero → title | ~55 pt | 36 pt (`pt-9`) | open up |
@@ -298,12 +349,19 @@ genuinely in use, and the names stop misdescribing Apple's ramp.
 
 ### 4.4 Shared components
 
-Per ADR 0013, the metric changes land in `src/components/feature-row.tsx` (icon
-size, gutter, title→body gap) and
-`src/components/onboarding-step-screen.tsx` (hero and title spacing, footnote
-block). Because both are shared with the welcome screen, any metric that must
-differ between the two templates is expressed as a prop with the welcome
-screen's current value as the default — not by forking the components.
+Per ADR 0013, the shared metric changes land in `src/components/feature-row.tsx`
+(icon size, gutter, title→body gap). All three onboarding routes share the
+`OnboardingStepScreen` scaffold and `ui/Text` too, but `feature-row` is the one
+shared component whose *metrics* differ between the templates, so it is the only
+place the prop rule bites: it takes `template: 'welcome' | 'primer'`,
+**defaulting to `'welcome'`**, so the welcome screen keeps its metrics untouched
+and only the primers opt in. Not by forking the component.
+
+*Corrected 2026-07-28:* hero size and hero→title / title→first-row spacing are
+**not** in `src/components/onboarding-step-screen.tsx`. That scaffold owns only
+the scroll view and the pinned footer; each route file lays out its own hero and
+title. Those metrics are therefore edited per route, and the welcome screen is
+left alone by simply not touching `src/app/onboarding/index.tsx`.
 
 ## 5. Amendments to existing documents
 
@@ -312,15 +370,20 @@ screen's current value as the default — not by forking the components.
   "screen-awake toggle (default on, persisted)". They become the per-run lock,
   default unlocked, with the touch-lock half and the haptics rationale recorded.
   §8's Stage-1 screen list (line 291) mentions `useKeepAwake` and stays accurate.
-- **`docs/adr/0008-background-execution-location-heartbeat.md` §5** — names
-  `useKeepAwake` as the denied-location support. Still true; gains one line that
-  it is now automatic rather than a user setting. **No supersede.**
+- **`docs/adr/0008-background-execution-location-heartbeat.md` §5** —
+  ~~still true; gains one line that it is now automatic rather than a user
+  setting~~. **Wrong.** Dropping the forced-awake path falsified all three of
+  §5's clauses at once: there is no automatic hold, the banner does not say cues
+  require the screen on, and `useKeepAwake` no longer supports a denied-location
+  run at all. §5 was **rewritten** 2026-07-28 to what ships, and the honesty gap
+  it leaves is recorded as a named open risk in that ADR's Consequences. **No
+  supersede** — the decision stands, only the degraded mode changed.
 - **`docs/adr/0009-cue-audio-tts-prerecorded-fallback.md`** — its foreground-only
   haptics *decision* is unchanged and is now the reason the lock exists, but the
   ADR describes the mechanism as a persistent setting in six places: lines 49,
   52, **102-103** (§7: "the run screen's keep-awake toggle (default on,
-  persisted; spec §8)"), 131 and 154. These need **rewriting** to the per-run
-  lock, not merely a cross-reference. **No supersede** — the decision stands, only
+  persisted; spec §8)"), 131 and 154 — all pre-amendment line numbers. All six
+  were **rewritten** 2026-07-28 to the per-run lock, not merely cross-referenced. **No supersede** — the decision stands, only
   its mechanism changed.
 
   *(Corrected 2026-07-27 after task 1's review pass: the original inventory here
@@ -331,9 +394,11 @@ screen's current value as the default — not by forking the components.
 
 ## 6. Testing and verification
 
-- **Unit (`bun test`):** settings suite updated for the removed key. The
-  `locked || location !== 'granted'` rule is worth extracting as a pure helper so
-  it is testable without an RN runtime, in keeping with `src/domain`'s split.
+- **Unit (`bun test`):** settings suite updated for the removed key.
+  ~~The `locked || location !== 'granted'` rule is worth extracting as a pure
+  helper~~ — the rule collapsed to `locked` (§2.2), which leaves the extracted
+  `src/domain/run-display.ts` imported only by its own test; nothing
+  permission-derived is left to unit-test here.
 - **Argent (iOS simulator):** the required loop for visible UI. Lock and unlock
   during a run; confirm the transport row dims and does not respond; confirm the
   hold releases at ~1.2 s and that a shorter hold does not; confirm the ring
@@ -342,14 +407,33 @@ screen's current value as the default — not by forking the components.
   `screenshot-diff` both primers against the four references, light and dark.
 - **Maestro:** the lock's `label` is the anchor (ADR 0016). A targeted flow locks
   mid-run, asserts Pause does not respond, holds to unlock, and asserts control
-  returns — noting that Maestro's tap has no press-and-hold equivalent for a
-  1.2 s gate, so the unlock leg may need `longPressOn` and should be grounded
-  against the running app via `inspect_screen` before it is written.
-- **Anchors this renames** (re-ground before handoff): the primers' titles and
-  footnotes, so `location-primer-allow.yaml`, `location-primer-deny.yaml`,
-  `run-denied-path.yaml`, and the Settings location-footer assertions.
-  `onboarding.yaml:9`'s `"Welcome to"` survives — the welcome screen is out of
-  scope.
+  returns. *Resolved:* this bullet's doubt about Maestro having no press-and-hold
+  equivalent was unfounded — `longPressOn` clears the 1.2 s gate, established by
+  running the gesture against the running app (not by `inspect_screen`, which
+  dumps a hierarchy and could never settle a gesture-timing question).
+  `longPressOn` exposes no duration parameter, so its driver-defined hold is
+  simply longer than 1.2 s. **The flow itself is still unwritten.**
+- **Anchors this renames** — *corrected 2026-07-27; the original list named the
+  wrong files.* The primer titles are referenced in exactly two places, both
+  re-grounded in commit `b1fec09`:
+  `.maestro/helpers/onboarding-to-primer.yaml:14,19` (which sits on the critical
+  path of the whole suite via `complete-onboarding.yaml`, so it could not wait
+  for the E2E task) and `.maestro/tests/onboarding.yaml:10,11`.
+  `location-primer-allow.yaml`, `location-primer-deny.yaml` and
+  `run-denied-path.yaml` never matched a primer title, and no flow asserts a
+  primer footnote or the Settings location footer. `onboarding.yaml`'s
+  `"Welcome to"` survives — the welcome screen is out of scope.
+
+  Two of those four were `assertNotVisible` markers, which this inventory should
+  have called out first. ADR 0016's `text` is an anchored **full** match, so
+  joining each title into one node did not fail them — it made them **vacuously
+  true**, silently dropping two of the three onboarding steps from the relaunch
+  assertion. A renamed `assertVisible` fails loudly; a renamed `assertNotVisible`
+  **fails open**. Treat every negative assertion as an anchor to re-ground, not
+  merely to re-read.
+
+  Still outstanding after the design pass: `run-denied-path.yaml:20` asserts
+  `"Distance is not recorded.*"`, which the shortened banner no longer renders.
 - **Device gate:** haptic audibility through a pocket and real battery cost of a
   locked screen-on run belong to
   [docs/milestone-0-device-checklist.md](../../milestone-0-device-checklist.md),

@@ -72,14 +72,48 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
      the Reanimated bar resets imperatively (no remount → no shift) and gives a
      smoother `withTiming` fill. Gotchas found on-device: (a) each hosted RN tree
      needs a plain RN `View` at its root — a bare RN/Skia leaf as the *direct*
-     `RNHostView` child mounts and measures but never paints; (b) RN content
-     inside SwiftUI is opaque to SwiftUI `testID`s *and* to the AX tree, so the
-     icon-only transport controls carry an `accessibilityLabel` (doubling as the
-     Maestro text selector, ADR 0016) and the Skia canvas gets one on its wrapper
-     `View` for VoiceOver; (c) SF Symbols render at slightly different heights at
+     `RNHostView` child mounts and measures but never paints; (b) a SwiftUI
+     `testID` cannot reach into a hosted RN subtree, so each side must declare its
+     own accessibility identity — the icon-only transport controls carry a SwiftUI
+     `accessibilityLabel` (doubling as the Maestro text selector, ADR 0016) and the
+     Skia canvas carries an RN one on its wrapper `View` for VoiceOver (*narrowed
+     2026-07-28:* this clause also claimed hosted RN was opaque to the AX tree,
+     which the reachability rule below corrects — and which the wrapper label it
+     prescribes always presupposed); (c) SF Symbols render at slightly different heights at
      the same point size, so a centred phase icon+label wobbles the whole
      Spacer-centred column a few px per segment — the phase-label block is given a
      fixed `frame({ height })` to hold the layout still.
+   - *Realized 2026-07-27 (the accessibility seam):* **a Host's RN *siblings* can
+     lose their accessibility identity entirely, while RN hosted inside it keeps
+     one.** Observed on an iOS 26.5 simulator against the hierarchy VoiceOver and
+     Maestro's `inspect_screen` read — *not* argent's a11y bridge, which AGENTS.md
+     records as blind to every island screen in this app: RN hosted *inside* a Host
+     through `RNHostView` does surface via its own RN accessibility props, whereas
+     RN placed as a **sibling** of a Host renders and takes touches yet is
+     **absent** from that hierarchy, invisible to VoiceOver as much as to Maestro.
+     That is a real VoiceOver defect rather than a selector problem, and it is how
+     the run summary's RN "Done" button came to paint and tap while being
+     unfindable (fixed by making it an `Island.Button`). The rule that follows:
+     **RN owns the screen root and SwiftUI goes into it as islands, with RN content
+     hosted *inside* a Host — never parked beside one.** A screen-sized Island is
+     fine under that rule; the run screen is exactly this shape (an RN root, one
+     viewport-sized Island, RN hosted within it). A screen that is *nothing but* an
+     Island is fine where it renders no RN at all: Plan, Log and Settings are
+     pure-SwiftUI leaves and stay that way, since giving Settings RN ownership at
+     the row level — RN rows with SwiftUI controls inside them — would force a Host
+     per row, which this section already forbids.
+   - *Realized 2026-07-27 (native chrome vs. the CTA block):* `Stack.Toolbar` is
+     for header and quick actions — the run-summary header's `xmark` is its only
+     remaining use — and **not** for a screen's primary call to action. It was
+     tried for CTA blocks and rejected: it is one self-sizing row,
+     `StackToolbarViewProps` exposes no height control, it clipped a stacked
+     secondary CTA, and it floats over content instead of participating in layout.
+     A pinned CTA block is therefore ordinary RN — `ui/Footer`, which reserves its
+     own space so nothing underneath needs clearance — with `Island.View` hosting a
+     stacked pair of `Island.Button inline fill` inside **one** Host, so the gap
+     between them is SwiftUI spacing rather than an RN gap between two Hosts. A
+     lone CTA stays a standalone `Island.Button fill`. The components themselves
+     follow ADR 0013.
 2. **E2E rule.** Every SwiftUI element a Maestro flow taps or asserts carries
    a `testID`; flows match on `id:` (falling back to visible text where
    natural). The source-level mapping is verified; **Stage 1's exit criteria

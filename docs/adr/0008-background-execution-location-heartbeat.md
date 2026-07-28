@@ -6,7 +6,8 @@ Date: 2026-07-11
 
 ## Status
 
-Accepted
+Accepted (§5's degraded mode amended 2026-07-28 to match the code, with the
+honesty gap that leaves recorded as an open risk in Consequences).
 
 ## Context
 
@@ -84,10 +85,19 @@ never requests Always.**
 5. **Location denied — honest degradation (supersedes spec §11's row):**
    the timer stays *correct* in all cases (wall-clock derivation, ADR 0007),
    but with location denied there is no background heartbeat, so **cues stop
-   while the phone is locked**. The app says this plainly (run-screen banner:
-   distance off, cues require the screen on), `useKeepAwake` supports
-   screen-on running, and Settings deep-links to change the permission. No
+   as soon as the display sleeps**. The run screen shows a banner — "Location
+   is off" / "Distance and pace unavailable." — and Settings deep-links to
+   change the permission. Screen-on running is available but **entirely
+   user-driven**: the run screen's lock (ADR 0009 Decision 7) holds the
+   display awake while it is on, and nothing turns it on automatically. No
    workaround is attempted.
+
+   *Amended 2026-07-28 to match the code.* This clause previously promised an
+   automatic keep-awake whenever location was not granted, and a banner that
+   said cues require the screen on. Neither shipped: the display is held
+   awake only while the lock is on, and the banner names only the measurable
+   loss. The honesty gap that leaves is recorded as a named open risk in
+   Consequences rather than quietly dropped.
 6. **No keep-alive hacks:** playing silent audio to hold the process alive
    is rejected — it's the classic App Review 2.5.4 background-modes abuse,
    burns battery deceptively, and this app has a legitimate mechanism.
@@ -114,6 +124,20 @@ never requests Always.**
   physics (nothing else wakes JS), and it is now documented and surfaced in
   UX instead of being an undocumented surprise — the spec §11 error table
   must be corrected accordingly.
+- **OPEN RISK (named 2026-07-28): with location denied, cues now go silent
+  when the screen sleeps, and the app never says so.** §5's honesty promise
+  is only half kept. The banner names the measurable loss (distance and pace)
+  but not the audible one, and no automatic hold exists any more, so a runner
+  who declined location and pocketed the phone loses the coach without
+  warning — precisely the undocumented surprise this ADR set out to avoid.
+  Today it is worse than an omission: two shipped strings still assert the
+  retired behaviour (inventoried in the run-lock design spec §3). Two
+  mitigations are on the table: **(a)** banner, footer and primer copy that
+  point at the run lock, leaving the trade to the runner; or **(b)** restoring
+  an automatic hold while location is not granted, which the run-lock design
+  spec specified and the implementation deliberately dropped on the ground
+  that a forced screen-on run spends battery the runner never agreed to.
+  **Recorded as open, not resolved.**
 - The blue location indicator is always visible during runs. Accepted:
   it is accurate, and hiding it would require the Always posture this ADR
   rejects.

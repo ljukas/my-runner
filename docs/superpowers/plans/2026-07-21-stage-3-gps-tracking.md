@@ -135,9 +135,12 @@ From AGENTS.md, the C25K spec, and the ADRs:
 - **Permission posture (ADR 0008 §2):** When-In-Use **only** — never Always.
   Primer-before-prompt; "Not now" always available; denial degrades, never blocks.
 - **Location denied (ADR 0008 §5, supersedes spec §11's row):** timer stays
-  correct; no background heartbeat → **cues stop while locked**. Run screen says
-  so (banner: distance off, cues need the screen on); `useKeepAwake` supports
-  screen-on running; Settings deep-links to change it.
+  correct; no background heartbeat → **cues stop once the display sleeps**. Run
+  screen banner names the measurable loss ("Distance and pace unavailable.");
+  screen-on running is available via the run screen's lock, which the *runner*
+  turns on — nothing holds the display awake automatically; Settings deep-links
+  to change the permission. *(Amended 2026-07-28 for the run lock; ADR 0008 §5
+  carries the remaining honesty gap as a named open risk.)*
 - **Timing-first, fault-isolated (spec §11):** GPS/DB work never blocks or throws
   out of the timing/cue path. GPS loss / accuracy > 50 m → track gap, distance
   approximate. DB batch failure → points retained, retried next batch. Console

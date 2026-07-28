@@ -6,7 +6,8 @@ Date: 2026-07-11
 
 ## Status
 
-Accepted
+Accepted (Decision 7's *mechanism* amended 2026-07-28 — a per-run run lock
+replaced the persisted screen-awake toggle; the decision itself is unchanged).
 
 ## Context
 
@@ -45,13 +46,24 @@ Research findings (verified 2026-07-11):
 - **Haptic cues cannot complement audio while locked:** iOS does not play
   haptics from backgrounded apps (CoreHaptics/UIFeedbackGenerator are
   foreground APIs), so a vibration fallback for the locked-phone case is not
-  buildable. They **are** available while the app is foreground with the
-  screen awake — a state the run screen's screen-awake toggle (spec §8,
-  decided 2026-07-11) deliberately preserves for the whole run. Note there
-  is no app-controllable way to truly pin the app in the foreground (Guided
-  Access is a user-level accessibility feature); keep-awake is the available
-  primitive, and it prevents auto-lock only — a manual lock still hands off
-  to the ADR 0008 background path.
+  buildable. They **are** available while the app is foreground-active with
+  the screen awake — the state the run screen's **lock** holds (spec §8; a
+  per-run lock replaced the persisted screen-awake toggle on 2026-07-27).
+  Note there is no app-controllable way to truly pin the app in the
+  foreground (Guided Access is a user-level accessibility feature); holding
+  the display awake is the available primitive, and it suppresses *auto*-lock
+  only — a manual lock still hands off to the ADR 0008 background path.
+- **Re-verified 2026-07-27 — this is a platform rule, not a configuration
+  gap** (sources in the run-lock design spec §1: Apple's stated
+  `UIFeedbackGenerator` position, which also confirms that holding a
+  background mode grants no eligibility, and Core Haptics tearing the engine
+  down with the `applicationSuspended` reason rather than muting it).
+  Background location buys *process liveness*, and liveness reaches only
+  capabilities with their own background entitlement — audio has one, which
+  is why cues survive; haptics have none, so no amount of liveness reaches
+  them. The gate is not "are you running", it is "are you the app the user is
+  looking at", which makes the adapter's `AppState.currentState === 'active'`
+  guard an exact statement of the contract rather than a conservative one.
 
 ## Decision
 
@@ -99,14 +111,20 @@ audio files as the pre-approved drop-in fallback adapter.**
    time), played through expo-audio on the identical session configuration.
    Deterministic voice, no runtime synthesis, immune to TTS-specific
    background quirks.
-7. **The screen-awake run mode keeps a haptic channel viable.** The run
-   screen's keep-awake toggle (default on, persisted; spec §8) holds the app
-   foreground and glanceable for the whole run. In that mode, haptic cue
-   accents (expo-haptics — official) can fire behind the same `CueId`
-   contract: `announce()` always goes to audio, and to haptics only while
-   the app is foreground. Haptics are an **accent channel, never
-   load-bearing** — timing correctness never depends on them (ADR 0007),
-   and they silently no-op the moment the phone locks.
+7. **The run lock keeps a haptic channel viable.** *(Mechanism amended
+   2026-07-28; the decision is unchanged.)* Because haptics are
+   foreground-only (Context), the display is the only switch this channel
+   has. The run screen therefore carries a **per-run lock** (spec §8): tap to
+   lock, press and hold to unlock; while locked the display is held awake and
+   the transport controls are inert. It is not persisted — every run,
+   including a resumed one, starts unlocked. Haptic cue accents fire behind
+   the same `CueId` contract (via the haptic library the Stage-2 plan
+   selected, `react-native-pulsar`): `announce()` always goes to audio, and
+   to haptics only while the app is foreground-active — which the lock is
+   what *guarantees* for a whole run, rather than leaving it to the display
+   timeout. Haptics are an **accent channel, never load-bearing** — timing
+   correctness never depends on them (ADR 0007), and they silently no-op the
+   moment the display sleeps or the phone locks.
 
 ## Consequences
 
@@ -128,9 +146,10 @@ audio files as the pre-approved drop-in fallback adapter.**
   also the escape hatch if default-voice quality proves embarrassing.
 - No locked-phone redundancy channel exists if audio fails (haptics are
   foreground-only on iOS) — one more reason cue failure must never affect
-  timing correctness, which ADR 0007 already guarantees. In the screen-awake
-  run mode the haptic accent channel does provide foreground redundancy;
-  locked-phone runs remain audio-only by platform constraint.
+  timing correctness, which ADR 0007 already guarantees. With the run lock on,
+  the haptic accent channel does provide foreground redundancy; a run left
+  unlocked — the default — becomes audio-only the moment the display sleeps,
+  as locked-phone runs are by platform constraint.
 - Android later: audio-focus ducking semantics differ; isolated inside the
   same adapter per ADR 0003.
 
@@ -151,7 +170,7 @@ audio files as the pre-approved drop-in fallback adapter.**
   depends on. Retained as a diagnostic lever during the Milestone-0 spike.
 - **Haptic/vibration cues for the locked phone** — not buildable: iOS does
   not deliver haptics from backgrounded apps. Retained instead as the
-  foreground accent channel enabled by the screen-awake run mode
-  (Decision 7) — an accent, never the cue channel.
+  foreground accent channel the run lock enables (Decision 7) — an accent,
+  never the cue channel.
 - **No audio (visual-only)** — Stage 1's honest state, rejected as the end
   state: audible coaching is the product's core loop.

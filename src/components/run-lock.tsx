@@ -37,13 +37,19 @@ export function RunLock({
   if (!locked) {
     return (
       <Island matchContents>
-        <Island.IconButton
-          systemName="lock.open.display"
-          size={GLYPH_SIZE}
-          color={colors.textSecondary}
-          label="Lock screen"
-          onPress={() => onLockedChange(true)}
-        />
+        <VStack spacing={4} alignment="center">
+          <Island.IconButton
+            systemName="lock.open.display"
+            size={GLYPH_SIZE}
+            color={colors.textSecondary}
+            label="Lock screen"
+            onPress={() => onLockedChange(true)}
+          />
+
+          <Island.Text tone="secondary" modifiers={[font({ textStyle: 'caption' })]}>
+            Tap to lock
+          </Island.Text>
+        </VStack>
       </Island>
     );
   }

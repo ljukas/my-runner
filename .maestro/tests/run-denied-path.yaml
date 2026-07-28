@@ -14,10 +14,10 @@ tags:
 - tapOn:
     text: "Don.t Allow"
     optional: true
-# The honest banner. Its body varies with the keep-screen-awake setting, so match only the
-# invariant opening sentence.
+# The honest banner, one fixed sentence: the keep-screen-awake setting its body used to fork on
+# is gone, and the display is now held awake only while the run screen is locked.
 - assertVisible: "Location is off"
-- assertVisible: "Distance is not recorded.*"
+- assertVisible: "Distance and pace unavailable."
 # Denied can only be changed in system Settings; "Enable Location" is the undetermined-state CTA.
 - assertVisible: "Open Settings"
 # T17: with no location the row is absent, not a misleading permanent 0.00 km.

@@ -124,25 +124,28 @@ never requests Always.**
   physics (nothing else wakes JS), and it is now documented and surfaced in
   UX instead of being an undocumented surprise — the spec §11 error table
   must be corrected accordingly.
-- **OPEN RISK (named 2026-07-28): with location denied, cues now go silent
-  when the screen sleeps, and the app never says so.** §5's honesty promise
-  is only half kept. The banner names the measurable loss (distance and pace)
-  but not the audible one, and no automatic hold exists any more, so a runner
-  who declined location and pocketed the phone loses the coach without
-  warning — precisely the undocumented surprise this ADR set out to avoid.
+- **With location denied, cues go silent when the screen sleeps — disclosed, not
+  prevented.** Dropping the automatic hold created a real hazard: a runner who
+  declined location and pocketed the phone would lose the coach without warning,
+  precisely the undocumented surprise this ADR set out to avoid. It was raised as
+  an open risk and closed the same day by disclosure.
 
-  *Narrowed 2026-07-28.* Mitigation **(a)** is now partly applied: the two
-  strings that still asserted the retired behaviour were corrected, so the
-  Settings Location footer states that cues stop once the screen sleeps and
-  points at the run lock, and the location primer's footnote says the same.
-  **The residual gap is the run screen itself** — its banner still names only
-  distance and pace, so a runner who declined location is warned during
-  onboarding and in Settings but not in the moment that matters. Remaining
-  options: finish **(a)** by having the banner name the audible loss and the
-  lock that prevents it; or take **(b)**, restoring an automatic hold while
-  location is not granted, which the run-lock design spec specified and the
-  implementation deliberately dropped on the ground that a forced screen-on run
-  spends battery the runner never agreed to. **Recorded as open, not resolved.**
+  *Resolved 2026-07-28 via mitigation (a) — copy, not a forced hold.* The two
+  strings that asserted the retired behaviour were corrected, so the Settings
+  Location footer and the location primer both state that cues stop once the
+  screen sleeps, and Settings points at the run lock. The run-screen banner now
+  names the audible loss beside the measurable one — "Cues stop when the screen
+  sleeps. Tap the lock to keep them playing." — so the warning arrives on the
+  screen the runner is looking at when they start, naming the affordance that
+  prevents it.
+
+  **(b) was considered and rejected**: restoring an automatic hold whenever
+  location is not granted is what the run-lock design spec originally specified,
+  and the implementation dropped it on the ground that a forced screen-on run
+  spends battery the runner never agreed to. Warning the runner and leaving them
+  the lock keeps the trade where it belongs. §5's honesty promise is kept by
+  disclosure rather than by overriding the runner — which is the same principle
+  as decision 6's refusal of keep-alive hacks.
 - The blue location indicator is always visible during runs. Accepted:
   it is accurate, and hiding it would require the Always posture this ADR
   rejects.

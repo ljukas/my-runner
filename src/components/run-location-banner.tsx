@@ -38,8 +38,14 @@ export function RunLocationBanner({
             Location is off
           </Text>
         </View>
+        {/* Two nodes, not one paragraph: the measurable loss is the stable Maestro
+            anchor (run-denied-path.yaml), and the audible loss is the one the runner
+            cannot see coming — ADR 0008 §5 exists because cues die silently here. */}
         <Text variant="caption" tone="secondary" className="text-center" numberOfLines={2}>
           Distance and pace unavailable.
+        </Text>
+        <Text variant="caption" tone="secondary" className="text-center" numberOfLines={2}>
+          Cues stop when the screen sleeps. Tap the lock to keep them playing.
         </Text>
       </View>
 

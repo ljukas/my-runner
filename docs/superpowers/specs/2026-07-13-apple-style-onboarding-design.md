@@ -33,6 +33,16 @@ modal.
 
 ## 2. Screen structure & content
 
+> **Scope narrowed by the 2026-07-27 run-lock & primer-polish spec.** This
+> section governs the **welcome screen only**. Items 2 (34 pt two-line title) and
+> 4 (tinted footnote glyph) belong to Apple's *first-launch welcome* template,
+> which is what this screen is. The two permission primers added later are
+> Apple's *feature-intro sheet* — 28 pt single-string title, natural wrap, no
+> footnote glyph — per
+> [that spec](2026-07-27-run-lock-and-primer-polish-design.md) §4.
+> `src/components/feature-row.tsx` serves both via a `template` prop that
+> defaults to `'welcome'`, so nothing here changed.
+
 Top to bottom, mirroring the reference screenshots:
 
 1. **App icon** — `assets/images/icon.png` at ~88 pt, centered, rounded

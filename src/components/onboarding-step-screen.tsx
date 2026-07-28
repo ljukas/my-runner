@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import { useRef, type ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Island } from '@/components/island';
+import { Footer } from '@/components/ui/footer';
 import { completeAndAdvance } from '@/services/onboarding-store';
 import type { OnboardingStepId } from '@/services/onboarding';
 
@@ -32,7 +32,6 @@ export function OnboardingStepScreen({
   children: ReactNode;
 }) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const busy = useRef(false);
 
   // why the guard: an async action (a permission prompt) leaves both CTAs live until it settles,
@@ -52,28 +51,29 @@ export function OnboardingStepScreen({
   };
 
   return (
-    <View className="flex-1 bg-background" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
-      {/* Full-width ScrollView so the scroll indicator sits at the screen edge;
-          horizontal inset lives on the content. The footnote scrolls WITH the
-          content (not pinned) so it can't dominate the screen at large Dynamic
-          Type — only the CTA stays pinned. */}
-      <ScrollView contentInsetAdjustmentBehavior="automatic">
-        <View className="px-6 pt-10 pb-6">
-          {children}
-          {footnote ? <View className="pt-8">{footnote}</View> : null}
-        </View>
+    <View className="flex-1 bg-background">
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerClassName="px-6 pb-3">
+        {children}
       </ScrollView>
-      <View className="gap-3 px-6 pt-2">
-        <Island.Button fill label={buttonLabel} onPress={press(onPrimaryPress)} />
+
+      <Footer className="absolute right-0 bottom-0 left-0">
+        {footnote}
+
         {secondaryLabel ? (
-          <Island.Button
-            fill
-            variant="secondary"
-            label={secondaryLabel}
-            onPress={press(onSecondaryPress)}
-          />
-        ) : null}
-      </View>
+          <Island.View count={2}>
+            <Island.Button inline fill label={buttonLabel} onPress={press(onPrimaryPress)} />
+            <Island.Button
+              inline
+              fill
+              variant="secondary"
+              label={secondaryLabel}
+              onPress={press(onSecondaryPress)}
+            />
+          </Island.View>
+        ) : (
+          <Island.Button fill label={buttonLabel} onPress={press(onPrimaryPress)} />
+        )}
+      </Footer>
     </View>
   );
 }

@@ -72,14 +72,58 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
      the Reanimated bar resets imperatively (no remount → no shift) and gives a
      smoother `withTiming` fill. Gotchas found on-device: (a) each hosted RN tree
      needs a plain RN `View` at its root — a bare RN/Skia leaf as the *direct*
-     `RNHostView` child mounts and measures but never paints; (b) RN content
-     inside SwiftUI is opaque to SwiftUI `testID`s *and* to the AX tree, so the
-     icon-only transport controls carry an `accessibilityLabel` (doubling as the
-     Maestro text selector, ADR 0016) and the Skia canvas gets one on its wrapper
-     `View` for VoiceOver; (c) SF Symbols render at slightly different heights at
+     `RNHostView` child mounts and measures but never paints; (b) a SwiftUI
+     `testID` cannot reach into a hosted RN subtree, so each side must declare its
+     own accessibility identity — the icon-only transport controls carry a SwiftUI
+     `accessibilityLabel` (doubling as the Maestro text selector, ADR 0016) and the
+     Skia canvas carries an RN one on its wrapper `View` for VoiceOver (*narrowed
+     2026-07-28:* this clause also claimed hosted RN was opaque to the AX tree,
+     which the reachability rule below corrects — and which the wrapper label it
+     prescribes always presupposed); (c) SF Symbols render at slightly different heights at
      the same point size, so a centred phase icon+label wobbles the whole
      Spacer-centred column a few px per segment — the phase-label block is given a
      fixed `frame({ height })` to hold the layout still.
+   - *Realized 2026-07-27, narrowed 2026-07-28 (the accessibility seam):* **RN that
+     OVERLAPS a Host loses its accessibility identity; RN merely laid out beside one
+     keeps it.** Observed on an iOS 26.5 simulator against the hierarchy VoiceOver
+     and Maestro's `inspect_screen` read — *not* argent's a11y bridge, which
+     AGENTS.md records as blind to every island screen in this app. An absolutely
+     positioned RN `Pressable` stacked over a screen-covering
+     `Island useViewportSizeMeasurement` painted and took a coordinate tap while
+     being **absent** from that hierarchy — a real VoiceOver defect, and the same
+     shape as the run summary's RN "Done" that painted and tapped while unfindable
+     beneath a lingering form sheet (`session/[key].tsx:63-67`).
+
+     **The first draft of this note blamed siblinghood, and shipped code falsifies
+     that.** `run-summary/[id].tsx:81-99` lays an RN `ScrollView` beside
+     `Footer → Island.Button fill "Done"` — a real Host — and CI-gated flows assert
+     the RN strings inside it on that very screen (`run-distance.yaml:42-43`
+     "Distance"/"Avg Pace"; `complete-session.yaml` "Nice work.*", "Warm Up"),
+     while `segment-breakdown.tsx` records VoiceOver already speaking its RN legend.
+     `session/[key].tsx` is the same shape. Non-overlapping RN siblings are
+     therefore fine; **z-order over a Host is the hazard.**
+
+     The rule that follows: **RN owns the screen root and SwiftUI goes into it as
+     islands, sized to their content and laid out in flow.** Do not stack RN over a
+     Host, and prefer several content-sized islands to one screen-covering one — a
+     viewport-sized Island makes every RN sibling an overlap risk by construction,
+     which is why the run screen was inverted. A screen that is *nothing but* an
+     Island is fine where it renders no RN at all: Plan, Log and Settings are
+     pure-SwiftUI leaves and stay that way, since giving Settings RN ownership at
+     the row level — RN rows with SwiftUI controls inside them — would force a Host
+     per row, which ADR 0005 §1 already forbids.
+   - *Realized 2026-07-27 (native chrome vs. the CTA block):* `Stack.Toolbar` is
+     for header and quick actions — the run-summary header's `xmark` is its only
+     remaining use — and **not** for a screen's primary call to action. It was
+     tried for CTA blocks and rejected: it is one self-sizing row,
+     `StackToolbarViewProps` exposes no height control, it clipped a stacked
+     secondary CTA, and it floats over content instead of participating in layout.
+     A pinned CTA block is therefore ordinary RN — `ui/Footer`, which reserves its
+     own space so nothing underneath needs clearance — with `Island.View` hosting a
+     stacked pair of `Island.Button inline fill` inside **one** Host, so the gap
+     between them is SwiftUI spacing rather than an RN gap between two Hosts. A
+     lone CTA stays a standalone `Island.Button fill`. The components themselves
+     follow ADR 0013.
 2. **E2E rule.** Every SwiftUI element a Maestro flow taps or asserts carries
    a `testID`; flows match on `id:` (falling back to visible text where
    natural). The source-level mapping is verified; **Stage 1's exit criteria

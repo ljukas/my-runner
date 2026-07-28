@@ -11,9 +11,9 @@ appId: se.lukaslindqvist.runbro.e2e
     maxRetries: 3
     commands:
       - tapOn: "Continue"
-      - assertVisible: "running coach" # audio-cues step heading
+      - assertVisible: "Your pocket running coach" # audio-cues step heading
 - retry:
     maxRetries: 3
     commands:
       - tapOn: "Continue"
-      - assertVisible: "Track your route" # location-primer heading (first of its two lines)
+      - assertVisible: "Track your route and your pace" # location-primer heading

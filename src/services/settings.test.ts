@@ -8,7 +8,6 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore(fakeStorage());
     expect(store.getSnapshot()).toEqual({
       useCompressedPlan: false,
-      keepScreenAwake: true,
       intervalCuesEnabled: true,
       milestoneCuesEnabled: true,
     });
@@ -43,12 +42,13 @@ describe('createSettingsStore', () => {
   });
 
   test('unknown persisted keys are ignored, missing ones defaulted', () => {
-    const storage = fakeStorage({ settings: JSON.stringify({ keepScreenAwake: false, junk: 1 }) });
+    const storage = fakeStorage({
+      settings: JSON.stringify({ intervalCuesEnabled: false, junk: 1 }),
+    });
     const store = createSettingsStore(storage);
     expect(store.getSnapshot()).toEqual({
       useCompressedPlan: false,
-      keepScreenAwake: false,
-      intervalCuesEnabled: true,
+      intervalCuesEnabled: false,
       milestoneCuesEnabled: true,
     });
   });
@@ -57,7 +57,6 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore(fakeStorage({ settings: 'not-json{' }));
     expect(store.getSnapshot()).toEqual({
       useCompressedPlan: false,
-      keepScreenAwake: true,
       intervalCuesEnabled: true,
       milestoneCuesEnabled: true,
     });
@@ -67,7 +66,6 @@ describe('createSettingsStore', () => {
     const store = createSettingsStore(fakeStorage({ settings: 'null' }));
     expect(store.getSnapshot()).toEqual({
       useCompressedPlan: false,
-      keepScreenAwake: true,
       intervalCuesEnabled: true,
       milestoneCuesEnabled: true,
     });
@@ -78,7 +76,7 @@ describe('createSettingsStore', () => {
     let notified = 0;
     const unsubscribe = store.subscribe(() => notified++);
     unsubscribe();
-    store.set('keepScreenAwake', false);
+    store.set('intervalCuesEnabled', false);
     expect(notified).toBe(0);
   });
 

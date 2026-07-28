@@ -1,12 +1,11 @@
 import { Canvas, matchFont } from '@shopify/react-native-skia';
 import { SkiaTimeFlow } from 'number-flow-react-native/skia';
 import { useMemo, useState } from 'react';
-import { useWindowDimensions, View } from 'react-native';
+import { View } from 'react-native';
 import { useAnimatedReaction, type SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 const FONT_SIZE = 80;
-const H_PADDING = 24; // matches the run screen VStack's horizontal padding
 // Tall/wide enough for the vertical digit roll plus SkiaTimeFlow's top/bottom
 // gradient fade; the clock is centred within the available width.
 const CANVAS_HEIGHT = 132;
@@ -14,9 +13,7 @@ const BASELINE_Y = 96;
 
 /**
  * The run screen's countdown, rendered with number-flow's Skia backend so the
- * rolling digits fade at the top/bottom edges (`mask`, on by default). A React
- * Native view (Skia `Canvas`) hosted in the SwiftUI tree via `RNHostView`
- * (ADR 0005).
+ * rolling digits fade at the top/bottom edges (`mask`, on by default).
  *
  * The visible clock is whole `M:SS`; the sub-second precision lives in the
  * shared `remaining` clock that also drives the progress bar and the exact
@@ -32,7 +29,9 @@ export function SkiaCountdown({
   remaining: SharedValue<number>;
   color: string;
 }) {
-  const width = useWindowDimensions().width - H_PADDING * 2;
+  // Skia paints into pixel coordinates, so the canvas reports the width RN gave
+  // it rather than the screen's padding being restated here.
+  const [width, setWidth] = useState(0);
   const font = useMemo(() => matchFont({ fontSize: FONT_SIZE, fontWeight: 'bold' }), []);
   // Ceil so a fresh segment shows its full length and the clock only reads 0:00
   // at the exact boundary. Seeded by the reaction's first run (never read the
@@ -51,7 +50,9 @@ export function SkiaCountdown({
   return (
     // Skia draws to a canvas VoiceOver can't read, so label the wrapper.
     <View
-      style={{ width, height: CANVAS_HEIGHT }}
+      className="w-full"
+      style={{ height: CANVAS_HEIGHT }}
+      onLayout={({ nativeEvent }) => setWidth(nativeEvent.layout.width)}
       accessible
       accessibilityRole="text"
       accessibilityLabel={`${minutes}:${String(seconds).padStart(2, '0')}`}

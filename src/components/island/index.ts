@@ -3,6 +3,7 @@ import { IslandHost } from './host';
 import { IslandIconButton } from './icon-button';
 import { IslandLabel } from './label';
 import { IslandText } from './text';
+import { IslandView } from './view';
 
 /**
  * The @expo/ui SwiftUI seam (ADR 0013): one `Island` — the `Host` wrapper —
@@ -15,4 +16,5 @@ export const Island = Object.assign(IslandHost, {
   Label: IslandLabel,
   Button: IslandButton,
   IconButton: IslandIconButton,
+  View: IslandView,
 });

@@ -26,22 +26,12 @@ export default function SettingsScreen() {
     <Island useViewportSizeMeasurement>
       <Form>
         <Section
-          title="About"
-          footer={<Text>No account, no sign-in. Your runs stay on this device.</Text>}
-        >
-          <LabeledContent label="Version">
-            <Text>{Constants.expoConfig?.version ?? '—'}</Text>
-          </LabeledContent>
-        </Section>
-        <Section title="Display">
-          <SettingsToggle label="Keep screen awake" settingKey="keepScreenAwake" />
-        </Section>
-        <Section
           title="Coaching"
           footer={
             <Text>
               Interval Cues call out each walk/run switch. Milestone Cues add motivational spots —
-              halfway, your last run, and finishing.
+              halfway, your last run, and finishing. A gentle vibration accompanies each cue while
+              the screen is on — lock the run screen to keep it on.
             </Text>
           }
         >
@@ -55,7 +45,7 @@ export default function SettingsScreen() {
             <Text>
               {location === 'granted'
                 ? 'Location measures your distance and route, and keeps cues playing while your phone is locked.'
-                : "Without location, runs are still timed correctly -- but distance isn't recorded and cues need the screen on."}
+                : "Without location, runs are still timed correctly — but distance isn't recorded, and cues stop once the screen sleeps. Lock the run screen to keep them playing."}
             </Text>
           }
         >
@@ -72,6 +62,15 @@ export default function SettingsScreen() {
             />
           ) : null}
         </Section>
+        <Section
+          title="About"
+          footer={<Text>No account, no sign-in. Your runs stay on this device.</Text>}
+        >
+          <LabeledContent label="Version">
+            <Text>{Constants.expoConfig?.version ?? '—'}</Text>
+          </LabeledContent>
+        </Section>
+
         {__DEV__ ? (
           <Section title="Developer">
             <SettingsToggle label="Compressed Plan" settingKey="useCompressedPlan" />

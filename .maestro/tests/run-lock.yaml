@@ -1,0 +1,89 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+# The run screen's lock. Tap to lock, press and hold to unlock — and the state that matters is
+# the locked one: the display is held awake only while locked (screen-on is the only switch the
+# haptic cue channel has, since iOS plays haptics for the foreground-active app alone), so a
+# phone in a pocket must be unable to reach the transport row. This flow taps End and the
+# Pause/Resume control while locked and asserts neither did anything. Skip carries the identical
+# `disabled={locked}` binding but is not tapped here: while paused the phase header reads
+# "Paused" whatever the segment, and the "Next: …" line's literal depends on which of w1d1's 17
+# compressed segments the pause landed in — a race, so there is no deterministic witness.
+- runFlow: ../helpers/start-first-session.yaml
+# Pause before locking, for the reason run-controls.yaml pauses first: the compressed session
+# totals ~0:40 and each tap on the animated run screen costs Maestro a settle, so a lock
+# exercised against a live clock races the finish. Frozen, nothing below has a timing
+# dependence — and the transport row reads `locked` the same way whether the run is running or
+# paused, so the lock's coverage is unchanged.
+- tapOn: "Pause"
+- assertVisible: "Paused"
+# The lock is per-run state that is never persisted, so a freshly started run opens unlocked.
+- assertVisible: "Lock screen"
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Lock screen"
+      # Land on the caption rather than the glyph: it is an `Island.Text`, the element class
+      # every shipped flow already proves surfaces, so a retry exhausting here means the tap
+      # missed — not that an anchor failed to appear.
+      - assertVisible: "Hold to unlock"
+# Asserted as its own step so those two failure modes stay distinguishable. Locked and unlocked
+# are separate subtrees, and the locked glyph is a bare SwiftUI `Image` carrying this label
+# through the same `accessibilityLabel` modifier `IslandIconButton` uses for End/Pause/Skip
+# (proven by run-controls.yaml) — but on an Image rather than a Button. If only this step fails,
+# that difference is what to look at.
+- assertVisible: "Unlock screen"
+# Every locked tap below resolves — a disabled control keeps its label and stays in the iOS
+# hierarchy flagged `enabled: false` rather than being pruned — and every one must do nothing.
+# `retryTapIfNoChange: false` on each: an unchanged hierarchy is the expected outcome here, not
+# a missed tap worth re-sending.
+#
+# First the lock itself: a tap can no longer unlock, only the hold can.
+- tapOn:
+    text: "Unlock screen"
+    retryTapIfNoChange: false
+- assertVisible: "Hold to unlock"
+# Then the one that matters most — a pocketed phone must not be able to end the run. The
+# dialog's destructive action is the evidence the sheet never opened: `ConfirmationDialog` builds
+# its actions inside the presentation closure, so "End run" exists only while presented. The tap
+# on that same "End run" at the foot of this flow proves the selector resolves at all, so this
+# assertion cannot pass by matching nothing.
+- tapOn:
+    text: "End"
+    retryTapIfNoChange: false
+- assertNotVisible: "End run"
+# Then the transport control: a tap that got through would have flipped both the phase header
+# and the control's own label.
+- tapOn:
+    text: "Resume"
+    retryTapIfNoChange: false
+- assertVisible: "Paused"
+- assertVisible: "Resume"
+- assertNotVisible: "Pause"
+# Out again. Maestro's iOS long press is a fixed 3 s hold against a 1.2 s SwiftUI gate, so the
+# retry absorbs a settle miss on this screen, not a hold that landed short of the gate.
+- retry:
+    maxRetries: 3
+    commands:
+      - longPressOn: "Unlock screen"
+      - assertVisible: "Lock screen"
+- assertNotVisible: "Hold to unlock"
+# Live again — asserted via the relabel rather than assumed (the run-controls.yaml idiom), then
+# re-frozen so the end sequence runs on a still screen.
+- tapOn: "Resume"
+- assertVisible: "Pause"
+- tapOn: "Pause"
+- assertVisible: "Paused"
+# End the run rather than abandoning it mid-flow: this is the end-to-end proof that the unlocked
+# transport really is live — End opens the sheet the locked tap could not, "End run" finalizes a
+# partial, and "Done" unwinds the modal stack to the plan list. Flow isolation does not depend
+# on it: every flow launches with `clearState: true`, so no 'active' row reaches the next one.
+- tapOn: "End"
+- tapOn: "End run"
+- extendedWaitUntil:
+    visible:
+      text: "Good effort.*"
+    timeout: 30000
+- tapOn: "Done"
+- assertVisible: "Week 1 ·.*"

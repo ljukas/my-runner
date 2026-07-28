@@ -7,7 +7,7 @@ tags:
 - launchApp
 # Onboarding must not restart after a relaunch: none of the three steps reappears, plan list shows.
 - assertNotVisible: "Welcome to" # welcome-marker
-- assertNotVisible: "running coach" # audio-cues-marker
-- assertNotVisible: "Track your route" # location-primer-marker
+- assertNotVisible: "Your pocket running coach" # audio-cues-marker
+- assertNotVisible: "Track your route and your pace" # location-primer-marker
 - assertVisible: "Week 1 ·.*"
 - assertVisible: "Day 1"

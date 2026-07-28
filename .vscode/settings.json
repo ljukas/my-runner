@@ -2,6 +2,8 @@
   // Kinds stay qualified: unqualified `source.fixAll` / `source.organizeImports`
   // prefix-match every provider, so ESLint+Prettier and TypeScript's import
   // rewriter both rewrote the buffer in one save pass and TS's stale offsets ate code.
+  // Unused imports are deleted inside this same ESLint pass (ADR 0014 item 4), so
+  // don't re-add a TypeScript import action here to get that back.
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"
   },

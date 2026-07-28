@@ -1,36 +1,20 @@
-import {
-  Button,
-  ConfirmationDialog,
-  HStack,
-  Image,
-  RNHostView,
-  Spacer,
-  Text,
-  VStack,
-} from '@expo/ui/swift-ui';
-import {
-  accessibilityHidden,
-  font,
-  frame,
-  lineLimit,
-  monospacedDigit,
-  multilineTextAlignment,
-  padding,
-} from '@expo/ui/swift-ui/modifiers';
-import { useKeepAwake } from 'expo-keep-awake';
-import * as Linking from 'expo-linking';
 import { Redirect, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { UNSAVED_RUN_ID } from '@/app/run-summary/[id]';
-import { Island } from '@/components/island';
+import { KeepAwakeWhileMounted } from '@/components/keep-awake-while-mounted';
+import { RunLocationBanner } from '@/components/run-location-banner';
+import { RunLock } from '@/components/run-lock';
+import { RunPhaseHeader } from '@/components/run-phase-header';
 import { RunProgressBar } from '@/components/run-progress-bar';
+import { RunTransport } from '@/components/run-transport';
 import { SkiaCountdown } from '@/components/skia-countdown';
-import { SegmentSymbols } from '@/constants/theme';
+import { Text } from '@/components/ui/text';
 import { SEGMENT_KIND_LABEL, formatClock, formatDistanceKm, formatPace } from '@/domain/format';
-import { useLocationPermission, locationTracker } from '@/services/location-tracker';
 import { useSegmentColors, useTheme } from '@/hooks/use-theme';
+import { useLocationPermission } from '@/services/location-tracker';
 import {
   endCountsAsCompleted,
   retryTracking,
@@ -38,22 +22,16 @@ import {
   useRunEngine,
 } from '@/services/run-engine';
 import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
-import { useSetting } from '@/services/settings-store';
-
-/** useKeepAwake is unconditional, so the toggle mounts/unmounts this child. */
-function KeepAwakeWhileMounted() {
-  useKeepAwake();
-  return null;
-}
 
 export default function RunScreen() {
   const snapshot = useRunEngine();
   const router = useRouter();
   const colors = useTheme();
   const segmentColors = useSegmentColors();
-  const keepAwake = useSetting('keepScreenAwake');
   const locationStatus = useLocationPermission();
-  const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+
+  const [locked, setLocked] = useState(false);
   const paused = snapshot.status === 'paused';
 
   useEffect(() => {
@@ -93,137 +71,51 @@ export default function RunScreen() {
   const endsAsCompleted = endCountsAsCompleted(snapshot);
 
   return (
-    <View className="flex-1 bg-background">
-      {keepAwake ? <KeepAwakeWhileMounted /> : null}
-      <Island useViewportSizeMeasurement>
-        <VStack spacing={24} modifiers={[padding({ all: 24 })]}>
-          {locationStatus !== null && locationStatus !== 'granted' ? (
-            <Island.Label
-              systemImage="location.slash"
-              title="Location is off"
-              tone="secondary"
-              modifiers={[font({ textStyle: 'footnote' })]}
-            />
-          ) : null}
-          {locationStatus !== null && locationStatus !== 'granted' ? (
-            <Island.Text
-              tone="secondary"
-              modifiers={[
-                font({ textStyle: 'caption' }),
-                multilineTextAlignment('center'),
-                lineLimit(2),
-              ]}
-            >
-              {keepAwake
-                ? 'Distance is not recorded. Cues keep playing while the screen stays on.'
-                : 'Distance is not recorded. Cues stop when the screen sleeps.'}
-            </Island.Text>
-          ) : null}
-          {locationStatus !== null && locationStatus !== 'granted' ? (
-            <Island.Button
-              inline
-              variant="secondary"
-              label={locationStatus === 'denied' ? 'Open Settings' : 'Enable Location'}
-              onPress={() =>
-                void (locationStatus === 'denied'
-                  ? Linking.openSettings()
-                  : locationTracker.requestPermission())
-              }
-            />
-          ) : null}
-          <Spacer />
-          {/* Icon stacked above the label so each is centred on its own line: a
-              lone centred icon and centred text keep a fixed centre and only
-              breathe in width — the phase header never translates sideways
-              between segments the way the inline row did. The coloured SF Symbol
-              carries the segment-colour cue; the label stays on the theme
-              foreground so it's legible regardless of palette (main #32). */}
-          <VStack spacing={6} modifiers={[frame({ minHeight: 62 })]}>
-            <Image
-              systemName={SegmentSymbols[kind]}
-              color={segmentColors[kind]}
-              modifiers={[font({ textStyle: 'title2' }), accessibilityHidden(true)]}
-            />
-            <Island.Text modifiers={[font({ textStyle: 'title2' })]}>
-              {paused ? 'Paused' : SEGMENT_KIND_LABEL[kind]}
-            </Island.Text>
-          </VStack>
-          {/* Both RN elements on this SwiftUI screen (ADR 0005), each hosted via
-              RNHostView with a plain-View root (a bare RN leaf as the direct
-              RNHostView child mounts but never paints): the Skia centisecond
-              countdown and the Reanimated progress bar, both driven on the UI
-              thread from the shared `remaining` clock. */}
-          <RNHostView matchContents>
-            <SkiaCountdown remaining={remaining} color={colors.text} />
-          </RNHostView>
-          <RNHostView matchContents>
-            <RunProgressBar
-              remaining={remaining}
-              totalSeconds={snapshot.segmentSecondsTotal}
-              color={segmentColors[kind]}
-            />
-          </RNHostView>
-          {/* Transport row, music-player order: End · Pause/Resume · Skip. */}
-          <HStack spacing={40}>
-            <ConfirmationDialog
-              title="End this run?"
-              isPresented={endDialogOpen}
-              onIsPresentedChange={setEndDialogOpen}
-              titleVisibility="visible"
-            >
-              <ConfirmationDialog.Trigger>
-                <Island.IconButton
-                  systemName="stop.fill"
-                  size={30}
-                  color={colors.textSecondary}
-                  label="End"
-                  onPress={() => setEndDialogOpen(true)}
-                />
-              </ConfirmationDialog.Trigger>
-              <ConfirmationDialog.Actions>
-                <Button role="destructive" label="End run" onPress={() => runEngine.endEarly()} />
-              </ConfirmationDialog.Actions>
-              <ConfirmationDialog.Message>
-                <Text>
-                  {endsAsCompleted
-                    ? 'This run is done — it will be saved as completed.'
-                    : 'Progress so far is saved as a partial run.'}
-                </Text>
-              </ConfirmationDialog.Message>
-            </ConfirmationDialog>
-            <Island.IconButton
-              systemName={paused ? 'play.fill' : 'pause.fill'}
-              size={48}
-              color={colors.text}
-              label={paused ? 'Resume' : 'Pause'}
-              onPress={() => (paused ? runEngine.resume() : runEngine.pause())}
-            />
-            <Island.IconButton
-              systemName="forward.fill"
-              size={30}
-              color={colors.textSecondary}
-              label="Skip"
-              onPress={() => runEngine.skipSegment()}
-            />
-          </HStack>
-          <Island.Text tone="secondary">
-            {snapshot.nextSegment
-              ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
-              : 'Last segment — finish strong!'}
-          </Island.Text>
-          <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
-            {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
-          </Island.Text>
-          {/* Only with location granted can these numbers ever move; otherwise the row is absent
-              rather than a permanent 0.00 km. */}
-          {locationStatus === 'granted' || snapshot.distanceM > 0 ? (
-            <Island.Text tone="secondary" modifiers={[monospacedDigit()]}>
-              {`${formatDistanceKm(snapshot.distanceM)} · ${formatPace(snapshot.paceSecPerKm)}`}
-            </Island.Text>
-          ) : null}
-          <Spacer />
-        </VStack>
-      </Island>
+    <View
+      className="flex-1 bg-background px-6"
+      style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}
+    >
+      {locked ? <KeepAwakeWhileMounted /> : null}
+
+      {locationStatus !== null && locationStatus !== 'granted' ? (
+        <RunLocationBanner status={locationStatus} locked={locked} />
+      ) : null}
+
+      <View className="flex-1" />
+
+      <View className="items-center gap-6">
+        <RunPhaseHeader kind={kind} paused={paused} />
+        <SkiaCountdown remaining={remaining} color={colors.text} />
+        <RunProgressBar
+          remaining={remaining}
+          totalSeconds={snapshot.segmentSecondsTotal}
+          color={segmentColors[kind]}
+        />
+        <RunTransport paused={paused} locked={locked} endsAsCompleted={endsAsCompleted} />
+        <Text tone="secondary">
+          {snapshot.nextSegment
+            ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
+            : 'Last segment — finish strong!'}
+        </Text>
+        <Text tone="secondary" style={{ fontVariant: ['tabular-nums'] }}>
+          {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
+        </Text>
+        {/* Only with location granted can these numbers ever move; otherwise the row is absent
+            rather than a permanent 0.00 km. */}
+        {locationStatus === 'granted' || snapshot.distanceM > 0 ? (
+          <Text tone="secondary" style={{ fontVariant: ['tabular-nums'] }}>
+            {`${formatDistanceKm(snapshot.distanceM)} · ${formatPace(snapshot.paceSecPerKm)}`}
+          </Text>
+        ) : null}
+      </View>
+
+      <View className="flex-1" />
+
+      <View className="items-center">
+        <RunLock locked={locked} onLockedChange={setLocked} />
+      </View>
+
+      <View className="flex-1" />
     </View>
   );
 }

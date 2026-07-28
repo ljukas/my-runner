@@ -1,5 +1,13 @@
 import { Button, Text } from '@expo/ui/swift-ui';
-import { buttonStyle, controlSize, font, frame, padding, tint } from '@expo/ui/swift-ui/modifiers';
+import {
+  buttonStyle,
+  controlSize,
+  disabled as disabledModifier,
+  font,
+  frame,
+  padding,
+  tint,
+} from '@expo/ui/swift-ui/modifiers';
 import { PixelRatio, Platform } from 'react-native';
 
 import { Button as PillButton } from '@/components/ui/button';
@@ -9,6 +17,15 @@ import { isGlassAvailable } from '@/lib/glass';
 import { IslandHost } from './host';
 
 type IslandButtonVariant = 'primary' | 'secondary' | 'destructive';
+
+/**
+ * Height a `fill` button's host must reserve. A Host needs an explicit size —
+ * `matchContents` collapses a full-width button — so anything stacking these
+ * (`Island.View`) has to size itself from the same number.
+ */
+export function islandButtonHeight(): number {
+  return Math.round(50 * Math.min(PixelRatio.getFontScale(), 2));
+}
 
 /**
  * The app's SwiftUI buttons, named once (ADR 0013): the `borderedProminent` +
@@ -25,29 +42,34 @@ export function IslandButton({
   variant = 'primary',
   label,
   onPress,
+  disabled = false,
   fill = false,
   inline = false,
 }: {
   variant?: IslandButtonVariant;
   label: string;
   onPress: () => void;
+  disabled?: boolean;
   fill?: boolean;
   inline?: boolean;
 }) {
   const colors = useTheme();
 
   if (!inline && Platform.OS !== 'ios') {
-    return <PillButton variant={variant} label={label} onPress={onPress} />;
+    return <PillButton variant={variant} label={label} onPress={onPress} disabled={disabled} />;
   }
 
+  // Unlike the icon button, the bordered styles dim themselves when disabled:
+  // the label carries no explicit foreground color to outrank the treatment.
   const modifiers =
     variant === 'primary'
       ? [
           buttonStyle(isGlassAvailable() ? 'glassProminent' : 'borderedProminent'),
           controlSize('large'),
           tint(colors.primaryFill),
+          disabledModifier(disabled),
         ]
-      : [buttonStyle('bordered'), controlSize('large')];
+      : [buttonStyle('bordered'), controlSize('large'), disabledModifier(disabled)];
   const role = variant === 'destructive' ? 'destructive' : undefined;
 
   const button = fill ? (
@@ -71,11 +93,7 @@ export function IslandButton({
   if (inline) return button;
 
   return fill ? (
-    <IslandHost
-      style={{ width: '100%', height: Math.round(50 * Math.min(PixelRatio.getFontScale(), 2)) }}
-    >
-      {button}
-    </IslandHost>
+    <IslandHost style={{ width: '100%', height: islandButtonHeight() }}>{button}</IslandHost>
   ) : (
     <IslandHost matchContents>{button}</IslandHost>
   );

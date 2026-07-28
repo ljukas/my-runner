@@ -130,14 +130,19 @@ never requests Always.**
   but not the audible one, and no automatic hold exists any more, so a runner
   who declined location and pocketed the phone loses the coach without
   warning — precisely the undocumented surprise this ADR set out to avoid.
-  Today it is worse than an omission: two shipped strings still assert the
-  retired behaviour (inventoried in the run-lock design spec §3). Two
-  mitigations are on the table: **(a)** banner, footer and primer copy that
-  point at the run lock, leaving the trade to the runner; or **(b)** restoring
-  an automatic hold while location is not granted, which the run-lock design
-  spec specified and the implementation deliberately dropped on the ground
-  that a forced screen-on run spends battery the runner never agreed to.
-  **Recorded as open, not resolved.**
+
+  *Narrowed 2026-07-28.* Mitigation **(a)** is now partly applied: the two
+  strings that still asserted the retired behaviour were corrected, so the
+  Settings Location footer states that cues stop once the screen sleeps and
+  points at the run lock, and the location primer's footnote says the same.
+  **The residual gap is the run screen itself** — its banner still names only
+  distance and pace, so a runner who declined location is warned during
+  onboarding and in Settings but not in the moment that matters. Remaining
+  options: finish **(a)** by having the banner name the audible loss and the
+  lock that prevents it; or take **(b)**, restoring an automatic hold while
+  location is not granted, which the run-lock design spec specified and the
+  implementation deliberately dropped on the ground that a forced screen-on run
+  spends battery the runner never agreed to. **Recorded as open, not resolved.**
 - The blue location indicator is always visible during runs. Accepted:
   it is accurate, and hiding it would require the Always posture this ADR
   rejects.

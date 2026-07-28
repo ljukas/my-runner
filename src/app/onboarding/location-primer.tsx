@@ -30,8 +30,8 @@ export default function LocationPrimerScreen() {
       }}
       footnote={
         <Text variant="footnote" tone="secondary">
-          Not Now is fine &mdash; every run is still timed, and the screen stays on so you can hear
-          the coach. You can change this later in Settings.
+          Not Now is fine &mdash; every run is still timed, but runs won&rsquo;t have distance and
+          cues stop once the screen sleeps. You can change this later in Settings.
         </Text>
       }
     >

@@ -45,7 +45,7 @@ export default function SettingsScreen() {
             <Text>
               {location === 'granted'
                 ? 'Location measures your distance and route, and keeps cues playing while your phone is locked.'
-                : "Without location, runs are still timed correctly -- but distance isn't recorded, and the screen stays on so cues keep playing."}
+                : "Without location, runs are still timed correctly — but distance isn't recorded, and cues stop once the screen sleeps. Lock the run screen to keep them playing."}
             </Text>
           }
         >

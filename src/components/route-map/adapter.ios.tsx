@@ -90,7 +90,8 @@ export function RouteMap({
   // pointerEvents 'none' makes the whole subtree unreachable to MapKit's gesture recognizers (spec §3).
   return (
     <Pressable
-      style={style}
+      // why: the only press feedback available — the map itself cannot highlight (spec §7.2).
+      style={(state) => [style, state.pressed && { opacity: 0.85 }]}
       onPress={onPress}
       accessible
       accessibilityRole="button"

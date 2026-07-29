@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 
 import { RouteMap } from '@/components/route-map';
 import { RouteUnavailableCard } from '@/components/route-unavailable-card';
@@ -14,6 +14,8 @@ import { useLocationPermission } from '@/services/location-tracker';
 /** The card is a fixed 3:2 box, so its aspect ratio is known before layout (spec §4.2). */
 const CARD_ASPECT_RATIO = 3 / 2;
 
+const CHIP_SYMBOL_POINTS = 14;
+
 /**
  * A finished run's route, camera-fitted and inert; tapping opens the full-screen viewer
  * (ADR 0013 domain component). Falls back to an explanatory card rather than rendering nothing.
@@ -22,15 +24,14 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
   const router = useRouter();
   const colors = useTheme();
   const route = useRunRoute(run.id, segments, CARD_ASPECT_RATIO);
-  // Returns 'granted' | 'denied' | 'undetermined' | null (null until the first read resolves), so
-  // only an explicit non-granted answer offers Settings — never the unresolved state.
+  // why: null until the first read resolves, and an unresolved answer must not offer a way out.
   const permission = useLocationPermission();
 
   if (!route.ready) {
+    // why: save-run nulls summaryPolyline iff the run persisted no accepted fixes — the only per-run
+    // record of which case this was, and it cannot be re-read from today's permission.
     return (
-      <RouteUnavailableCard
-        locationOff={permission === 'denied' || permission === 'undetermined'}
-      />
+      <RouteUnavailableCard recordedFixes={run.summaryPolyline !== null} permission={permission} />
     );
   }
 
@@ -53,10 +54,12 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
       <View
         className="absolute top-2 right-2 rounded-full bg-background-card/80 p-1.5"
         pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       >
         <SymbolView
           name="arrow.up.left.and.arrow.down.right"
-          size={14}
+          size={Math.round(CHIP_SYMBOL_POINTS * Math.min(PixelRatio.getFontScale(), 1.6))}
           tintColor={colors.textSecondary}
         />
       </View>

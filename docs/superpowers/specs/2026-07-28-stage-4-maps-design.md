@@ -8,9 +8,8 @@
 ## 1. Goal
 
 *Runs become visible.* A finished run shows its recorded route on Apple Maps —
-segment-coloured, with direction-of-travel arrows, start/finish markers and a
-camera fitted to the route — on the run summary, plus a full-screen viewer for
-panning and zooming.
+segment-coloured, with start/finish markers and a camera fitted to the route —
+on the run summary, plus a full-screen viewer for panning and zooming.
 
 Stage 4 is **read-side only**. It adds no schema, no migration, no engine
 change, and no new permission. Every input already exists: Stage 3 persists
@@ -831,8 +830,9 @@ that distance never derives from the rendered line is preserved (§6).
 **Master spec deviations to fold back:** §8/§13's *separate* run-detail screen is
 dropped, though its `runs/[runId]` route naming is now honoured (§9.1); §8's
 accent/muted colouring is replaced by the 4-kind palette plus width; §8's route
-tree gains `runs/[runId]/route`; §13's Stage 4 bullet gains the direction arrows.
-**Open for Stage 5:**
+tree gains `runs/[runId]/route`. **Direction arrows must NOT be added** to
+§13's Stage 4 bullet — an earlier draft of this line instructed exactly that,
+before the feature was built and then removed (§5). **Open for Stage 5:**
 master spec §9 assigns the `healthkit_saved` retry affordance to the deleted run
 detail screen; it needs a new home, presumably the summary.
 

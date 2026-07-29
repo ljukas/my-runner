@@ -198,9 +198,8 @@ run_points (immutable after finalize)
        │                                      tags segmentSeq + gapBefore, drops seed points
        ├─ boundingBox(points) → cameraForBoundingBox(bbox, aspect)
        └─ toSegmentPolylines(points, ε)       split by segment/gap → DP each chunk
-            ├─ join segmentSeq → kind → useSegmentColors() (+ width, §7.4)
-            └─ chevronsAlongRoute(chunks, fittedSpanM)
-                 └─ RouteMapRoute + RouteMapDecoration[] (stable ids)
+            └─ join segmentSeq → kind → useSegmentColors() (+ width, §7.3)
+                 └─ RouteMapRoute (stable ids)
                       └─ RouteMap port → adapter.ios.tsx → AppleMaps.View
 ```
 
@@ -215,12 +214,10 @@ interface SmoothStep { /* …existing… */ restarted: boolean }
 
 interface RenderPoint { point: LatLng; segmentSeq: number; gapBefore: boolean }
 interface SegmentPolyline { segmentSeq: number; points: LatLng[]; gapBefore: boolean }
-interface Chevron { points: readonly [LatLng, LatLng, LatLng] }
 interface CameraFit { center: LatLng; zoom: number; fittedSpanM: number }
 
 function smoothTrackForRender(fixes: readonly SegmentedFix[]): RenderPoint[];
 function toSegmentPolylines(points: readonly RenderPoint[], epsilon?: number): SegmentPolyline[];
-function chevronsAlongRoute(chunks: readonly SegmentPolyline[], fittedSpanM: number): Chevron[];
 function cameraForBoundingBox(bbox: BoundingBox, aspectRatio: number, paddingRatio?: number): CameraFit;
 ```
 
@@ -696,7 +693,7 @@ pipeline are unit-pinned (`geo.test.ts`, "route extent gate").
 | Fixes recorded, no usable extent (indoor, treadmill, stationary) | Same card, **different copy** — the user did nothing wrong, so the copy must not imply they did, and must not draw a map of their home. |
 | Location not granted *now* | Adds the CTA, and only the CTA: `Open Settings` when `denied`, `Enable Location` when `undetermined` — iOS shows no Location row at all for an app that has never asked, so Settings is a dead end for that cohort — and nothing while `useLocationPermission()` is still `null`. Mirrors `run-location-banner` (ADR 0008 §2). |
 | Fewer than 2 smoothed points | Same card. |
-| GPS gap | Rendered as a genuine break; no chevron bridges it. |
+| GPS gap | Rendered as a genuine break — the chunks either side share no vertex, so nothing draws across it. |
 | Deep link to a missing run | `RunUnavailable` (§7.5). |
 
 Silent absence — the first draft's answer — is wrong for this app. Location is

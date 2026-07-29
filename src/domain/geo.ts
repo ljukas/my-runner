@@ -373,6 +373,38 @@ export function smoothTrackBySegment(fixes: readonly SegmentedFix[]): SmoothedRo
   return { distanceM, points, distanceBySegmentSeq };
 }
 
+/** why: the first two fixes after a start/gap-reset carry the RAW measurement, and DP always keeps an
+ * endpoint — a legal 50 m fix would otherwise be a permanent spur and would inflate the camera fit. */
+export const SEED_FIXES = 2;
+
+export interface RenderPoint {
+  point: LatLng;
+  segmentSeq: number;
+  /** True when this point is the first emitted after a real GPS gap (ADR 0021 §5) — never for the track's start. */
+  gapBefore: boolean;
+}
+
+/**
+ * Render-side fold over `smoothFix` — same reducer as the live engine, so the drawn line is the same
+ * smoothed track the distance came from. Presentation only: never a distance source (ADR 0021 §6).
+ * Inputs must already pass `accuracyFilter`.
+ */
+export function smoothTrackForRender(fixes: readonly SegmentedFix[]): RenderPoint[] {
+  let state = createSmootherState();
+  const out: RenderPoint[] = [];
+  let pendingGap = false;
+
+  for (const fix of fixes) {
+    const step = smoothFix(state, fix);
+    state = step.state;
+    if (step.restarted && out.length > 0) pendingGap = true;
+    if (!step.smoothedPoint || state.fixesSinceReset <= SEED_FIXES) continue;
+    out.push({ point: step.smoothedPoint, segmentSeq: fix.segmentSeq, gapBefore: pendingGap });
+    pendingGap = false;
+  }
+  return out;
+}
+
 function perpDistanceM(
   px: number,
   py: number,

@@ -10,10 +10,12 @@ import {
   haversineMeters,
   MAX_GAP_S,
   NEAR_STATIONARY_DEADBAND_M,
+  SEED_FIXES,
   simplifyPolyline,
   smoothFix,
   smoothTrack,
   smoothTrackBySegment,
+  smoothTrackForRender,
   type LatLng,
   type LocationFix,
   type SegmentedFix,
@@ -410,6 +412,19 @@ describe('smoothTrackBySegment — per-segment attribution (ADR 0021 §4)', () =
   });
 });
 
+/** A straight northbound 1 Hz walker; `segments` gives the segmentSeq per fix. */
+function makeSegmentedTrack(segments: readonly number[], startMs = 0): SegmentedFix[] {
+  return segments.map((segmentSeq, i) => ({
+    timestamp: startMs + i * 1000,
+    lat: i * 0.000012, // ~1.34 m/s
+    lng: 0,
+    altitude: null,
+    accuracy: 5,
+    speed: null,
+    segmentSeq,
+  }));
+}
+
 describe('simplifyPolyline', () => {
   const M = M_PER_DEG;
   const north = (m: number): LatLng => ({ lat: m / M, lng: 0 });
@@ -476,5 +491,47 @@ describe('SmoothStep.restarted', () => {
     const backwards = smoothFix(start.state, makeFix({ timestamp: 4000 }));
     expect(backwards.smoothedPoint).toBeNull();
     expect(backwards.restarted).toBe(false);
+  });
+});
+
+describe('smoothTrackForRender', () => {
+  test('drops the raw seed fixes', () => {
+    const fixes = makeSegmentedTrack([0, 0, 0, 0, 0]);
+    const points = smoothTrackForRender(fixes);
+    expect(points).toHaveLength(fixes.length - SEED_FIXES);
+  });
+
+  test('a legal but far cold-start fix never reaches the output', () => {
+    const fixes = makeSegmentedTrack([0, 0, 0, 0, 0, 0, 0, 0]);
+    // A 45 m eastward error on the first fix passes accuracyFilter (<= 50 m).
+    fixes[0] = { ...fixes[0], lng: 45 / (111_320 * Math.cos(0)), accuracy: 45 };
+    const points = smoothTrackForRender(fixes);
+    const maxEastM = Math.max(...points.map((p) => Math.abs(p.point.lng) * 111_320));
+    expect(maxEastM).toBeLessThan(7);
+  });
+
+  test('tags points with their segmentSeq', () => {
+    const points = smoothTrackForRender(makeSegmentedTrack([0, 0, 0, 1, 1, 2, 2]));
+    expect(points.map((p) => p.segmentSeq)).toEqual([0, 1, 1, 2, 2]);
+  });
+
+  test('no point is flagged gapBefore on a continuous track', () => {
+    const points = smoothTrackForRender(makeSegmentedTrack([0, 0, 0, 0, 0]));
+    expect(points.some((p) => p.gapBefore)).toBe(false);
+  });
+
+  test('carries the gap flag to the first point emitted after the gap', () => {
+    const before = makeSegmentedTrack([0, 0, 0, 0, 0]);
+    const afterStart = (MAX_GAP_S + 10) * 1000;
+    const after = makeSegmentedTrack([1, 1, 1, 1, 1], afterStart).map((f) => ({
+      ...f,
+      lat: 0.001 + f.lat,
+    }));
+    const points = smoothTrackForRender([...before, ...after]);
+    const flagged = points.filter((p) => p.gapBefore);
+    expect(flagged).toHaveLength(1);
+    // The gap's own restarted fix is a dropped seed, so the flag lands on the first KEPT point after it.
+    expect(flagged[0].segmentSeq).toBe(1);
+    expect(points.indexOf(flagged[0])).toBe(before.length - SEED_FIXES);
   });
 });

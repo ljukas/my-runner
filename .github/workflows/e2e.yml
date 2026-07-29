@@ -44,7 +44,11 @@ jobs:
     runs-on: macos-26
     env:
       APP_VARIANT: e2e
-    timeout-minutes: 45
+    # 75: a fingerprint change forces a cache miss, and the slow path (~15-20 min
+    # `eas build --local` + boot + install + the full Maestro suite) then recurs on
+    # the first main-branch run after a squash-merge too, since actions/cache writes
+    # are branch-scoped.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v5
         with:

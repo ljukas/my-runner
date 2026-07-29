@@ -37,7 +37,7 @@ A free, local-first Couch-to-5K app. It guides someone who can barely run throug
 | Platform strategy | **Ports & adapters**: every platform-touching capability behind a TS interface; iOS adapters in v1, Android adapters plug in later |
 | Navigation | **All modal surfaces are expo-router screens** with native `presentation` options (fullScreenModal, formSheet…). Native feel first; reach outside native elements only when needed |
 | Units | Kilometers only |
-| History | List + run detail (map, splits); no aggregate dashboards in v1 |
+| History | List; a row opens the run summary, which carries the map and splits (Stage 4 dropped the separate detail screen); no aggregate dashboards in v1 |
 | Tabs | Plan / History / Settings (NativeTabs) |
 | Live Activity | Deferred to v2 (official expo-widgets identified as the path) |
 | Data export | Deferred to v2 |
@@ -221,8 +221,10 @@ src/app/
 ├── onboarding/               # versioned first-launch flow — fullScreenModal; step routes (welcome, audio, location, health)
 ├── session/[key].tsx         # pre-run detail — presentation: 'formSheet' (native detents, grabber)
 ├── run.tsx                   # active run — presentation: 'fullScreenModal', gestureEnabled: false
-├── run-summary.tsx           # post-run — router.replace target from run.tsx (back never returns to a finished run)
-└── runs/[runId].tsx          # run detail — standard push (named /runs/… to avoid colliding with the /history tab route)
+└── runs/[runId]/             # named /runs/… to avoid colliding with the history tab route (shipped as `log`, so moot either way)
+    ├── index.tsx             # run summary — post-run router.replace target from run.tsx (back never returns to a finished run),
+    │                         #   and the same screen a Log row revisits. There is no separate run-detail screen (Stage 4).
+    └── route.tsx             # full-screen route viewer — presentation: 'modal', pushed from the summary's map card
 ```
 
 Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SDK 57):
@@ -230,9 +232,9 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 - **Plan (home)** — full SwiftUI: `List` with a `Section` per week, rows with completion checkmarks (`Image systemName`), `Gauge`/`ProgressView` per-week progress, badge on next session, `ContentUnavailableView` empty state. Tap → `session/[key]` form sheet.
 - **Pre-run detail (form sheet)** — SwiftUI: segment bar (HStack of rounded rectangles, width ∝ duration, colored by kind), session stats (`LabeledContent`), previous attempts for this session, big glass **Start** button → `router.push('/run')`.
 - **Active run (full-screen modal)** — hybrid: JS engine drives, SwiftUI presents. Big countdown `Text` (`monospacedDigit` + `contentTransition` rolling digits), current segment name + color, "Next: Run 3 min" preview, `Gauge` segment progress, elapsed/distance row, glass Pause/Skip buttons, End with confirmation dialog. **Run lock** below the stats (`lock.open.display` → `lock.display`; tap to lock, press and hold 1.2 s to unlock, caption "Hold to unlock" while locked): locked holds the display awake via `useKeepAwake()` **and** disables and dims End/Pause/Skip plus the location banner's CTA, so the app stays glanceable and — because it stays foreground-active — a **haptic cue accent channel** stays viable alongside audio (haptics cannot fire from a backgrounded app; ADR 0009). Per-run and **default unlocked**, so the pocket run is the default: the screen sleeps and audio cues continue via the background location heartbeat (ADR 0008). **No live map in v1** (glanceability + battery; route appears at summary).
-- **Run summary** — congratulations header, SwiftUI `Form`/`LabeledContent` stats (duration, distance, avg pace, per-segment table), **RouteMap** (RN island): one expo-maps polyline per segment — run segments in the accent color, walk/warmup/cooldown in a muted color — plus start/finish markers, camera fitted to route. Apple Health save status row. Done → dismiss to Plan.
+- **Run summary** — congratulations header, SwiftUI `Form`/`LabeledContent` stats (duration, distance, avg pace, per-segment table), **RouteMap card** (RN island): one expo-maps polyline per segment chunk, coloured by the **4-kind palette** (`useSegmentColors()`: warmup, run, walk, cooldown) and **double-encoded with stroke width**, so phase never rests on hue alone — superseding the earlier accent/muted wording — plus start/finish markers and a camera fitted to the route with margin. **No direction arrows** (built in Stage 4, then removed: the markers carry direction on their own). Tapping the card opens the full-screen viewer at `runs/[runId]/route`; a run with no mappable route shows an explanatory card in the card's place, never a map of the user's home and never silence. Apple Health save status row, including the `healthkit_saved` retry (§9). Done → dismiss to Plan.
 - **History** — SwiftUI `List` grouped by week: session key, date, distance, duration, partial badge; swipe-to-delete (soft delete). No per-row map thumbnails in v1 (embedding RN views per SwiftUI row is the documented anti-pattern; revisit with `summary_polyline` + react-native-svg in an RN list if wanted later).
-- **Run detail** — RouteMap with segment-colored route + SwiftUI splits list (per segment: planned/actual time, distance, pace) + "Save to Apple Health" retry if unsaved.
+- **Run detail** — **no second screen (superseded in Stage 4).** The summary above already serves both the fresh finish and a Log revisit, so the map card, the splits list and the "Save to Apple Health" retry all live there; a second screen would have duplicated it. The only route added is the full-screen viewer, `runs/[runId]/route`.
 - **Settings** — SwiftUI `Form`: cue toggles (all cues / milestone cues), Apple Health toggle (triggers authorization), About, Reset all data (destructive confirm via native alert).
 
 **Theming:** the repo's styling system is Uniwind (Tailwind v4 for RN) — RN shells style with `className` tokens from `src/global.css`, via the `className`-based `ThemedText`/`ThemedView` wrappers. SwiftUI trees can't consume Tailwind classes, so they bridge through the JS palette mirror in `src/constants/theme.ts` (`Colors`) via `Host seedColor` + `foregroundColor`/`background` modifiers — one more reason that mirror must stay in sync with `global.css`. One visual system per block — never alternate RN and SwiftUI text within the same cluster.
@@ -242,7 +244,8 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 - Library: `@kingstinct/react-native-healthkit` v14 (Nitro/New-Arch, active, config plugin). Write-only: `requestAuthorization({ toShare: [workout, workoutRoute, distanceWalkingRunning, activeEnergyBurned] })`.
 - On run completion (and via retry affordance): `saveWorkoutSample(WorkoutActivityType.running, quantities, start, end, { distance })` → `proxy.saveWorkoutRoute(locations)` (HKWorkoutRouteBuilder under the hood — full GPS route appears in Apple Health).
 - **Limitation (verified in library source):** workout pause/segment *events* are not writable (`workoutEvents: nil` hardcoded). Workaround: attach per-interval `DistanceWalkingRunning` quantity samples; our DB remains the source of truth for the interval structure.
-- Failure handling: run is already saved locally before any Health call; `healthkit_saved` flag + retry on run detail; denial is respected silently (toggle stays off).
+- Failure handling: run is already saved locally before any Health call; `healthkit_saved` flag + retry affordance; denial is respected silently (toggle stays off).
+- **Where the retry lives (amended, Stage 4).** This section originally put the retry on the run detail screen. That screen was never built — Stage 4 folded the map into the summary instead (§8) — so the affordance belongs on the summary at `runs/[runId]`, which is the surface a Log revisit already opens. Still open: it is unbuilt, and lands with the HealthKit work in Stage 5.
 - App Review 5.1.3: write only real measured values; do not mirror HealthKit-sourced data into any future iCloud sync payload (our data is app-generated workout logs, which is fine).
 
 ## 10. Testing & verification
@@ -323,11 +326,11 @@ V1 ships in **five incremental stages. Each stage is a working, usable app** —
 
 *Runs become visible: routes on Apple Maps.*
 
-- iOS deployment target → 18.0 (`expo-build-properties`); expo-maps pinned; `RouteMap` component port (react-native-maps fallback stays pre-approved).
-- Run summary upgraded: segment-colored polylines, start/finish markers, camera fit.
-- Run detail screen (`runs/[runId]`): map + per-segment splits table.
+- iOS deployment target → **17.0**, via app.json's **built-in** `ios.deploymentTarget` — not 18.0, and not `expo-build-properties`, whose option is deprecated since SDK 56 (ADR 0010's 2026-07-29 amendment). expo-maps pinned; `RouteMap` component port (react-native-maps fallback stays pre-approved).
+- Run summary upgraded: segment-coloured polylines (4-kind palette **and** stroke width), start/finish markers, camera fit with margin, and a tap-through full-screen viewer. **No direction arrows** — they were built, reviewed and then removed, so this list must not promise them.
+- **No new run-detail screen.** The summary moves `run-summary` → `runs/[runId]/index` and gains one child route, `runs/[runId]/route`, for the viewer; the splits table it already had stays put.
 - Onboarding: no new permissions.
-- E2E: run detail opens; map + splits render for a seeded run. (Polyline pixel-correctness is a visual check.)
+- E2E: the summary's route card renders for a recorded run, the card opens the viewer and the viewer closes back to an intact summary, and a run with no usable route renders the explanatory card instead. (Polyline pixel-correctness is a visual check.)
 - **Works when:** completed runs show correctly colored routes and splits from real recorded data; stage flows pass.
 
 ### Stage 5 — Apple Health + release polish

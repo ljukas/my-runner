@@ -226,11 +226,17 @@ function cameraForBoundingBox(bbox: BoundingBox, aspectRatio: number, paddingRat
 ```
 
 `smoothTrackForRender` reuses `smoothFix` — the same reducer the live engine and
-the finalize rollup use. `gapBefore = restarted && points.length > 0`
-distinguishes a real mid-track gap reset from the track's first point (also a
-`restarted` step); this was brute-force verified sound across 372k branches,
-including gaps spanned by velocity-gated fixes, because the gap check runs
-*before* the gate. `smoothTrackBySegment` is left untouched.
+the finalize rollup use. A `restarted` step with points already emitted marks a
+real mid-track gap, as opposed to the track's first point (also a `restarted`
+step); this was brute-force verified sound across 372k branches, including gaps
+spanned by velocity-gated fixes, because the gap check runs *before* the gate.
+`smoothTrackBySegment` is left untouched.
+
+**`gapBefore` must be carried, not read off the same step.** The naive
+`gapBefore = restarted && points.length > 0` is wrong once seed points are
+dropped (below): the `restarted` step's own point is never emitted, so the flag
+would be computed on a point that does not exist and lost. The fold therefore
+holds a pending-gap flag and applies it to the next point it actually emits.
 
 **Seed points are dropped from the render stream only.** `smoothFix` emits the
 *raw* measurement for the first fix after a start or gap reset (the `!started`
@@ -427,7 +433,7 @@ the degenerate bearing.
 | Constant | Value |
 |---|---|
 | `CHEVRON_SIZE_RATIO` (of `fittedSpanM`) | `0.05` |
-| `CHEVRON_MIN_SIZE_M` / `CHEVRON_MAX_SIZE_M` | `3` / `150` |
+| `CHEVRON_MIN_SIZE_M` / `CHEVRON_MAX_SIZE_M` | `3` / `400` |
 | `CHEVRON_TARGET_COUNT` | `8` |
 | `CHEVRON_MIN_SPACING_MULTIPLIER` | `4` |
 | `CHEVRON_MIN_RUN_LENGTH_M` | `20` |

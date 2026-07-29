@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   accuracyFilter,
   boundingBox,
+  boundingBoxDiagonalM,
   CAMERA_PADDING_RATIO,
   cameraForBoundingBox,
   CHEVRON_DEDUPE_MULTIPLIER,
@@ -19,6 +20,7 @@ import {
   encodePolyline,
   haversineMeters,
   MAX_GAP_S,
+  MIN_ROUTE_EXTENT_M,
   MIN_SPAN_DEG,
   NEAR_STATIONARY_DEADBAND_M,
   SEED_FIXES,
@@ -762,6 +764,71 @@ describe('cameraForBoundingBox', () => {
     ).fittedSpanM;
     expect(big).toBeGreaterThan(small);
     expect(small).toBeGreaterThan(0);
+  });
+});
+
+/** The stationary/treadmill case: N accepted fixes at one coordinate (ADR 0021's deadband). */
+function stationaryFixes(count: number): SegmentedFix[] {
+  return Array.from({ length: count }, (_, i) => ({
+    timestamp: i * 1000,
+    lat: 59.33,
+    lng: 18.07,
+    altitude: null,
+    accuracy: 5,
+    speed: null,
+    segmentSeq: 0,
+  }));
+}
+
+const drawnBbox = (chunks: readonly SegmentPolyline[]) =>
+  boundingBox(chunks.flatMap((chunk) => chunk.points));
+
+describe('route extent gate (spec §8)', () => {
+  test('measures the bbox diagonal in metres', () => {
+    // 0.001° of latitude ≈ 111.19 m, and the same longitude delta at the equator, so the diagonal
+    // is that leg times √2.
+    const diagonal = boundingBoxDiagonalM({ minLat: 0, maxLat: 0.001, minLng: 0, maxLng: 0.001 });
+    expect(diagonal).toBeCloseTo(Math.SQRT2 * 0.001 * M_PER_DEG, 1);
+  });
+
+  test('is zero when the drawn line never leaves one coordinate', () => {
+    // Subsumes spec §8's "at least two distinct coordinates": a repeated coordinate measures 0 m.
+    const repeated = { lat: 59.33, lng: 18.07 };
+    expect(drawnBbox([chunkFrom([repeated, { ...repeated }])])).not.toBeNull();
+    expect(boundingBoxDiagonalM(drawnBbox([chunkFrom([repeated, { ...repeated }])])!)).toBe(0);
+  });
+
+  test('a stationary run is rejected, though it produces a drawable chunk', () => {
+    const chunks = toSegmentPolylines(smoothTrackForRender(stationaryFixes(4)));
+    // It survives every earlier stage: simplifyPolyline returns a copy for 2 points, so the chunk is
+    // never dropped — the extent gate is the only thing standing between it and a map of the runner's home.
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].points).toHaveLength(2);
+    expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeLessThan(MIN_ROUTE_EXTENT_M);
+  });
+
+  test('a camera span could never reject that run, at any surface aspect', () => {
+    // Regression pin: fittedSpanM is floored at MIN_SPAN_DEG · padding ≈ 72 m > MIN_ROUTE_EXTENT_M, so
+    // gating on it was dead code — and being aspect-dependent it also differed card-vs-viewer.
+    const bbox = drawnBbox(toSegmentPolylines(smoothTrackForRender(stationaryFixes(4))))!;
+    for (const aspect of [3 / 2, 393 / 852, 1]) {
+      expect(cameraForBoundingBox(bbox, aspect).fittedSpanM).toBeGreaterThan(MIN_ROUTE_EXTENT_M);
+    }
+  });
+
+  test('ignores an outlier that no chunk draws', () => {
+    // A single-point chunk is dropped after simplification, so its coordinate is not on screen and
+    // must not widen the predicate either.
+    const points = makeRenderPoints([0, 0, 1]);
+    points[2] = { ...points[2], point: { lat: 60, lng: 19 }, gapBefore: true };
+    const chunks = toSegmentPolylines(points);
+    expect(chunks).toHaveLength(1);
+    expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeLessThan(MIN_ROUTE_EXTENT_M);
+  });
+
+  test('a real route clears the gate', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints(Array.from({ length: 30 }, () => 0)));
+    expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeGreaterThan(MIN_ROUTE_EXTENT_M);
   });
 });
 

@@ -70,6 +70,14 @@ export function boundingBox(points: readonly LatLng[]): BoundingBox | null {
   return { minLat, maxLat, minLng, maxLng };
 }
 
+/** Diagonal of the box in metres — a route's own extent, independent of any viewport or camera. */
+export function boundingBoxDiagonalM(bbox: BoundingBox): number {
+  return haversineMeters(
+    { lat: bbox.minLat, lng: bbox.minLng },
+    { lat: bbox.maxLat, lng: bbox.maxLng },
+  );
+}
+
 /**
  * Google encoded polyline for the sequence (empty input → ''). Precision must be ≤ 6:
  * the encoder's 32-bit bitwise ops overflow at ≥ 7 and silently corrupt output.
@@ -559,8 +567,10 @@ export function cameraForBoundingBox(
   };
 }
 
-/** why: a treadmill run has plenty of fixes and no extent — without this the card would draw a dot
- * on a street map of the user's home (spec §8). */
+/** why: a treadmill run has plenty of fixes and no extent — without this the card draws a dot on a
+ * street map of the user's home (spec §8). Compared against `boundingBoxDiagonalM` over the drawn
+ * chunks, never a camera span: those are aspect-dependent and floored above this value, so a route
+ * could clear the gate on one surface and fail it on another, or never be rejected at all. */
 export const MIN_ROUTE_EXTENT_M = 60;
 
 /** Chevron size as a fraction of the camera's fitted span — NOT the bbox diagonal, which the camera

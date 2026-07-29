@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { UNSAVED_RUN_ID } from '@/app/run-summary/[id]';
 import { KeepAwakeWhileMounted } from '@/components/keep-awake-while-mounted';
 import { RunLocationBanner } from '@/components/run-location-banner';
 import { RunLock } from '@/components/run-lock';
@@ -12,6 +11,7 @@ import { RunProgressBar } from '@/components/run-progress-bar';
 import { RunTransport } from '@/components/run-transport';
 import { SkiaCountdown } from '@/components/skia-countdown';
 import { Text } from '@/components/ui/text';
+import { UNSAVED_RUN_ID } from '@/constants/routes';
 import { SEGMENT_KIND_LABEL, formatClock, formatDistanceKm, formatPace } from '@/domain/format';
 import { useSegmentColors, useTheme } from '@/hooks/use-theme';
 import { useLocationPermission } from '@/services/location-tracker';
@@ -51,8 +51,8 @@ export default function RunScreen() {
     // which the summary renders as its "couldn't be saved" state.
     if (finished && saveSettled) {
       router.replace({
-        pathname: '/run-summary/[id]',
-        params: { id: snapshot.savedRunId ?? UNSAVED_RUN_ID, celebrate: '1' },
+        pathname: '/runs/[runId]',
+        params: { runId: snapshot.savedRunId ?? UNSAVED_RUN_ID, celebrate: '1' },
       });
     }
   }, [finished, saveSettled, snapshot.savedRunId, router]);

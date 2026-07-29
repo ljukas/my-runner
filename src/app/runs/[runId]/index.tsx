@@ -9,17 +9,11 @@ import { RunStatGrid } from '@/components/run-stat-grid';
 import { RunSummaryHeadline } from '@/components/run-summary-headline';
 import { SegmentBreakdown } from '@/components/segment-breakdown';
 import { SegmentSplits } from '@/components/segment-splits';
+import { Footer } from '@/components/ui/footer';
+import { UNSAVED_RUN_ID } from '@/constants/routes';
 import { db } from '@/db/client';
 import { runs, runSegments } from '@/db/schema';
 import { sessionTitle } from '@/domain/format';
-import { Footer } from '@/components/ui/footer';
-
-/**
- * A dynamic segment can't be empty, so a failed save routes here with this
- * sentinel instead of a run id (run ids are UUIDs — no collision). The screen
- * renders it as the save-failure apology without a matching row.
- */
-export const UNSAVED_RUN_ID = 'unsaved';
 
 /**
  * The run summary, opened as a large-title modal (route config in `_layout`,
@@ -32,29 +26,29 @@ export const UNSAVED_RUN_ID = 'unsaved';
  */
 export default function RunSummaryScreen() {
   const router = useRouter();
-  const { id, celebrate } = useLocalSearchParams<'/run-summary/[id]'>();
+  const { runId, celebrate } = useLocalSearchParams<'/runs/[runId]'>();
   const celebrating = celebrate === '1';
 
   const {
     data: runRows,
     updatedAt: runLoaded,
     error: runError,
-  } = useLiveQuery(db.select().from(runs).where(eq(runs.id, id)), [id]);
+  } = useLiveQuery(db.select().from(runs).where(eq(runs.id, runId)), [runId]);
   const {
     data: segments,
     updatedAt: segmentsLoaded,
     error: segmentsError,
   } = useLiveQuery(
-    db.select().from(runSegments).where(eq(runSegments.runId, id)).orderBy(asc(runSegments.seq)),
-    [id],
+    db.select().from(runSegments).where(eq(runSegments.runId, runId)).orderBy(asc(runSegments.seq)),
+    [runId],
   );
 
   const run = runRows[0];
   const loaded = runLoaded !== undefined && segmentsLoaded !== undefined;
   const failed = runError !== undefined || segmentsError !== undefined;
 
-  if (id === UNSAVED_RUN_ID || failed || (loaded && !run)) {
-    const unsaved = id === UNSAVED_RUN_ID;
+  if (runId === UNSAVED_RUN_ID || failed || (loaded && !run)) {
+    const unsaved = runId === UNSAVED_RUN_ID;
     return (
       <View className="flex-1 bg-background-grouped">
         <Island>

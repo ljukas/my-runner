@@ -97,7 +97,7 @@ export default function RootLayout() {
         />
 
         <Stack.Screen
-          name="run-summary/[id]"
+          name="runs/[runId]/index"
           options={{ presentation: 'modal', headerLargeTitleEnabled: true, title: '' }}
         >
           <Stack.Toolbar placement="right">

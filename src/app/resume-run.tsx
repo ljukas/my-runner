@@ -32,8 +32,8 @@ export default function ResumeRunScreen() {
     // fresh finish either way — the same acknowledgement (and bottom "Done") an ended-early run gets.
     await discardResumableRun(candidate);
     router.replace({
-      pathname: '/run-summary/[id]',
-      params: { id: candidate.runId, celebrate: '1' },
+      pathname: '/runs/[runId]',
+      params: { runId: candidate.runId, celebrate: '1' },
     });
   };
 

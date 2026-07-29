@@ -95,7 +95,7 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
      beneath a lingering form sheet (`session/[key].tsx:63-67`).
 
      **The first draft of this note blamed siblinghood, and shipped code falsifies
-     that.** `run-summary/[id].tsx:81-99` lays an RN `ScrollView` beside
+     that.** `runs/[runId]/index.tsx:81-99` lays an RN `ScrollView` beside
      `Footer → Island.Button fill "Done"` — a real Host — and CI-gated flows assert
      the RN strings inside it on that very screen (`run-distance.yaml:42-43`
      "Distance"/"Avg Pace"; `complete-session.yaml` "Nice work.*", "Warm Up"),

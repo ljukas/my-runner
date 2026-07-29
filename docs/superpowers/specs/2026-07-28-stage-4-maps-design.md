@@ -544,6 +544,34 @@ against real device tracks, not synthetic noise. Rendering is unaffected: DP
 removes exactly the jitter that inflates the number. See §11 for the sequencing
 consequence.
 
+**A second Stage 3 observation, surfaced by the Batch A review: `smoothFix` has a
+cliff one second wide below `MAX_GAP_S`.** The seed-drop above (§4.1) removes the
+raw cold-start vertex, leaving a ~6.9 m decaying excursion. But that mitigation
+only engages on the *gap* path. Feed the same legal 45 m resume fix after a
+dropout **shorter** than `MAX_GAP_S = 30 s` and no reset fires, so nothing is
+dropped:
+
+| dropout | 5 s | 10 s | 16 s | 25 s | **29 s** | 31 s |
+|---|---|---|---|---|---|---|
+| max excursion in the render stream | 3.3 m | 11.4 m | 23.4 m | 35.0 m | **37.8 m** | 6.9 m |
+| survives DP at ε=5 and ε=2 | no | yes | yes | yes | **yes** | yes |
+| raises `gapBefore` | no | no | no | no | **no** | yes |
+
+So a 29 s dropout — a bus passing, a tunnel, a dense urban canyon — produces an
+artefact **5.5× worse than the one the seed drop removes**, on the unprotected
+side of the threshold, surviving simplification at both epsilons, inflating the
+bounding box by ~38 m, and rendering with no visible break to explain it.
+
+This is `smoothFix` behaviour and therefore ADR 0021's, not Stage 4's — the render
+fold is merely the first consumer that can see it. It is recorded here rather than
+fixed because the honest resolution belongs with the other Milestone-0 tuning
+against real device tracks: the same `KALMAN_PROCESS_NOISE` sweep that fixes the
+walk-pace residual also damps this excursion, and choosing `MAX_GAP_S` against
+real dropout-length data is a better answer than special-casing the render path.
+Deliberately **not** worked around in `smoothTrackForRender`: a render-only
+heuristic would make the drawn line disagree with the distance, which ADR 0021 §3
+exists to prevent.
+
 ## 7. Components and screens
 
 ### 7.1 The `RouteMap` component port

@@ -1,4 +1,3 @@
-import { ContentUnavailableView } from '@expo/ui/swift-ui';
 import { asc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -7,6 +6,7 @@ import { ScrollView, View } from 'react-native';
 import { Island } from '@/components/island';
 import { RunStatGrid } from '@/components/run-stat-grid';
 import { RunSummaryHeadline } from '@/components/run-summary-headline';
+import { RunUnavailable } from '@/components/run-unavailable';
 import { SegmentBreakdown } from '@/components/segment-breakdown';
 import { SegmentSplits } from '@/components/segment-splits';
 import { Footer } from '@/components/ui/footer';
@@ -51,13 +51,7 @@ export default function RunSummaryScreen() {
     const unsaved = runId === UNSAVED_RUN_ID;
     return (
       <View className="flex-1 bg-background-grouped">
-        <Island>
-          <ContentUnavailableView
-            title={unsaved ? 'Run not saved' : 'Run unavailable'}
-            systemImage={unsaved ? 'exclamationmark.triangle' : 'questionmark.circle'}
-            description={unsaved ? "This run couldn't be saved." : "This run isn't available."}
-          />
-        </Island>
+        <RunUnavailable unsaved={unsaved} />
 
         {celebrating ? (
           <Footer>

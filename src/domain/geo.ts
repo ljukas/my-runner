@@ -559,6 +559,10 @@ export function cameraForBoundingBox(
   };
 }
 
+/** why: a treadmill run has plenty of fixes and no extent — without this the card would draw a dot
+ * on a street map of the user's home (spec §8). */
+export const MIN_ROUTE_EXTENT_M = 60;
+
 /** Chevron size as a fraction of the camera's fitted span — NOT the bbox diagonal, which the camera
  * does not track (spec §5): diagonal-sizing varies on-screen size ~2x from bbox shape alone. */
 export const CHEVRON_SIZE_RATIO = 0.05;

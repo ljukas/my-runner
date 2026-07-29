@@ -35,7 +35,7 @@ export function RouteUnavailableCard({
       </Text>
       <Text variant="small" tone="secondary">
         {recordedFixes
-          ? 'No GPS signal for this run — common indoors or on a treadmill. Your time and intervals were still recorded.'
+          ? "This run didn't cover enough ground to map — common indoors or on a treadmill. Your time and intervals were still recorded."
           : 'No location was recorded for this run, so there is no map. Your time and intervals were still recorded.'}
       </Text>
       {offerCta ? (

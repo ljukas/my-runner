@@ -832,12 +832,22 @@ match. Then tap, assert the "Route" title, dismiss by swipe, and re-assert
 11. Light↔dark switch **with the map on screen** — `colorScheme: AUTOMATIC`
     skips the modifier entirely and inherits the hosting controller's traits,
     which is exactly the kind of propagation that silently fails.
-12. **An iOS 17.x runtime.** The 17.0 floor ships a *second* Swift render path
-    that nothing currently exercises: this machine has only iOS 18.6 and 26.5,
-    and CI picks an arbitrary iPhone from the `macos-26` runner's runtimes, never
-    17.x. Either download a 17.x simulator and smoke the map on it, or state in
-    the ADR amendment that iOS 17.0–17.x ships unverified. Do not leave it
-    implied.
+12. **The iOS 17 render path, on the local iOS 17.5 runtime.** The 17.0 floor
+    ships a *second* Swift renderer (`AppleMapsViewiOS17`), and CI will never
+    exercise it — `e2e.yml:124-125` picks an arbitrary iPhone from whatever
+    runtimes the `macos-26` runner ships. It is verifiable locally: iOS 17.5 and
+    18.6 runtimes are both installed. Because the branch is
+    `#available(iOS 18.0) / #available(iOS 17.0)`, **any** 17.x runtime exercises
+    the same code path as 17.0, so 17.5 is a faithful test of the floor.
+    The 17.5 runtime currently has **no device**, so create one first
+    (`xcrun simctl create` — outside argent's tool surface, which boots existing
+    devices; the argent rule sanctions `xcrun` for exactly this kind of device
+    management). Then install the dev build and smoke the map: route and chevrons
+    render, camera fits, no compass / pitch / my-location controls, and — since
+    `selectionEnabled` and the tap handlers are iOS-18-only — confirm a tap on
+    the viewer's map does nothing untoward. Run item 1 (paint order) on 17.5 as
+    well as 18.6: the two renderers build their content in the same declaration
+    order but are separate code paths, so ordering must be confirmed on both.
 
 Polyline pixel-correctness stays a visual check per master spec §13.
 
@@ -853,7 +863,7 @@ Polyline pixel-correctness stays a visual check per master spec §13.
 | Two live map views + several summary screens | §10.10 memory check; consider unmounting the card's map while the viewer is presented. |
 | iOS 26 MapKit churn (the package carries a documented iOS 26 tap workaround) | Read-only surface uses no tap handling; sim-verified per release. |
 | **Stage 4 makes Stage 3's walk-pace error visible for the first time** | Until now nobody could sanity-check "2.80 km"; with a route on screen, a beginner who ran four laps of a known 400 m track can see the number is wrong (§6). Decide explicitly whether Stage 4 ships before or after Milestone-0 validation. |
-| iOS 17.x render path unverified | §10.12 — verify on a downloaded runtime or declare it. |
+| iOS 17.x render path never exercised by CI | Verified locally instead: the iOS 17.5 runtime is installed and exercises the same `AppleMapsViewiOS17` branch as the 17.0 floor (§10.12). Retains a gap only for real 17.x *hardware*, which is the standard simulator caveat. |
 
 ## 12. Out of scope
 

@@ -6,7 +6,12 @@ Date: 2026-07-11
 
 ## Status
 
-Accepted
+Accepted (**pending amendment, 2026-07-29:** the shipped floor is **17.0**, set
+via app.json's built-in `ios.deploymentTarget`, not 18.0 via
+`expo-build-properties` as the title and §1 below still state. The
+substantive amendment — correcting the title, §1, and Consequences — is
+scheduled as Task 15 of the Stage-4 maps plan and has not yet landed; until
+then, treat the title and §1 as stale.)
 
 ## Context
 

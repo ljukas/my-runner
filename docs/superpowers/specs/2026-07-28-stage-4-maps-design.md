@@ -476,16 +476,47 @@ insurance against that scan changing, not load-bearing today.
 | `ROUTE_STROKE_W` / `ROUTE_STROKE_W_RUN` / `CHEVRON_STROKE_W` | `4` / `7` / `3` |
 | `VIEWER_DP_EPSILON_M` | `2` |
 
-**Colour: a dark casing, not white.** Chevrons stay blind to segment kind (they
-carry direction, not phase). White fails WCAG 1.4.11's 3:1 for non-text graphics
-against two of the four segment colours — measured 2.2:1 on warmup orange
-`#FF9500` and 2.6:1 on cooldown teal `#30B0C7` (and 3.3:1 on walk grey, itself
-marginal), made worse by alpha and by an *inlaid* narrower stroke, and it
-vanishes entirely where it overshoots onto a light basemap.
-`ROUTE_DIRECTION_COLOR = 'rgba(0,0,0,0.55)'` — the standard cartographic casing
-ink — holds against all four vivid hues *and* against light land, and inverts the
-overshoot failure mode. Scheme-independent, because MapKit's basemap is not
-skinned by the app's theme.
+**Colour: a casing ink per scheme.** Chevrons stay blind to segment kind (they
+carry direction, not phase), so one ink serves the whole route — but not both
+appearances. White fails WCAG 1.4.11's 3:1 for non-text graphics against two of
+the four segment colours — measured 2.2:1 on warmup orange `#FF9500` and 2.6:1 on
+cooldown teal `#30B0C7` (and 3.3:1 on walk grey, itself marginal) — and vanishes
+where it overshoots onto light basemap. Its replacement,
+`rgba(0,0,0,0.55)`, was then asserted here on two claims that are **both false**:
+
+- *"Holds against all four vivid hues."* Re-measured: warmup 3.78:1, walk 3.18:1,
+  cooldown 3.54:1, and **run blue `#007AFF` 2.92:1 — a fail**, on the thickest and
+  most-looked-at line. The constant was only ever re-checked against the two
+  colours white had failed on, never against blue.
+- *"Scheme-independent, because MapKit's basemap is not skinned by the app's
+  theme."* The basemap does follow the system appearance (§10.11 saw the whole map
+  flip), and a chevron's wings overhang the basemap far more than they cover the
+  4–7 pt line, so the basemap — not the hue — is the mark's dominant background.
+  Dark ink on the dark basemap measures 1.17:1: the chevrons all but vanish, the
+  exact inverse of the failure white was replaced to fix.
+
+So the ink is a light/dark pair, `RouteDirectionColors` in the `Colors` mirror,
+read through `useRouteDirectionColor()` exactly as `SegmentColors` is:
+
+| scheme | ink | run | walk | warmup | cooldown | basemap land |
+|---|---|---|---|---|---|---|
+| light | `rgba(0,0,0,0.65)` | 3.52 | 3.94 | 4.97 | 4.56 | 6.5–6.8 |
+| dark | `rgba(255,255,255,0.95)` | 3.44 | 3.11 | **1.98** | **1.87** | 14.4–16.5 |
+
+Ratios are WCAG 2.x relative luminance over the **sRGB alpha composite** of ink on
+background, the method that reproduces the white measurements above exactly. Light
+mode clears 3:1 on every surface with ~17% headroom on the binding one.
+
+**Dark mode provably cannot, and the shortfall is deliberate.** 3:1 against the
+dark basemap (L ≈ 0.014) needs an ink of luminance ≥ 0.141; 3:1 against the
+brighter dark-variant warmup `#FF9F0A` (L = 0.461) and cooldown `#40CBE0`
+(L = 0.492) needs ≤ 0.120 and ≤ 0.131. Those windows do not intersect, so no
+single ink — at any alpha, since alpha only slides the composite between the two
+bounds — can satisfy both. A near-white ink takes the two surfaces that matter
+most (the dominant basemap, and the run interval) and gives up the two brief
+walking phases at either end of a session, where the mark still reads as a shape
+against the line at ~1.9:1. Per-kind inks or a double casing would be a design
+change, not a colour fix, and stay out.
 
 **If chevrons paint *under* the route** (§3: SwiftUI guarantees no intra-array
 order, and there is no z-index anywhere to fall back on), the same geometry
@@ -647,10 +678,14 @@ naming the route ("Map of your 2.1 km route") and the activation phrasing in
 `accessibilityHint` — not appended to the label, which would duplicate what
 VoiceOver already says for a button. The grouping lives in **one** place: the
 adapter, when `interactive` is false. The viewer is deliberately not flattened —
-that would collapse MapKit's own elements — but is not left mute either: it gets
-a route-summary label on the map's container plus a real screen title, since a
+that would collapse MapKit's own elements — but is not left mute either: since a
 polyline overlay has no accessibility representation of its own and the card's
-summary would otherwise be lost on the way in.
+summary would otherwise be lost on the way in, it carries a route-summary label on
+a **footprint-free sibling node ahead of the map**, plus a real screen title. Not
+on the wrapper: `accessible` there is exactly the flattening the previous sentence
+rules out. Its wording differs from the card's, because `presentation: 'modal'`
+leaves the card in the hierarchy underneath and §7.4's two-"Close" hazard applies
+to any duplicated label.
 
 ### 7.2 Summary card
 
@@ -722,8 +757,9 @@ toggled, per the verified gotcha that toggling `headerShown` on an in-flight
 modal freezes the screen.
 
 The screen live-queries `runSegments` for its `id` (an approved live-query table
-scoped to a fixed `run_id`), gates on the loaded idiom (§4.3), and calls
-`useRunRoute` with ε=2 m and the **content box's** aspect ratio — the window
+scoped to a fixed `run_id`) — and `runs`, the way the summary does, for the distance
+its accessibility label is composed from — gates on the loaded idiom (§4.3), and
+calls `useRunRoute` with ε=2 m and the **content box's** aspect ratio — the window
 minus the nav bar and safe-area insets, not the window itself, since the map
 does not fill it. Being independently deep-linkable, it handles a bad `id` with
 the shared unavailable-state component (§7.5).
@@ -747,13 +783,33 @@ near-identical fixes → 17 chunks that survive DP (endpoints are always kept) �
 a street map of the user's front door**, on a screen people screenshot and share.
 A treadmill run in February is an entirely normal thing for a C25K beginner.
 
-`ready: true` therefore additionally requires a minimum bounding-box diagonal
-(`MIN_ROUTE_EXTENT_M`) and at least two distinct post-DP coordinates.
+`ready: true` therefore additionally requires the **drawn** route's own extent: the
+bounding-box diagonal, in metres, over the coordinates of the *kept* chunks
+(`boundingBoxDiagonalM`, against `MIN_ROUTE_EXTENT_M`). Measuring the kept chunks
+rather than every render point keeps an outlier that nothing draws out of the
+predicate, and the 60 m threshold subsumes "at least two distinct post-DP
+coordinates" — a repeated coordinate measures 0 m.
+
+**The gate must never read a camera property.** The first implementation gated on
+`cameraForBoundingBox`'s `fittedSpanM`, which fails twice over. It is
+aspect-dependent (§4.2), so a borderline-short route can clear the gate at the
+card's 3:2 and fail it at the viewer's ~0.55 — the user taps a working map and
+lands on "This run isn't available". Worse, it can never reject anything:
+`fittedSpanM` derives from `max(neededDeg, MIN_SPAN_DEG) · (1 + 2·padding)` scaled
+by `max(f, 1/A)/f`, which is ≥ 1 by construction, so its floor is
+`0.0005 · 1.3 · 111 195 ≈ 72.3 m` — above `MIN_ROUTE_EXTENT_M` at every latitude
+and aspect tested. The treadmill case this section exists to prevent was therefore
+shipping: four stationary fixes leave two post-seed render points on one
+coordinate, `simplifyPolyline` returns a copy for ≤ 2 points so the chunk survives
+the `< 2` drop, and the card renders a 72 m window on the runner's front door with
+a pin in it. The same route measures 0 m of drawn extent. Both the measure and that
+pipeline are unit-pinned (`geo.test.ts`, "route extent gate").
 
 | Case | Behaviour |
 |---|---|
-| Location denied | `RouteUnavailableCard` — "No route for this run", one honest line, and the Enable-Location / Open-Settings affordance the run screen already owns via `useLocationPermission`. |
-| Permission granted, no usable route (indoor, treadmill, GPS never fixed) | Same card, **different copy** — the user did nothing wrong, so the copy must not imply they did, and must not draw a map of their home. |
+| The run recorded no fixes at all (location off, or GPS never fixed) | `RouteUnavailableCard` — "No route for this run" plus one honest line. **The reason is read from the run row, never from today's permission:** `save-run` nulls `summary_polyline` iff zero fixes were accepted, and that is the only per-run record of which case this was. Branching on the live permission relabels history — deny, record three runs, then grant, and all three are suddenly blamed on a treadmill. |
+| Fixes recorded, no usable extent (indoor, treadmill, stationary) | Same card, **different copy** — the user did nothing wrong, so the copy must not imply they did, and must not draw a map of their home. |
+| Location not granted *now* | Adds the CTA, and only the CTA: `Open Settings` when `denied`, `Enable Location` when `undetermined` — iOS shows no Location row at all for an app that has never asked, so Settings is a dead end for that cohort — and nothing while `useLocationPermission()` is still `null`. Mirrors `run-location-banner` (ADR 0008 §2). |
 | Fewer than 2 smoothed points | Same card. |
 | GPS gap | Rendered as a genuine break; no chevron bridges it. |
 | Deep link to a missing run | `RunUnavailable` (§7.5). |
@@ -942,6 +998,20 @@ detail screen; it needs a new home, presumably the summary.
   equals the vertical extent that zoom shows, at both aspect regimes and on a
   degenerate bbox; a non-finite or non-positive aspect ratio falls back to a
   square viewport.
+- **The route-extent gate** (§8) — the one predicate that shipped with no unit
+  cover at all: `boundingBoxDiagonalM` in metres; 0 m for a drawn line that never
+  leaves one coordinate; a **stationary four-fix run rejected** end-to-end through
+  `smoothTrackForRender` → `toSegmentPolylines`, with the same fixture pinning that
+  `fittedSpanM` *exceeds* `MIN_ROUTE_EXTENT_M` at every surface aspect (the
+  regression that made the old gate dead code); an outlier inside a dropped chunk
+  not counted; a real route clearing it.
+- `toRouteLines` (`domain/route-render.ts`) — the hook's mapping stage, extracted so
+  it is reachable without a React runtime: kind → colour per chunk, only run
+  intervals thick, deterministic `seg-N` ids in drawing order, chunk points passed
+  through by reference (the boundary-sharing guarantee), and a chunk whose
+  `segmentSeq` matches no row drawn as **walk** — the fallback ADR 0021 §4 and
+  `save-run`'s own `__DEV__` invariant warning make load-bearing rather than
+  defensive.
 
 **Maestro** — extend `.maestro/tests/run-distance.yaml`. The steps go **between
 `assertVisible: "Avg Pace"` (line 43) and the `"Interval Pace"`

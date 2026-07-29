@@ -1,30 +1,17 @@
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import * as Crypto from 'expo-crypto';
 
-import { encodePolyline, smoothTrackBySegment, type SegmentedFix } from '@/domain/geo';
+import { encodePolyline, smoothTrackBySegment } from '@/domain/geo';
 import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run-engine/types';
 import { db } from './client';
-import { runPoints, runSegments, runs } from './schema';
+import { loadRunPoints } from './run-points';
+import { runSegments, runs } from './schema';
 
-// why: re-fold the accuracy-filtered points in insertion (`seq`) order — the order the live engine
-// used — so the re-derived distance equals the live value (ADR 0021 §3); no re-gate.
+// why: re-fold the persisted fixes in `seq` order — the order the live engine used — so the
+// re-derived distance equals the live value (ADR 0021 §3).
 function rollupFromPoints(runId: string) {
-  const rows = db
-    .select()
-    .from(runPoints)
-    .where(eq(runPoints.runId, runId))
-    .orderBy(asc(runPoints.seq))
-    .all();
-  const fixes: SegmentedFix[] = rows.map((r) => ({
-    timestamp: new Date(r.timestamp).getTime(),
-    lat: r.lat,
-    lng: r.lng,
-    altitude: r.altitude,
-    accuracy: r.accuracy,
-    speed: r.speed,
-    segmentSeq: r.segmentSeq,
-  }));
-  return { hasPoints: rows.length > 0, ...smoothTrackBySegment(fixes) };
+  const fixes = loadRunPoints(runId);
+  return { hasPoints: fixes.length > 0, ...smoothTrackBySegment(fixes) };
 }
 
 export const dbRunPersistence: RunLifecyclePersistence = {

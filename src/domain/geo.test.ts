@@ -4,6 +4,11 @@ import {
   accuracyFilter,
   boundingBox,
   cameraForBoundingBox,
+  CHEVRON_DEDUPE_MULTIPLIER,
+  CHEVRON_MIN_RUN_LENGTH_M,
+  CHEVRON_SIZE_RATIO,
+  CHEVRON_TARGET_COUNT,
+  chevronsAlongRoute,
   createSmootherState,
   DP_EPSILON_M,
   EARTH_RADIUS_M,
@@ -25,6 +30,7 @@ import {
   type LocationFix,
   type RenderPoint,
   type SegmentedFix,
+  type SegmentPolyline,
 } from './geo';
 
 /** A fully-formed fix; override only the field under test. */
@@ -694,5 +700,129 @@ describe('cameraForBoundingBox', () => {
     ).fittedSpanM;
     expect(big).toBeGreaterThan(small);
     expect(small).toBeGreaterThan(0);
+  });
+});
+
+const M_PER_DEG_LAT = 111_320;
+
+function chunkFrom(points: LatLng[], segmentSeq = 0, gapBefore = false): SegmentPolyline {
+  return { segmentSeq, points, gapBefore };
+}
+
+/** Straight leg from `origin` along `bearingDeg` for `lengthM`, as a 2-point chunk. */
+function leg(origin: LatLng, bearingDeg: number, lengthM: number): SegmentPolyline {
+  const rad = bearingDeg * (Math.PI / 180);
+  const cosLat = Math.cos(origin.lat * (Math.PI / 180));
+  return chunkFrom([
+    origin,
+    {
+      lat: origin.lat + (Math.cos(rad) * lengthM) / M_PER_DEG_LAT,
+      lng: origin.lng + (Math.sin(rad) * lengthM) / (M_PER_DEG_LAT * cosLat),
+    },
+  ]);
+}
+
+/** Metre offsets of `p` from `origin`, east and north. */
+function offsetM(origin: LatLng, p: LatLng) {
+  const cosLat = Math.cos(origin.lat * (Math.PI / 180));
+  return {
+    east: (p.lng - origin.lng) * M_PER_DEG_LAT * cosLat,
+    north: (p.lat - origin.lat) * M_PER_DEG_LAT,
+  };
+}
+
+describe('chevronsAlongRoute', () => {
+  test('emits nothing for a run below the minimum length', () => {
+    const short = leg({ lat: 59.33, lng: 18.07 }, 0, CHEVRON_MIN_RUN_LENGTH_M - 5);
+    expect(chevronsAlongRoute([short], 500)).toHaveLength(0);
+  });
+
+  test('points along travel — north-east at Stockholm latitude', () => {
+    // why this bearing: due-N and due-E are the two bearings at which a missing cos(latitude)
+    // term produces ZERO error, so they cannot catch the likeliest bug (spec §10).
+    const origin = { lat: 59.33, lng: 18.07 };
+    const chevrons = chevronsAlongRoute([leg(origin, 45, 800)], 800);
+    expect(chevrons.length).toBeGreaterThan(0);
+    const { east, north } = offsetM(origin, chevrons[0].points[1]);
+    expect(east).toBeGreaterThan(0);
+    expect(north).toBeGreaterThan(0);
+    expect(east / north).toBeCloseTo(1, 1); // equal METRE offsets, not equal degrees
+  });
+
+  test('the same north-east geometry holds at the equator and at 60 degrees', () => {
+    for (const lat of [0, 60]) {
+      const origin = { lat, lng: 10 };
+      const chevrons = chevronsAlongRoute([leg(origin, 45, 800)], 800);
+      const { east, north } = offsetM(origin, chevrons[0].points[1]);
+      expect(east / north).toBeCloseTo(1, 1);
+    }
+  });
+
+  test('wings sit behind the tip', () => {
+    const origin = { lat: 0, lng: 0 };
+    const [chevron] = chevronsAlongRoute([leg(origin, 0, 800)], 800); // due north
+    const tip = offsetM(origin, chevron.points[1]);
+    for (const wing of [chevron.points[0], chevron.points[2]]) {
+      expect(offsetM(origin, wing).north).toBeLessThan(tip.north);
+    }
+    // ...and on opposite sides of the line
+    expect(offsetM(origin, chevron.points[0]).east).toBeLessThan(0);
+    expect(offsetM(origin, chevron.points[2]).east).toBeGreaterThan(0);
+  });
+
+  test('no two arrows point at each other on an out-and-back', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    const out = leg(origin, 0, 700);
+    const backOrigin = { ...out.points[1], lng: out.points[1].lng + 0.00007 }; // 4 m lateral offset
+    const back = chunkFrom([backOrigin, { ...origin, lng: origin.lng + 0.00007 }], 1);
+    const chevrons = chevronsAlongRoute([out, back], 1400);
+    const size = 1400 * CHEVRON_SIZE_RATIO;
+
+    for (let i = 0; i < chevrons.length; i++) {
+      for (let j = i + 1; j < chevrons.length; j++) {
+        const near =
+          haversineMeters(chevrons[i].points[1], chevrons[j].points[1]) <
+          size * CHEVRON_DEDUPE_MULTIPLIER;
+        expect(near).toBe(false);
+      }
+    }
+  });
+
+  test('arrow count stays near the target however many gaps split the track', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    for (const gaps of [0, 2, 5]) {
+      const chunks: SegmentPolyline[] = [];
+      const legLength = 2400 / (gaps + 1);
+      for (let i = 0; i <= gaps; i++) {
+        const start = { lat: origin.lat + i * 0.05, lng: origin.lng };
+        chunks.push({ ...leg(start, 0, legLength), gapBefore: i > 0, segmentSeq: i });
+      }
+      const count = chevronsAlongRoute(chunks, 2400).length;
+      expect(count).toBeLessThanOrEqual(CHEVRON_TARGET_COUNT + 1);
+      expect(count).toBeGreaterThan(0);
+    }
+  });
+
+  test('on-screen size stays in a narrow band across route archetypes', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    const fractions = [200, 800, 2400, 9000].map((span) => {
+      const chevrons = chevronsAlongRoute([leg(origin, 0, span)], span);
+      const size = haversineMeters(chevrons[0].points[1], chevrons[0].points[0]);
+      return size / span; // fraction of the fitted span == fraction of the screen
+    });
+    const spread = Math.max(...fractions) / Math.min(...fractions);
+    expect(spread).toBeLessThan(1.2);
+  });
+
+  test('a duplicated boundary vertex never yields a due-north arrow', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    const east = leg(origin, 90, 900);
+    const seam = east.points[1];
+    // The shared-vertex rule means the seam appears at the end of one chunk and the start of the next.
+    const next = chunkFrom([seam, { lat: seam.lat, lng: seam.lng + 0.02 }], 1);
+    for (const chevron of chevronsAlongRoute([east, next], 1800)) {
+      const { east: e, north: n } = offsetM(chevron.points[1], chevron.points[0]);
+      expect(Math.abs(n)).toBeLessThan(Math.abs(e)); // eastbound: wings trail west, not south
+    }
   });
 });

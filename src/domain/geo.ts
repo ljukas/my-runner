@@ -552,3 +552,135 @@ export function cameraForBoundingBox(
     fittedSpanM,
   };
 }
+
+/** Chevron size as a fraction of the camera's fitted span — NOT the bbox diagonal, which the camera
+ * does not track (spec §5): diagonal-sizing varies on-screen size ~2x from bbox shape alone. */
+export const CHEVRON_SIZE_RATIO = 0.05;
+export const CHEVRON_MIN_SIZE_M = 3;
+/** A sanity rail, not a design parameter: it must NOT bind inside the C25K range, or arrows shrink
+ * on screen exactly as the diagonal-sizing bug did. 400 m only binds past an 8 km fitted span. */
+export const CHEVRON_MAX_SIZE_M = 400;
+export const CHEVRON_TARGET_COUNT = 8;
+export const CHEVRON_MIN_SPACING_MULTIPLIER = 4;
+export const CHEVRON_MIN_RUN_LENGTH_M = 20;
+export const CHEVRON_WING_DEG = 35;
+/** Bearing difference past which two nearby arrows count as opposed (retraced ground). */
+export const CHEVRON_OPPOSED_DEG = 120;
+export const CHEVRON_DEDUPE_MULTIPLIER = 2;
+
+export interface Chevron {
+  /** [back-left, tip, back-right] — a ">" pointing along travel. `sizeM` is tip-to-wing-end. */
+  points: readonly [LatLng, LatLng, LatLng];
+}
+
+function bearingRad(a: LatLng, b: LatLng, cosLat: number): number {
+  const east = (b.lng - a.lng) * cosLat;
+  const north = b.lat - a.lat;
+  if (east === 0 && north === 0) return NaN; // duplicated vertex — atan2(0,0) would read as due north
+  return Math.atan2(east, north);
+}
+
+function offsetMeters(from: LatLng, bearing: number, distM: number, cosLat: number): LatLng {
+  return {
+    lat: from.lat + (Math.cos(bearing) * distM) / M_PER_DEG,
+    lng: from.lng + (Math.sin(bearing) * distM) / (M_PER_DEG * cosLat),
+  };
+}
+
+/** Contiguous runs of chunks with no real gap between them, as flat deduplicated point lists. */
+function gapFreeRuns(chunks: readonly SegmentPolyline[]): LatLng[][] {
+  const runs: LatLng[][] = [];
+  let current: LatLng[] | null = null;
+  for (const chunk of chunks) {
+    if (!current || chunk.gapBefore) {
+      current = [];
+      runs.push(current);
+    }
+    for (const point of chunk.points) {
+      const previous = current.at(-1);
+      // why: adjacent chunks share their boundary vertex, so concatenating duplicates it — and a
+      // zero-length segment makes the bearing degenerate.
+      if (previous && previous.lat === point.lat && previous.lng === point.lng) continue;
+      current.push(point);
+    }
+  }
+  return runs;
+}
+
+/**
+ * Direction arrows along the drawn route. Rides the already-simplified geometry (cheaper, and much less
+ * bearing jitter than the raw stream). Spacing is global across runs so gaps cannot multiply the count,
+ * and arrows on retraced ground are deduplicated so an out-and-back does not render them head-to-head.
+ */
+export function chevronsAlongRoute(
+  chunks: readonly SegmentPolyline[],
+  fittedSpanM: number,
+): Chevron[] {
+  const sizeM = Math.min(
+    Math.max(fittedSpanM * CHEVRON_SIZE_RATIO, CHEVRON_MIN_SIZE_M),
+    CHEVRON_MAX_SIZE_M,
+  );
+
+  const runs = gapFreeRuns(chunks)
+    .map((points) => {
+      const cumulative = [0];
+      for (let i = 1; i < points.length; i++) {
+        cumulative.push(cumulative[i - 1] + haversineMeters(points[i - 1], points[i]));
+      }
+      return { points, cumulative, length: cumulative.at(-1) ?? 0 };
+    })
+    .filter((run) => run.length >= CHEVRON_MIN_RUN_LENGTH_M && run.points.length >= 2);
+
+  const totalM = runs.reduce((sum, run) => sum + run.length, 0);
+  if (totalM === 0) return [];
+
+  const spacingM = Math.max(totalM / CHEVRON_TARGET_COUNT, sizeM * CHEVRON_MIN_SPACING_MULTIPLIER);
+  const wing = CHEVRON_WING_DEG * DEG_TO_RAD;
+  const opposed = CHEVRON_OPPOSED_DEG * DEG_TO_RAD;
+  const accepted: { tip: LatLng; bearing: number }[] = [];
+
+  let runStart = 0;
+  for (const run of runs) {
+    for (let target = spacingM / 2; ; target += spacingM) {
+      const local = target - runStart;
+      if (local < 0) continue;
+      if (local > run.length) break;
+
+      let i = 1;
+      while (i < run.cumulative.length - 1 && run.cumulative[i] < local) i += 1;
+      const from = run.points[i - 1];
+      const to = run.points[i];
+      const segmentM = run.cumulative[i] - run.cumulative[i - 1];
+      const t = segmentM === 0 ? 0 : (local - run.cumulative[i - 1]) / segmentM;
+      const tip: LatLng = {
+        lat: from.lat + (to.lat - from.lat) * t,
+        lng: from.lng + (to.lng - from.lng) * t,
+      };
+
+      const cosLat = Math.cos(tip.lat * DEG_TO_RAD);
+      const bearing = bearingRad(from, to, cosLat);
+      if (Number.isNaN(bearing)) continue;
+
+      const clash = accepted.some(
+        (other) =>
+          haversineMeters(other.tip, tip) < sizeM * CHEVRON_DEDUPE_MULTIPLIER &&
+          Math.abs(
+            Math.atan2(Math.sin(other.bearing - bearing), Math.cos(other.bearing - bearing)),
+          ) > opposed,
+      );
+      if (!clash) accepted.push({ tip, bearing });
+    }
+    runStart += run.length;
+  }
+
+  return accepted.map(({ tip, bearing }) => {
+    const cosLat = Math.cos(tip.lat * DEG_TO_RAD);
+    return {
+      points: [
+        offsetMeters(tip, bearing + Math.PI + wing, sizeM, cosLat),
+        tip,
+        offsetMeters(tip, bearing + Math.PI - wing, sizeM, cosLat),
+      ] as const,
+    };
+  });
+}

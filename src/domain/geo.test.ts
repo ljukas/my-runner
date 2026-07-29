@@ -710,7 +710,8 @@ describe('cameraForBoundingBox', () => {
   });
 
   test('fittedSpanM is exactly the vertical extent the zoom will show', () => {
-    // Flooring the zoom in degrees and fittedSpanM in metres let the two disagree by up to 5x.
+    // Flooring the zoom in degrees while flooring fittedSpanM in metres let the two disagree
+    // wherever MIN_SPAN_DEG binds, which is why the degenerate `point` bbox is in this list.
     for (const box of [stockholm, wide, tall, point]) {
       for (const aspect of aspects) {
         const fit = cameraForBoundingBox(box, aspect);
@@ -801,13 +802,12 @@ const gapped = (chunk: SegmentPolyline, segmentSeq: number): SegmentPolyline => 
   gapBefore: true,
 });
 
-/** Bearing from `from` to `p`, degrees clockwise from north, measured in metres (not degrees). */
+/** Bearing from `from` to `p`, degrees clockwise from north, computed from metre offsets. */
 function bearingDegFrom(from: LatLng, p: LatLng): number {
   const { east, north } = offsetM(from, p);
   return ((Math.atan2(east, north) * 180) / Math.PI + 360) % 360;
 }
 
-/** `b - a` wrapped into (-180, 180]. */
 function angleDiffDeg(a: number, b: number): number {
   return ((((b - a) % 360) + 540) % 360) - 180;
 }
@@ -831,7 +831,6 @@ function minTipSeparationM(chevrons: readonly Chevron[]): number {
   return min;
 }
 
-/** Shortest distance from `p` to any segment of any of `polylines`, in metres. */
 function distanceToPolylinesM(p: LatLng, polylines: readonly LatLng[][]): number {
   let min = Infinity;
   for (const line of polylines) {
@@ -1081,8 +1080,7 @@ describe('chevronsAlongRoute', () => {
   });
 
   test('a duplicated boundary vertex still yields well-formed arrows', () => {
-    // The guard for this is defensive: the placement scan's strict `<` cannot select a zero-length
-    // segment, so this asserts the arrows are sound rather than that the guard fired.
+    // why: the degenerate guards are defensive (see geo.ts), so this asserts soundness, not a firing.
     const origin = { lat: 59.33, lng: 18.07 };
     const east = leg(origin, 90, 900);
     const seam = east.points[1];
@@ -1120,9 +1118,9 @@ describe('chevronsAlongRoute', () => {
   });
 
   test('eight laps of one loop never stack arrows on the same spot', () => {
-    // 8 laps of a 400 m circuit is the C25K graduation distance, and spacing = totalM/8 is then
-    // exactly one lap, so every arrow targets the same physical point. Only one survives: the
-    // trade-off is fewer arrows on a multi-lap route, never a cluster of overlapping ones.
+    // At any integer lap count spacing = totalM/8 is exactly one lap, so every arrow targets the
+    // same physical point. Only one survives: the trade-off is fewer arrows on a multi-lap route,
+    // never a cluster of overlapping ones.
     const ring = closedLoop({ lat: 59.33, lng: 18.07 }, 64, 32).slice(0, -1);
     const laps = Array.from({ length: 8 }, () => ring).flat();
     const fit = cameraForBoundingBox(boundingBox(laps)!, 393 / 852);

@@ -436,7 +436,7 @@ the drop on a >120° difference) leaves same-direction retracing untouched, and
 that is structural rather than incidental: `spacing = totalM/8` and
 `totalM = laps · perimeter`, so at every integer lap count the spacing is an
 exact rational multiple of the perimeter. Measured on 8 laps of a 400 m track
-(2915 m — the C25K graduation distance) all 8 arrows landed **2.1–18.6 m apart
+(2915 m through the full noisy pipeline) all 8 arrows landed **2.1–18.6 m apart
 with a 19.6 m chevron**: one cluster, 7/8 of the feature gone, and the
 `rgba(0,0,0,0.55)` stack composited to alpha 0.998. Two marks closer than half
 an arrow-length read as one mark regardless of direction, which is the actual

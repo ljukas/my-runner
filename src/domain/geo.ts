@@ -537,7 +537,7 @@ export function cameraForBoundingBox(
   aspectRatio: number,
   paddingRatio = CAMERA_PADDING_RATIO,
 ): CameraFit {
-  // why: a pre-layout viewport measures 0/0 — a NaN or ≤ 0 ratio would otherwise fit to an infinite span.
+  // why: a pre-layout viewport measures 0/0, which turns the whole fit NaN.
   const aspect = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const f = 1 / Math.cos(centerLat * DEG_TO_RAD);
@@ -644,7 +644,7 @@ export function chevronsAlongRoute(
   if (totalM === 0) return [];
 
   const spacingM = Math.max(totalM / CHEVRON_TARGET_COUNT, sizeM * CHEVRON_MIN_SPACING_MULTIPLIER);
-  // why: the placement loop's exits are both comparisons, so a NaN spacing loops forever.
+  // why: the placement loop's only exit is a comparison, so a NaN spacing loops forever.
   if (!Number.isFinite(spacingM) || spacingM <= 0) return [];
   const wing = CHEVRON_WING_DEG * DEG_TO_RAD;
   const accepted: { tip: LatLng; bearing: number; cosLat: number }[] = [];

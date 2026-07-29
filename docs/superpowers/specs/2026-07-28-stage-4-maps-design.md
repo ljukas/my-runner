@@ -214,7 +214,7 @@ interface SmoothStep { /* …existing… */ restarted: boolean }
 
 interface RenderPoint { point: LatLng; segmentSeq: number; gapBefore: boolean }
 interface SegmentPolyline { segmentSeq: number; points: LatLng[]; gapBefore: boolean }
-interface CameraFit { center: LatLng; zoom: number; fittedSpanM: number }
+interface CameraFit { center: LatLng; zoom: number }
 
 function smoothTrackForRender(fixes: readonly SegmentedFix[]): RenderPoint[];
 function toSegmentPolylines(points: readonly RenderPoint[], epsilon?: number): SegmentPolyline[];
@@ -240,8 +240,7 @@ branch) and again for the next one (`fixesSinceReset === 1` seeds velocity from
 two points), and `accuracyFilter` admits up to 50 m. Since
 `simplifyPolyline` keeps `keep[0]` unconditionally, a legal 45 m cold-start fix
 becomes a **permanent spur** in the drawn line, repeating after every gap, and
-inflates the bbox — measured at +24% zoom-out and a distorted chevron size on a
-400 m loop. `smoothTrackForRender` therefore skips points while
+inflates the bbox — measured at +24% zoom-out. `smoothTrackForRender` therefore skips points while
 `fixesSinceReset <= 2`. This is render-only and does not touch ADR 0021's
 determinism guarantee: distance still folds over every fix.
 
@@ -306,15 +305,10 @@ sizing API — clip hard. Slack per side is exactly `p / (1 + 2p)`, i.e. 11.54% 
 `CAMERA_PADDING_RATIO = 0.15` (≈27 pt on the card), which comfortably covers a
 balloon. `paddingRatio` is a fraction of the content span **per side**.
 
-`cameraForBoundingBox` also returns **`fittedSpanM`** — the vertical extent the
-camera will actually show — because that, not the bounding-box diagonal, is the
-scale chevron sizing must track (§5). It is read off the same `S` the zoom asks
-for, as `S · max(f, 1/A) / f` in metres, rather than computed independently from
-the bbox: an independent `max(W/A, H)` version floors in *metres* while the zoom
-floors in *degrees*, and the two then disagree by `max(f, 1/A)/f` — measured down
-to `fittedSpanM / true shown extent = 0.209`, and an equator point-bbox at
-`A = 393/852` reported 72.3 m against the 156.7 m actually shown. Every arrow on
-a stationary or degenerate run was sized off that.
+`cameraForBoundingBox` returns only **`center`** and **`zoom`** — no metric span.
+An earlier draft additionally returned `fittedSpanM`, the vertical extent the
+camera would show, in metres — chevron sizing (§5) was its only consumer, and
+the field was removed along with the chevrons.
 
 Antimeridian- and pole-naive, inheriting `boundingBox`'s documented stance: a
 route straddling ±180° yields a whole-planet span. Outside the C25K footprint,
@@ -370,11 +364,17 @@ Both screens gate on the `updatedAt !== undefined` idiom already used in
 while `segments.length === 0`. If the bbox can ever change after mount, the
 adapter must `key`-remount rather than rely on a camera prop update.
 
-The hook — not the port — computes the camera, because `fittedSpanM` is the same
-quantity chevron sizing needs and deriving it twice invites drift. This is a
-deliberate, narrow deviation from ADR 0010 §2's "`RouteMap` owns the camera-fit
-math": the *math* remains a pure, unit-tested helper in `domain/geo.ts`, which
-is what the ADR was protecting. Record it in the amendment.
+The hook — not the port — computes the camera, because it already reduces the
+same bbox for the extent gate (§8): `endpoints` and the `MIN_ROUTE_EXTENT_M`
+check both need the bounding box of the *drawn* chunks (deliberately excluding
+any dropped chunk's outlier), so building the camera from that same bbox is
+reuse, not duplication. Handing the bbox to `RouteMap` instead would make the
+port re-derive "which points are drawn" from the route lines it's given —
+redoing a reduction the hook has already done, and risking disagreement with
+the extent gate over what counts as the route's extent. This is a deliberate,
+narrow deviation from ADR 0010 §2's "`RouteMap` owns the camera-fit math": the
+*math* remains a pure, unit-tested helper in `domain/geo.ts`, which is what the
+ADR was protecting. Record it in the amendment.
 
 `endpoints` are the first point of the first chunk and the last point of the last
 chunk — the route's true extremities even when a gap split the track.
@@ -687,6 +687,16 @@ the `< 2` drop, and the card renders a 72 m window on the runner's front door wi
 a pin in it. The same route measures 0 m of drawn extent. Both the measure and that
 pipeline are unit-pinned (`geo.test.ts`, "route extent gate").
 
+`fittedSpanM` itself was later deleted — direction chevrons (§5) were its only
+consumer, and once they were removed nothing else read it. Its removal retired
+the regression test that pinned this bug (`cameraForBoundingBox(...).fittedSpanM`
+compared against `MIN_ROUTE_EXTENT_M`), but that is a strict improvement, not a
+loss of coverage: with no `fittedSpanM` field left on `CameraFit`, a reversion to
+the old, camera-based predicate now fails `tsc` before it can even run, rather
+than passing a green suite the way it did when a reviewer tried exactly that
+revert in an isolated clone. The bug is not merely tested against — it is
+unrepresentable.
+
 | Case | Behaviour |
 |---|---|
 | The run recorded no fixes at all (location off, or GPS never fixed) | `RouteUnavailableCard` — "No route for this run" plus one honest line. **The reason is read from the run row, never from today's permission:** `save-run` nulls `summary_polyline` iff zero fixes were accepted, and that is the only per-run record of which case this was. Branching on the live permission relabels history — deny, record three runs, then grant, and all three are suddenly blamed on a treadmill. |
@@ -852,17 +862,16 @@ detail screen; it needs a new home, presumably the summary.
   term is load-bearing); it is also **tight** — on a non-square bbox the binding
   axis carries exactly the padding and no more, which containment alone never
   checks; slack per side equals `p/(1+2p)`; a near-single-point bbox floors to
-  `MIN_SPAN_DEG`; zoom decreases monotonically as the bbox grows; `fittedSpanM`
-  equals the vertical extent that zoom shows, at both aspect regimes and on a
-  degenerate bbox; a non-finite or non-positive aspect ratio falls back to a
-  square viewport.
+  `MIN_SPAN_DEG`; zoom decreases monotonically as the bbox grows; a non-finite
+  or non-positive aspect ratio falls back to a square viewport.
 - **The route-extent gate** (§8) — the one predicate that shipped with no unit
   cover at all: `boundingBoxDiagonalM` in metres; 0 m for a drawn line that never
   leaves one coordinate; a **stationary four-fix run rejected** end-to-end through
-  `smoothTrackForRender` → `toSegmentPolylines`, with the same fixture pinning that
-  `fittedSpanM` *exceeds* `MIN_ROUTE_EXTENT_M` at every surface aspect (the
-  regression that made the old gate dead code); an outlier inside a dropped chunk
-  not counted; a real route clearing it.
+  `smoothTrackForRender` → `toSegmentPolylines`; an outlier inside a dropped chunk
+  not counted; a real route clearing it. (The regression pin that instead proved
+  the old, camera-based predicate could never reject that same run was retired
+  once `fittedSpanM` was deleted — §8 records why that bug is now unrepresentable
+  rather than merely untested.)
 - `toRouteLines` (`domain/route-render.ts`) — the hook's mapping stage, extracted so
   it is reachable without a React runtime: kind → colour per chunk, only run
   intervals thick, deterministic `seg-N` ids in drawing order, chunk points passed

@@ -27,7 +27,7 @@ truth, and `domain/geo.ts` already ships the smoother, `simplifyPolyline`
 | Summary map | **Non-interactive**, camera-fitted preview in a `Card` directly under the headline, with a visible expand affordance; tapping it opens the viewer. |
 | Full-screen viewer | `runs/[runId]/route`, presented as **`presentation: 'modal'`** — swipe-down dismissal, with a toolbar `xmark` as redundancy (§7.4). |
 | Polyline colours | The existing **4-kind palette** (`useSegmentColors()`), **double-encoded with stroke width** so phase never depends on hue alone (§7.3). Supersedes master spec §8's accent/muted wording. |
-| Direction arrows | **Chevrons synthesised as extra 3-point polylines** — the only mechanism the API supports — in a dark casing ink, sized from the *fitted camera span* (§5). |
+| Direction arrows | **Removed** (§5) — designed, built, adversarially reviewed and verified on device, then dropped after a live look: the start/finish markers already make direction clear enough on their own. |
 | Geometry source | Derived from `run_points` (re-smoothed + DP-simplified). **Never** from `runs.summary_polyline`; nothing about finalize changes. |
 | Library | `expo-maps@~57.0.1` behind the `RouteMap` component port; react-native-maps stays the pre-approved fallback (ADR 0010 §3). |
 | iOS floor | `ios.deploymentTarget: "17.0"` — set via app.json's **built-in** property, *not* `expo-build-properties` (§9). Amends ADR 0010. Reviewer objection recorded in §13. |
@@ -107,10 +107,9 @@ rebuilds all overlays.
 **Paint order.** Content-builder order is markers → polylines → polygons →
 circles → annotations → `UserAnnotation()`, identically on both renderers.
 There is **no z-index in the Apple path, and none anywhere in
-`_MapKit_SwiftUI`** — so array order is the *only* lever, and the `polygons`
-fallback (§5) is the only real plan B. Markers/annotations above overlays is
-documented for UIKit `MKOverlayLevel` but not for SwiftUI; both need the §10
-check.
+`_MapKit_SwiftUI`** — so array order is the *only* lever for paint order.
+Markers/annotations above overlays is documented for UIKit `MKOverlayLevel`
+but not for SwiftUI; both need the §10 check.
 
 **expo-maps never passes `interactionModes`, so no interaction lock is
 reachable through the JS surface.** This is a *wrapper gap, not a platform
@@ -385,144 +384,33 @@ chunk — the route's true extremities even when a gap split the track.
 
 ## 5. Direction arrows
 
-The requested `----->-----` reading has exactly one viable mechanism.
-`AppleMapsPolyline` has no dash/arrow/texture property, and **neither
-`AppleMapsMarker` nor `AppleMapsAnnotation` exposes rotation**, so oriented
-icons would mean pre-rendering a bitmap per bearing bucket. Chevrons are
-therefore synthesised as geometry: pure maths, no assets, on the
-library-agnostic side of the port.
+**Removed.** Direction-of-travel chevrons synthesised along the rendered route
+were designed, built, adversarially reviewed (§13) and verified on the
+simulator and device — then removed after the repo owner looked at the shipped
+feature on a live device and judged the start and finish markers already make
+direction clear enough on their own, without the added visual noise. Added in
+`2721a1d` (`feat(geo): synthesise direction chevrons along the rendered
+route`) with follow-up fixes `3cd49ca` (`fix(geo): carry gaps past dropped
+chunks, dedupe arrows by proximity`) and `027faee` (`fix(theme): make the
+route chevron ink scheme-aware`); removed in `543b0de` (`fix(route-map):
+remove direction-of-travel chevrons`).
 
-`chevronsAlongRoute` concatenates each **gap-free** run of chunks (adjacent
-non-gap chunks share their boundary coordinate exactly, so this reconstructs the
-line the user sees; segment-colour changes are transparent to the walk), then
-places arrows by arc length, interpolates the point, takes the local bearing,
-and emits `[backLeft, tip, backRight]`. `sizeM` is the **tip-to-wing-end
-length**; with `CHEVRON_WING_DEG = 35` off the reverse bearing that gives a mark
-`1.15·sizeM` wide and `0.82·sizeM` deep.
+Two platform facts from that work are kept here because they were hard-won on
+device and would otherwise be rediscovered by any future overlay work:
 
-Riding on the already-simplified geometry rather than the dense raw stream cuts
-the work ~16× (1710 → 103 vertices) and measurably reduces bearing jitter
-(bearing standard deviation 71° raw at 2 m spacing → 23.5° at ε=5).
-
-Four corrections came out of review, each of which the naive version gets wrong:
-
-**Size tracks the fitted camera span, not the bbox diagonal.** The camera shows
-`fittedSpanM = max(W/A, H)`, not `√(W²+H²)`, so sizing by the diagonal varies
-on-screen size by `max(1/A,1)·√(1+A²)` **purely from bbox shape** — 1.8× on the
-card, 2.4× full-screen — before any clamp. With a 25 m maximum the failure is
-severe: a **5 km point-to-point run, the app's goal state, would render a 1.7 pt
-chevron** under a ~3 pt stroke, i.e. nothing at all. Sizing from `fittedSpanM`
-makes the invariance exact, and `CHEVRON_MAX_SIZE_M` becomes a sanity rail
-rather than a design parameter — which is why it is **800 m, not the 400 m first
-written**: portrait divides width by 0.46, so that same goal-state 5 km
-point-to-point fits ~14 km and wants a 705 m arrow, which 400 m clamped by 43%,
-reintroducing exactly the shape-dependent shrink. 800 m binds only past a 16 km
-fitted span. For the same reason a run shorter than `sizeM` gets no arrow at all
-(the gate is `max(CHEVRON_MIN_RUN_LENGTH_M, sizeM)`): an absolute 20 m floor
-would let a 20 m fragment carry a several-hundred-metre chevron.
-
-**Arrows on the same spot must be deduplicated.** On any route that retraces its
-ground, arc-length positions `p` and `L − p` are the same physical spot, so
-uniform spacing makes every arrow's mirror also an arrow. Measured on a 1.4 km
-out-and-back with a 4 m return offset: **4 of 8 arrows sat 4 m from an identical
-arrow pointing 180° the other way**, while the chevrons themselves were 25 m long
-— interpenetrating. Out-and-back is the canonical beginner route, and the
-half-offset placement variant does not help. After placing, drop any candidate
-within `CHEVRON_DEDUPE_MULTIPLIER·sizeM` (half an arrow-length) of a placed
-chevron — **whatever its bearing** (O(n²) on n ≤ 24).
-
-The rule is deliberately bearing-blind. A bearing test (the first version gated
-the drop on a >120° difference) leaves same-direction retracing untouched, and
-that is structural rather than incidental: `spacing = totalM/8` and
-`totalM = laps · perimeter`, so at every integer lap count the spacing is an
-exact rational multiple of the perimeter. Measured on 8 laps of a 400 m track
-(2915 m through the full noisy pipeline) all 8 arrows landed **2.1–18.6 m apart
-with a 19.6 m chevron**: one cluster, 7/8 of the feature gone, and the
-`rgba(0,0,0,0.55)` stack composited to alpha 0.998. Two marks closer than half
-an arrow-length read as one mark regardless of direction, which is the actual
-harm. At `0.5·sizeM` a true 4 m retrace is still suppressed while legs 30 m
-apart — visually distinct at ~28 pt on an 852 pt viewport — keep arrows on both,
-which `2·sizeM` did not (it suppressed the whole return leg out to 80 m
-separation).
-
-What this does **not** do: even out a multi-lap route. A lap route now gets one
-arrow per physical spot rather than eight spread around the perimeter. Even
-spreading was never promised; the overlap was the harm.
-
-**Spacing is global, not per run.** Computing `spacing` per gap-free run makes
-`CHEVRON_TARGET_COUNT` not a budget: two GPS gaps tripled the arrow count from 8
-to 24. Derive spacing from the total length across all runs, then walk each run
-on that global grid.
-
-**Guard the duplicated boundary vertex.** Concatenating chunks that share a
-boundary point puts that point in twice, producing a zero-length segment; a
-scan using `<=` lands on it and `atan2(0, 0)` returns 0, silently emitting a
-**due-north arrow**. Dedupe equal consecutive points on concatenation and guard
-the degenerate bearing. Both guards are in place, and with the placement scan's
-strict `<` a zero-length segment turns out never to be selectable — so they are
-insurance against that scan changing, not load-bearing today.
-
-| Constant | Value |
-|---|---|
-| `CHEVRON_SIZE_RATIO` (of `fittedSpanM`) | `0.05` |
-| `CHEVRON_MIN_SIZE_M` / `CHEVRON_MAX_SIZE_M` | `3` / `800` |
-| `CHEVRON_TARGET_COUNT` | `8` |
-| `CHEVRON_MIN_SPACING_MULTIPLIER` | `4` |
-| `CHEVRON_MIN_RUN_LENGTH_M` | `20` (a run is gated on `max(that, sizeM)`) |
-| `CHEVRON_WING_DEG` | `35` |
-| `CHEVRON_DEDUPE_MULTIPLIER` | `0.5` |
-| `MIN_SPAN_DEG` | `0.0005` |
-| `CAMERA_PADDING_RATIO` | `0.15` |
-| `ROUTE_STROKE_W` / `ROUTE_STROKE_W_RUN` / `CHEVRON_STROKE_W` | `4` / `7` / `3` |
-| `VIEWER_DP_EPSILON_M` | `2` |
-
-**Colour: a casing ink per scheme.** Chevrons stay blind to segment kind (they
-carry direction, not phase), so one ink serves the whole route — but not both
-appearances. White fails WCAG 1.4.11's 3:1 for non-text graphics against two of
-the four segment colours — measured 2.2:1 on warmup orange `#FF9500` and 2.6:1 on
-cooldown teal `#30B0C7` (and 3.3:1 on walk grey, itself marginal) — and vanishes
-where it overshoots onto light basemap. Its replacement,
-`rgba(0,0,0,0.55)`, was then asserted here on two claims that are **both false**:
-
-- *"Holds against all four vivid hues."* Re-measured: warmup 3.78:1, walk 3.18:1,
-  cooldown 3.54:1, and **run blue `#007AFF` 2.92:1 — a fail**, on the thickest and
-  most-looked-at line. The constant was only ever re-checked against the two
-  colours white had failed on, never against blue.
-- *"Scheme-independent, because MapKit's basemap is not skinned by the app's
-  theme."* The basemap does follow the system appearance (§10.11 saw the whole map
-  flip), and a chevron's wings overhang the basemap far more than they cover the
-  4–7 pt line, so the basemap — not the hue — is the mark's dominant background.
-  Dark ink on the dark basemap measures 1.17:1: the chevrons all but vanish, the
-  exact inverse of the failure white was replaced to fix.
-
-So the ink is a light/dark pair, `RouteDirectionColors` in the `Colors` mirror,
-read through `useRouteDirectionColor()` exactly as `SegmentColors` is:
-
-| scheme | ink | run | walk | warmup | cooldown | basemap land |
-|---|---|---|---|---|---|---|
-| light | `rgba(0,0,0,0.65)` | 3.52 | 3.94 | 4.97 | 4.56 | 6.5–6.8 |
-| dark | `rgba(255,255,255,0.95)` | 3.44 | 3.11 | **1.98** | **1.87** | 14.4–16.5 |
-
-Ratios are WCAG 2.x relative luminance over the **sRGB alpha composite** of ink on
-background, the method that reproduces the white measurements above exactly. Light
-mode clears 3:1 on every surface with ~17% headroom on the binding one.
-
-**Dark mode provably cannot, and the shortfall is deliberate.** 3:1 against the
-dark basemap (L ≈ 0.014) needs an ink of luminance ≥ 0.141; 3:1 against the
-brighter dark-variant warmup `#FF9F0A` (L = 0.461) and cooldown `#40CBE0`
-(L = 0.492) needs ≤ 0.120 and ≤ 0.131. Those windows do not intersect, so no
-single ink — at any alpha, since alpha only slides the composite between the two
-bounds — can satisfy both. A near-white ink takes the two surfaces that matter
-most (the dominant basemap, and the run interval) and gives up the two brief
-walking phases at either end of a session, where the mark still reads as a shape
-against the line at ~1.9:1. Per-kind inks or a double casing would be a design
-change, not a colour fix, and stay out.
-
-**If chevrons paint *under* the route** (§3: SwiftUI guarantees no intra-array
-order, and there is no z-index anywhere to fall back on), the same geometry
-becomes a filled `polygons` entry: that `ForEach` is emitted after the whole
-`polylines` one, giving builder-level ordering plus a real fill with working
-alpha. §7.1's discriminated port is what keeps this an adapter-local change.
+- **`AppleMapsPolyline` exposes no dash, arrow, texture or line-cap
+  property**, and neither `AppleMapsMarker` nor `AppleMapsAnnotation` exposes
+  rotation (§3). Any oriented mark on this map — an arrow, a heading indicator,
+  anything direction-carrying — has to be synthesised as raw geometry (extra
+  polylines or polygons), never styled onto an existing line or marker.
+- **A single ink cannot satisfy WCAG 1.4.11 in dark mode against both the
+  basemap and the warmup/cooldown segment hues.** 3:1 against the dark basemap
+  (L ≈ 0.014) needs an ink of luminance ≥ 0.141; 3:1 against the brighter
+  dark-variant warmup `#FF9F0A` (L = 0.461) and cooldown `#40CBE0` (L = 0.492)
+  needs ≤ 0.120 and ≤ 0.131 respectively. Those windows are disjoint, so no
+  single ink — at any alpha, since alpha only slides the composite between the
+  two bounds — can satisfy both simultaneously. Any future overlay drawn in one
+  ink across the whole route will hit the same wall in dark mode.
 
 ## 6. Measured cost and fidelity
 
@@ -618,11 +506,9 @@ seam).
 ```ts
 interface RouteMapLine { id: string; points: LatLng[]; color: string; width: number }
 interface RouteMapRoute { lines: RouteMapLine[] }          // segment-coloured chunks
-interface RouteMapDecoration extends RouteMapLine { closed: boolean }  // chevrons
 
 interface RouteMapProps {
   route: RouteMapRoute;
-  decorations: RouteMapDecoration[];
   endpoints: { start: LatLng; finish: LatLng } | null;
   camera: CameraFit;
   interactive: boolean;
@@ -633,16 +519,8 @@ interface RouteMapProps {
 }
 ```
 
-Route and decorations are **discriminated rather than flattened into one
-ordered array**. A flat list would force the adapter to sniff `id` strings to
-find the chevrons, so the `polygons` fallback (§5) would ripple through the
-port, the hook and both screens instead of staying adapter-local — and it would
-bake a paint-order guarantee into the port that §3 shows the renderer does not
-provide. `closed` is what lets a decoration switch between a stroked polyline
-and a filled polygon without a port change.
-
 The adapter owns everything expo-maps-specific: mapping to `AppleMapsPolyline`
-with deterministic ids (`seg-3`, `arrow-5`); two `AppleMapsMarker`s
+with deterministic ids (`seg-3`); two `AppleMapsMarker`s
 (`figure.run` / `flag.checkered`, tinted, **empty titles**) for the endpoints,
 collapsing to a single marker when they are within `ENDPOINT_MERGE_M` of each
 other — beginners run loops and out-and-backs from their front door, so two
@@ -691,7 +569,7 @@ above** the map (1 pt tall, `pointerEvents="none"`): a real, non-empty frame tha
 never intersects the host. A zero-size node is not an option either — VoiceOver
 skips empty frames, so it would be a silent no-op. Its wording differs from the
 card's, because `presentation: 'modal'` leaves the card in the hierarchy underneath
-and §7.4's two-"Close" hazard applies to any duplicated label. §10.7 must confirm
+and §7.4's two-"Close" hazard applies to any duplicated label. §10.6 must confirm
 it surfaces; the rule is empirical, so nothing here is settled without the check.
 
 ### 7.2 Summary card
@@ -969,32 +847,8 @@ detail screen; it needs a new home, presumably the summary.
   segment** does not break continuity; a single-point segment is rescued by the
   prepend (the compressed-plan case); sub-2-point chunks dropped — and a dropped
   chunk **hands its `gapBefore` to the next kept one** (a single-point post-gap
-  chunk otherwise takes the break with it, and arrows then walk the void).
-- `chevronsAlongRoute`: none below the run-length gate, pinned at the boundary
-  and again where `sizeM` is what binds; none bridging a gap (every tip within a
-  centimetre of a drawn run); **no pair of arrows closer than
-  `CHEVRON_DEDUPE_MULTIPLIER·sizeM`, whatever their bearings** — asserted on a
-  4 m out-and-back *and* on 8 laps of one loop, which the bearing-gated version
-  violated; the radius pinned by two parallel legs just inside and just outside
-  it, and 30 m-separated legs keeping arrows on both; **arrow count exactly
-  `CHEVRON_TARGET_COUNT` on a 20 km route split by 0–10 gaps** (at 2.4 km the
-  minimum-spacing floor dominates and hides per-run spacing entirely); on-screen
-  size (`sizeM / fittedSpanM`) constant across route archetypes **and pinned at
-  both clamp rails**, with the 5 km goal state proving the upper rail does not
-  bind; a duplicated boundary vertex yields well-formed arrows (the degenerate
-  guards are defensive — see §5 — so the test asserts soundness, not that they
-  fired); a non-finite fitted span returns `[]` rather than spinning the
-  placement loop forever.
-- **Bearing, at three latitudes.** A due-north and a due-east fixture are
-  worthless on their own: those are exactly the two bearings at which a missing
-  `cos(latitude)` term produces *zero* error, so a broken implementation passes.
-  The test must use a **north-east** fixture at Stockholm latitude, repeated at
-  latitude 0 and 60 — and it must assert on the **wings**, not the tip: the tip
-  is plain lat/lng interpolation along the leg and never touches the bearing, so
-  a tip-only assertion passes a `cos(lat)`-less implementation. Each wing sits at
-  `bearing + 180 ± CHEVRON_WING_DEG` measured in metres; the wing angle's
-  magnitude is pinned against the mark's stated 1.15×/0.82× width and depth, not
-  against the constant it is computed from.
+  chunk otherwise takes the break with it, and the next drawn line would
+  otherwise read as continuous across it).
 - `cameraForBoundingBox`: centres on the bbox midpoint; the returned span
   contains the bbox for a square aspect, for `A·f > 1`, **and for `A·f < 1`**
   (the real full-screen regime, and the only branch where the second `max()`
@@ -1033,37 +887,33 @@ match. Then tap, assert the "Route" title, dismiss by swipe, and re-assert
 
 **Simulator (argent + Maestro)** — what cannot be unit-tested:
 
-1. **Paint order** — chevrons above the route, markers above both (§3); if not,
-   switch decorations to `polygons`.
+1. **Paint order** — markers above the route lines (§3).
 2. **Framing tightness** — assert the route touches neither edge on a short
    loop *and* a long point-to-point, in both bbox aspect regimes. This is the
    check that validates the expand-only assumption everything in §4.2 rests on.
-3. Chevron legibility against all four segment colours **and** against light
-   basemap land, in light and dark. Resolve §5's sizing first, or this measures
-   the wrong thing.
-4. **Route legibility** at card size on a 17-segment W1D1 track — does the
+3. **Route legibility** at card size on a 17-segment W1D1 track — does the
    hue+width encoding read as phases rather than as a dashed line (§7.3)?
-5. `cameraPosition` sticking on first paint without the ref.
-6. The card not stealing `ScrollView` drags; tap opening the viewer; pressed
+4. `cameraPosition` sticking on first paint without the ref.
+5. The card not stealing `ScrollView` drags; tap opening the viewer; pressed
    state visible.
-7. **The card's `accessible` group surfacing in `inspect_screen`** with its
+6. **The card's `accessible` group surfacing in `inspect_screen`** with its
    composed label, and tappable by text (§7.1). This gates the Maestro plan.
    **And the viewer's label node with it** — same ADR 0005 mechanism, same
    `inspect_screen` evidence standard, and its 1 pt in-flow frame (§7.1) is a
    judgement about where the host's frame ends, not a certainty. If it does not
    surface, move it into the card-shaped fallback §7.1 already names rather than
    positioning it over the map.
-8. Squircle clipping of the hosting view under `overflow-hidden`.
-9. Endpoint markers: balloon size acceptable, and the merge rule firing on a
+7. Squircle clipping of the hosting view under `overflow-hidden`.
+8. Endpoint markers: balloon size acceptable, and the merge rule firing on a
    loop.
-10. **Memory** — open the viewer over the card (two live map views on the same
-    route), then browse 5+ runs from the Log, watching footprint. Each map is a
-    `UIHostingController` + SwiftUI `Map` with its own caches, released only when
-    it leaves the window.
-11. Light↔dark switch **with the map on screen** — `colorScheme: AUTOMATIC`
+9. **Memory** — open the viewer over the card (two live map views on the same
+   route), then browse 5+ runs from the Log, watching footprint. Each map is a
+   `UIHostingController` + SwiftUI `Map` with its own caches, released only when
+   it leaves the window.
+10. Light↔dark switch **with the map on screen** — `colorScheme: AUTOMATIC`
     skips the modifier entirely and inherits the hosting controller's traits,
     which is exactly the kind of propagation that silently fails.
-12. **The iOS 17 render path, on the local iOS 17.5 runtime.** The 17.0 floor
+11. **The iOS 17 render path, on the local iOS 17.5 runtime.** The 17.0 floor
     ships a *second* Swift renderer (`AppleMapsViewiOS17`), and CI will never
     exercise it — `e2e.yml:124-125` picks an arbitrary iPhone from whatever
     runtimes the `macos-26` runner ships. It is verifiable locally: iOS 17.5 and
@@ -1073,8 +923,8 @@ match. Then tap, assert the "Route" title, dismiss by swipe, and re-assert
     The 17.5 runtime currently has **no device**, so create one first
     (`xcrun simctl create` — outside argent's tool surface, which boots existing
     devices; the argent rule sanctions `xcrun` for exactly this kind of device
-    management). Then install the dev build and smoke the map: route and chevrons
-    render, camera fits, no compass / pitch / my-location controls, and — since
+    management). Then install the dev build and smoke the map: route renders,
+    camera fits, no compass / pitch / my-location controls, and — since
     `selectionEnabled` and the tap handlers are iOS-18-only — confirm a tap on
     the viewer's map does nothing untoward. Run item 1 (paint order) on 17.5 as
     well as 18.6: the two renderers build their content in the same declaration
@@ -1086,15 +936,14 @@ Polyline pixel-correctness stays a visual check per master spec §13.
 
 | Risk | Mitigation |
 |---|---|
-| SwiftUI doesn't honour intra-array polyline order | Decorations re-emitted as `polygons`, builder-ordered after polylines (§5); the discriminated port keeps it adapter-local. No z-index exists anywhere as a fallback. |
 | **MapKit's SwiftUI region fit is crop, not expand** | Undocumented for SwiftUI (§3). If wrong, the aspect correction inverts and >50% of a route can be lost. §10.2 asserts framing tightness explicitly. |
 | **A future expo-maps patch fixes the `cos(0)` bug** | `latitudeDelta = longitudeDelta / cos(lat)` would silently zoom out ~2× at Stockholm and not at all at the equator — a latitude-dependent regression no unit test can see. Re-verify the `f` term against `MapUtils.swift` on **every** expo-maps bump; the version is pinned. |
 | expo-maps alpha churn generally | Pinned; port boundary; react-native-maps pre-approved with ADR 0010 §3 triggers. |
 | Prop commits re-converting every coordinate | Value-stable props; DP keeps vertices ~100–150 (§6). |
-| Two live map views + several summary screens | §10.10 memory check; consider unmounting the card's map while the viewer is presented. |
+| Two live map views + several summary screens | §10.9 memory check; consider unmounting the card's map while the viewer is presented. |
 | iOS 26 MapKit churn (the package carries a documented iOS 26 tap workaround) | Read-only surface uses no tap handling; sim-verified per release. |
 | **Stage 4 makes Stage 3's walk-pace error visible for the first time** | Until now nobody could sanity-check "2.80 km"; with a route on screen, a beginner who ran four laps of a known 400 m track can see the number is wrong (§6). Decide explicitly whether Stage 4 ships before or after Milestone-0 validation. |
-| iOS 17.x render path never exercised by CI | Verified locally instead: the iOS 17.5 runtime is installed and exercises the same `AppleMapsViewiOS17` branch as the 17.0 floor (§10.12). Retains a gap only for real 17.x *hardware*, which is the standard simulator caveat. |
+| iOS 17.x render path never exercised by CI | Verified locally instead: the iOS 17.5 runtime is installed and exercises the same `AppleMapsViewiOS17` branch as the 17.0 floor (§10.11). Retains a gap only for real 17.x *hardware*, which is the standard simulator caveat. |
 
 ## 12. Out of scope
 

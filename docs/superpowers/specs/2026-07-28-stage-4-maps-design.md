@@ -311,8 +311,14 @@ sizing API — clip hard. Slack per side is exactly `p / (1 + 2p)`, i.e. 11.54% 
 balloon. `paddingRatio` is a fraction of the content span **per side**.
 
 `cameraForBoundingBox` also returns **`fittedSpanM`** — the vertical extent the
-camera will actually show, `max(W/A, H)` in metres — because that, not the
-bounding-box diagonal, is the scale chevron sizing must track (§5).
+camera will actually show — because that, not the bounding-box diagonal, is the
+scale chevron sizing must track (§5). It is read off the same `S` the zoom asks
+for, as `S · max(f, 1/A) / f` in metres, rather than computed independently from
+the bbox: an independent `max(W/A, H)` version floors in *metres* while the zoom
+floors in *degrees*, and the two then disagree by `max(f, 1/A)/f` — measured down
+to `fittedSpanM / true shown extent = 0.209`, and an equator point-bbox at
+`A = 393/852` reported 72.3 m against the 156.7 m actually shown. Every arrow on
+a stationary or degenerate run was sized off that.
 
 Antimeridian- and pole-naive, inheriting `boundingBox`'s documented stance: a
 route straddling ±180° yields a whole-planet span. Outside the C25K footprint,
@@ -407,17 +413,41 @@ card, 2.4× full-screen — before any clamp. With a 25 m maximum the failure is
 severe: a **5 km point-to-point run, the app's goal state, would render a 1.7 pt
 chevron** under a ~3 pt stroke, i.e. nothing at all. Sizing from `fittedSpanM`
 makes the invariance exact, and `CHEVRON_MAX_SIZE_M` becomes a sanity rail
-rather than a design parameter.
+rather than a design parameter — which is why it is **800 m, not the 400 m first
+written**: portrait divides width by 0.46, so that same goal-state 5 km
+point-to-point fits ~14 km and wants a 705 m arrow, which 400 m clamped by 43%,
+reintroducing exactly the shape-dependent shrink. 800 m binds only past a 16 km
+fitted span. For the same reason a run shorter than `sizeM` gets no arrow at all
+(the gate is `max(CHEVRON_MIN_RUN_LENGTH_M, sizeM)`): an absolute 20 m floor
+would let a 20 m fragment carry a several-hundred-metre chevron.
 
-**Opposed arrows must be deduplicated.** On any route that retraces its ground,
-arc-length positions `p` and `L − p` are the same physical spot, so uniform
-spacing makes every arrow's mirror also an arrow. Measured on a 1.4 km
+**Arrows on the same spot must be deduplicated.** On any route that retraces its
+ground, arc-length positions `p` and `L − p` are the same physical spot, so
+uniform spacing makes every arrow's mirror also an arrow. Measured on a 1.4 km
 out-and-back with a 4 m return offset: **4 of 8 arrows sat 4 m from an identical
 arrow pointing 180° the other way**, while the chevrons themselves were 25 m long
 — interpenetrating. Out-and-back is the canonical beginner route, and the
 half-offset placement variant does not help. After placing, drop any candidate
-within `2·sizeM` of a placed chevron whose bearing differs by more than 120°
-(O(n²) on n ≤ 24). This also fixes loop closure and multi-lap routes.
+within `CHEVRON_DEDUPE_MULTIPLIER·sizeM` (half an arrow-length) of a placed
+chevron — **whatever its bearing** (O(n²) on n ≤ 24).
+
+The rule is deliberately bearing-blind. A bearing test (the first version gated
+the drop on a >120° difference) leaves same-direction retracing untouched, and
+that is structural rather than incidental: `spacing = totalM/8` and
+`totalM = laps · perimeter`, so at every integer lap count the spacing is an
+exact rational multiple of the perimeter. Measured on 8 laps of a 400 m track
+(2915 m — the C25K graduation distance) all 8 arrows landed **2.1–18.6 m apart
+with a 19.6 m chevron**: one cluster, 7/8 of the feature gone, and the
+`rgba(0,0,0,0.55)` stack composited to alpha 0.998. Two marks closer than half
+an arrow-length read as one mark regardless of direction, which is the actual
+harm. At `0.5·sizeM` a true 4 m retrace is still suppressed while legs 30 m
+apart — visually distinct at ~28 pt on an 852 pt viewport — keep arrows on both,
+which `2·sizeM` did not (it suppressed the whole return leg out to 80 m
+separation).
+
+What this does **not** do: even out a multi-lap route. A lap route now gets one
+arrow per physical spot rather than eight spread around the perimeter. Even
+spreading was never promised; the overlap was the harm.
 
 **Spacing is global, not per run.** Computing `spacing` per gap-free run makes
 `CHEVRON_TARGET_COUNT` not a budget: two GPS gaps tripled the arrow count from 8
@@ -428,17 +458,19 @@ on that global grid.
 boundary point puts that point in twice, producing a zero-length segment; a
 scan using `<=` lands on it and `atan2(0, 0)` returns 0, silently emitting a
 **due-north arrow**. Dedupe equal consecutive points on concatenation and guard
-the degenerate bearing.
+the degenerate bearing. Both guards are in place, and with the placement scan's
+strict `<` a zero-length segment turns out never to be selectable — so they are
+insurance against that scan changing, not load-bearing today.
 
 | Constant | Value |
 |---|---|
 | `CHEVRON_SIZE_RATIO` (of `fittedSpanM`) | `0.05` |
-| `CHEVRON_MIN_SIZE_M` / `CHEVRON_MAX_SIZE_M` | `3` / `400` |
+| `CHEVRON_MIN_SIZE_M` / `CHEVRON_MAX_SIZE_M` | `3` / `800` |
 | `CHEVRON_TARGET_COUNT` | `8` |
 | `CHEVRON_MIN_SPACING_MULTIPLIER` | `4` |
-| `CHEVRON_MIN_RUN_LENGTH_M` | `20` |
+| `CHEVRON_MIN_RUN_LENGTH_M` | `20` (a run is gated on `max(that, sizeM)`) |
 | `CHEVRON_WING_DEG` | `35` |
-| `CHEVRON_OPPOSED_DEG` / `CHEVRON_DEDUPE_MULTIPLIER` | `120` / `2` |
+| `CHEVRON_DEDUPE_MULTIPLIER` | `0.5` |
 | `MIN_SPAN_DEG` | `0.0005` |
 | `CAMERA_PADDING_RATIO` | `0.15` |
 | `ROUTE_STROKE_W` / `ROUTE_STROKE_W_RUN` / `CHEVRON_STROKE_W` | `4` / `7` / `3` |
@@ -834,31 +866,54 @@ detail screen; it needs a new home, presumably the summary.
 
 - `smoothTrackForRender`: correct `segmentSeq` tagging; `gapBefore` false on the
   first point and on an ordinary transition, true exactly past `MAX_GAP_S` (not
-  *at* it); seed points dropped, verified with a 45 m cold-start fix that must
-  not appear in the output or move the bbox.
+  *at* it); seed points dropped, verified with a 45 m cold-start fix whose
+  residual **decays** — no emitted point keeps a quarter of the injected error,
+  and the tail converges inside `DP_EPSILON_M`, where no spur survives DP. (The
+  residual is inherent: the filter seeds velocity from two points, so the peak is
+  6.9 m at the third emitted point. Asserting a maximum instead fits the
+  observation and fails on other legal 50 m cold starts.)
 - `toSegmentPolylines`: adjacent non-gap chunks share a bit-identical boundary
   vertex; chunks across a gap are disjoint and the second carries `gapBefore`;
   a mid-segment gap yields two chunks with one `segmentSeq`; a **zero-point
   segment** does not break continuity; a single-point segment is rescued by the
-  prepend (the compressed-plan case); sub-2-point chunks dropped.
-- `chevronsAlongRoute`: none below `CHEVRON_MIN_RUN_LENGTH_M`; none bridging a
-  gap; **an out-and-back fixture yields no pair of opposed arrows closer than
-  `sizeM`**; **arrow count stays near `CHEVRON_TARGET_COUNT` as the number of
-  GPS gaps varies from 0 to 5**; on-screen size (`sizeM / fittedSpanM`) stays
-  within a narrow band across the five route archetypes (park loop, W1D1 loop,
-  out-and-back, 5 km point-to-point, laps of a 400 m track); a duplicated
-  boundary vertex never produces a due-north bearing.
+  prepend (the compressed-plan case); sub-2-point chunks dropped — and a dropped
+  chunk **hands its `gapBefore` to the next kept one** (a single-point post-gap
+  chunk otherwise takes the break with it, and arrows then walk the void).
+- `chevronsAlongRoute`: none below the run-length gate, pinned at the boundary
+  and again where `sizeM` is what binds; none bridging a gap (every tip within a
+  centimetre of a drawn run); **no pair of arrows closer than
+  `CHEVRON_DEDUPE_MULTIPLIER·sizeM`, whatever their bearings** — asserted on a
+  4 m out-and-back *and* on 8 laps of one loop, which the bearing-gated version
+  violated; the radius pinned by two parallel legs just inside and just outside
+  it, and 30 m-separated legs keeping arrows on both; **arrow count exactly
+  `CHEVRON_TARGET_COUNT` on a 20 km route split by 0–10 gaps** (at 2.4 km the
+  minimum-spacing floor dominates and hides per-run spacing entirely); on-screen
+  size (`sizeM / fittedSpanM`) constant across route archetypes **and pinned at
+  both clamp rails**, with the 5 km goal state proving the upper rail does not
+  bind; a duplicated boundary vertex yields well-formed arrows (the degenerate
+  guards are defensive — see §5 — so the test asserts soundness, not that they
+  fired); a non-finite fitted span returns `[]` rather than spinning the
+  placement loop forever.
 - **Bearing, at three latitudes.** A due-north and a due-east fixture are
   worthless on their own: those are exactly the two bearings at which a missing
   `cos(latitude)` term produces *zero* error, so a broken implementation passes.
-  The test must use a **north-east** fixture at Stockholm latitude and assert the
-  tip is at equal *metre* offsets north and east (a `cos(lat)`-less
-  implementation is 18° off there), repeated at latitude 0 and 60.
+  The test must use a **north-east** fixture at Stockholm latitude, repeated at
+  latitude 0 and 60 — and it must assert on the **wings**, not the tip: the tip
+  is plain lat/lng interpolation along the leg and never touches the bearing, so
+  a tip-only assertion passes a `cos(lat)`-less implementation. Each wing sits at
+  `bearing + 180 ± CHEVRON_WING_DEG` measured in metres; the wing angle's
+  magnitude is pinned against the mark's stated 1.15×/0.82× width and depth, not
+  against the constant it is computed from.
 - `cameraForBoundingBox`: centres on the bbox midpoint; the returned span
   contains the bbox for a square aspect, for `A·f > 1`, **and for `A·f < 1`**
   (the real full-screen regime, and the only branch where the second `max()`
-  term is load-bearing); slack per side equals `p/(1+2p)`; a near-single-point
-  bbox floors to `MIN_SPAN_DEG`; zoom decreases monotonically as the bbox grows.
+  term is load-bearing); it is also **tight** — on a non-square bbox the binding
+  axis carries exactly the padding and no more, which containment alone never
+  checks; slack per side equals `p/(1+2p)`; a near-single-point bbox floors to
+  `MIN_SPAN_DEG`; zoom decreases monotonically as the bbox grows; `fittedSpanM`
+  equals the vertical extent that zoom shows, at both aspect regimes and on a
+  degenerate bbox; a non-finite or non-positive aspect ratio falls back to a
+  square viewport.
 
 **Maestro** — extend `.maestro/tests/run-distance.yaml`. The steps go **between
 `assertVisible: "Avg Pace"` (line 43) and the `"Interval Pace"`

@@ -503,3 +503,52 @@ export function toSegmentPolylines(
     .map((chunk) => ({ ...chunk, points: simplifyPolyline(chunk.points, epsilon) }))
     .filter((chunk) => chunk.points.length >= 2);
 }
+
+/** why: without a floor a stationary run's zero-span bbox yields zoom = Infinity. */
+export const MIN_SPAN_DEG = 0.0005;
+/** Fraction of the content span added per side; the slack it buys is p/(1+2p) (spec §4.2). */
+export const CAMERA_PADDING_RATIO = 0.15;
+
+export interface CameraFit {
+  center: LatLng;
+  /** expo-maps zoom: the library shows `360 / 2^zoom` degrees on BOTH axes (spec §3). */
+  zoom: number;
+  /** Vertical extent the camera will show, in metres — the scale chevron sizing tracks (spec §5). */
+  fittedSpanM: number;
+}
+
+/**
+ * Smallest camera that provably contains `bbox` at the given viewport aspect ratio (width / height).
+ * Needs no pixel dimensions: the library's span is isotropic in degrees and MapKit only ever expands
+ * a requested region, so the failure mode is a marginally loose frame, never a clipped route.
+ * Antimeridian- and pole-naive, like `boundingBox`.
+ */
+export function cameraForBoundingBox(
+  bbox: BoundingBox,
+  aspectRatio: number,
+  paddingRatio = CAMERA_PADDING_RATIO,
+): CameraFit {
+  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
+  const cosLat = Math.cos(centerLat * DEG_TO_RAD);
+  const f = 1 / cosLat;
+  const latSpanDeg = bbox.maxLat - bbox.minLat;
+  const lngSpanDeg = bbox.maxLng - bbox.minLng;
+
+  const neededDeg = Math.max(
+    lngSpanDeg / Math.max(1, aspectRatio * f),
+    (latSpanDeg * f) / Math.max(1 / aspectRatio, f),
+  );
+  const pad = 1 + 2 * paddingRatio;
+  const spanDeg = Math.max(neededDeg, MIN_SPAN_DEG) * pad;
+
+  const widthM = lngSpanDeg * M_PER_DEG * cosLat;
+  const heightM = latSpanDeg * M_PER_DEG;
+  const fittedSpanM =
+    Math.max(Math.max(widthM / aspectRatio, heightM), MIN_SPAN_DEG * M_PER_DEG) * pad;
+
+  return {
+    center: { lat: centerLat, lng: (bbox.minLng + bbox.maxLng) / 2 },
+    zoom: Math.log2(360 / spanDeg),
+    fittedSpanM,
+  };
+}

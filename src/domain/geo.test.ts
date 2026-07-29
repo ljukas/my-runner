@@ -3,12 +3,14 @@ import { describe, expect, test } from 'bun:test';
 import {
   accuracyFilter,
   boundingBox,
+  cameraForBoundingBox,
   createSmootherState,
   DP_EPSILON_M,
   EARTH_RADIUS_M,
   encodePolyline,
   haversineMeters,
   MAX_GAP_S,
+  MIN_SPAN_DEG,
   NEAR_STATIONARY_DEADBAND_M,
   SEED_FIXES,
   simplifyPolyline,
@@ -17,6 +19,8 @@ import {
   smoothTrackBySegment,
   smoothTrackForRender,
   toSegmentPolylines,
+  type BoundingBox,
+  type CameraFit,
   type LatLng,
   type LocationFix,
   type RenderPoint,
@@ -601,5 +605,94 @@ describe('toSegmentPolylines', () => {
   test('drops a chunk that cannot form a line', () => {
     const chunks = toSegmentPolylines(makeRenderPoints([0], [0]));
     expect(chunks).toHaveLength(0); // one point, no prepend (gapBefore) → nothing to draw
+  });
+});
+
+/** Inverse of the library's conversion: what span (in degrees) a zoom asks for. */
+function spanDegForZoom(zoom: number): number {
+  return 360 / 2 ** zoom;
+}
+
+/** Does the region MapKit will show contain the bbox? Mirrors the expand-only fit in projected units. */
+function containsBbox(bbox: BoundingBox, fit: CameraFit, aspectRatio: number): boolean {
+  const f = 1 / Math.cos(fit.center.lat * (Math.PI / 180));
+  const s = spanDegForZoom(fit.zoom);
+  const shownLng = s * Math.max(1, aspectRatio * f);
+  const shownLat = (s * Math.max(1 / aspectRatio, f)) / f;
+  return (
+    shownLng >= bbox.maxLng - bbox.minLng - 1e-12 && shownLat >= bbox.maxLat - bbox.minLat - 1e-12
+  );
+}
+
+describe('cameraForBoundingBox', () => {
+  const stockholm: BoundingBox = { minLat: 59.32, maxLat: 59.34, minLng: 18.06, maxLng: 18.08 };
+
+  test('centres on the bbox midpoint', () => {
+    const fit = cameraForBoundingBox(stockholm, 1.5);
+    expect(fit.center.lat).toBeCloseTo(59.33, 10);
+    expect(fit.center.lng).toBeCloseTo(18.07, 10);
+  });
+
+  test('contains the bbox for a square aspect', () => {
+    expect(containsBbox(stockholm, cameraForBoundingBox(stockholm, 1), 1)).toBe(true);
+  });
+
+  test('contains the bbox when A·f > 1 (the card)', () => {
+    const aspect = 1.5; // f ≈ 1.96 at 59.33°N → A·f ≈ 2.9
+    expect(containsBbox(stockholm, cameraForBoundingBox(stockholm, aspect), aspect)).toBe(true);
+  });
+
+  test('contains the bbox when A·f < 1 (the real full-screen regime)', () => {
+    const aspect = 393 / 852; // iPhone 15 Pro portrait → A·f ≈ 0.90, the second max() branch
+    expect(aspect * (1 / Math.cos(59.33 * (Math.PI / 180)))).toBeLessThan(1);
+    expect(containsBbox(stockholm, cameraForBoundingBox(stockholm, aspect), aspect)).toBe(true);
+  });
+
+  test('contains a pure east-west and a pure north-south line', () => {
+    const ew: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.06, maxLng: 18.09 };
+    const ns: BoundingBox = { minLat: 59.32, maxLat: 59.35, minLng: 18.07, maxLng: 18.07 };
+    for (const aspect of [0.46, 1, 1.5]) {
+      expect(containsBbox(ew, cameraForBoundingBox(ew, aspect), aspect)).toBe(true);
+      expect(containsBbox(ns, cameraForBoundingBox(ns, aspect), aspect)).toBe(true);
+    }
+  });
+
+  test('padding adds p/(1+2p) slack per side', () => {
+    const tight = cameraForBoundingBox(stockholm, 1, 0);
+    const padded = cameraForBoundingBox(stockholm, 1, 0.15);
+    const ratio = spanDegForZoom(padded.zoom) / spanDegForZoom(tight.zoom);
+    expect(ratio).toBeCloseTo(1.3, 6); // 1 + 2·0.15
+  });
+
+  test('floors a degenerate bbox instead of returning an infinite zoom', () => {
+    const point: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.07, maxLng: 18.07 };
+    const fit = cameraForBoundingBox(point, 1.5);
+    expect(Number.isFinite(fit.zoom)).toBe(true);
+    expect(spanDegForZoom(fit.zoom)).toBeCloseTo(MIN_SPAN_DEG * 1.3, 8);
+  });
+
+  test('zoom decreases monotonically as the bbox grows', () => {
+    let previous = Infinity;
+    for (const size of [0.002, 0.02, 0.2, 2]) {
+      const box: BoundingBox = {
+        minLat: 59.33,
+        maxLat: 59.33 + size,
+        minLng: 18.07,
+        maxLng: 18.07 + size,
+      };
+      const { zoom } = cameraForBoundingBox(box, 1.5);
+      expect(zoom).toBeLessThan(previous);
+      previous = zoom;
+    }
+  });
+
+  test('fittedSpanM grows with the route and is at least the floor', () => {
+    const small = cameraForBoundingBox(stockholm, 1.5).fittedSpanM;
+    const big = cameraForBoundingBox(
+      { minLat: 59.3, maxLat: 59.4, minLng: 18.0, maxLng: 18.2 },
+      1.5,
+    ).fittedSpanM;
+    expect(big).toBeGreaterThan(small);
+    expect(small).toBeGreaterThan(0);
   });
 });

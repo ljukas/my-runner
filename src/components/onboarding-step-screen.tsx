@@ -1,11 +1,17 @@
 import { useRouter } from 'expo-router';
 import { useRef, type ReactNode } from 'react';
-import { ScrollView, View } from 'react-native';
+import { ScrollView, useWindowDimensions, View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { Footer } from '@/components/ui/footer';
 import { completeAndAdvance } from '@/services/onboarding-store';
 import type { OnboardingStepId } from '@/services/onboarding';
+
+// why 1.5: iOS's standard text ramp tops out near 1.35x and its accessibility sizes start near
+// 1.64x, so this splits them. At accessibility sizes the footnote alone can outgrow the screen, and
+// as a flex sibling that pushes the CTA out of reach — so past this it scrolls with the content and
+// only the CTA keeps its pinned slot.
+const FOOTNOTE_SCROLLS_ABOVE_FONT_SCALE = 1.5;
 
 /**
  * Shared scaffold for onboarding steps, matching Apple's first-launch welcome
@@ -33,6 +39,8 @@ export function OnboardingStepScreen({
 }) {
   const router = useRouter();
   const busy = useRef(false);
+  const { fontScale } = useWindowDimensions();
+  const footnoteScrolls = fontScale >= FOOTNOTE_SCROLLS_ABOVE_FONT_SCALE;
 
   // why the guard: an async action (a permission prompt) leaves both CTAs live until it settles,
   // and a second tap would prompt twice and advance twice.
@@ -58,10 +66,14 @@ export function OnboardingStepScreen({
         contentContainerClassName="px-6 pb-3"
       >
         {children}
+
+        {/* px-2 lands the footnote on the footer's px-8 inset from the content's px-6, so it keeps
+            its alignment when it moves here. */}
+        {footnoteScrolls && footnote ? <View className="px-2 pt-5">{footnote}</View> : null}
       </ScrollView>
 
       <Footer>
-        {footnote}
+        {footnoteScrolls ? null : footnote}
 
         {secondaryLabel ? (
           <Island.View count={2}>

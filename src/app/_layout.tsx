@@ -114,7 +114,9 @@ export default function RootLayout() {
             <Stack.Toolbar.Button
               icon="xmark"
               accessibilityLabel="Close map"
-              onPress={() => router.back()}
+              // why: a cold deep link has no back entry; fall back to dismissTo so the swipe isn't
+              // the only exit (spec §7.4).
+              onPress={() => (router.canGoBack() ? router.back() : router.dismissTo('/log'))}
             />
           </Stack.Toolbar>
         </Stack.Screen>

@@ -77,8 +77,6 @@ export const RouteDirectionColors: Record<'light' | 'dark', string> = {
 export const ROUTE_STROKE_W = 4;
 export const ROUTE_STROKE_W_RUN = 7;
 export const CHEVRON_STROKE_W = 3;
-/** Below this the start and finish markers collapse to one — loops start and end at the same door. */
-export const ENDPOINT_MERGE_M = 25;
 
 /** Run-summary stat-tile accents (ADR 0013) — chosen for the summary cards and
  * intentionally INDEPENDENT of the segment-bar palette (they need not match).

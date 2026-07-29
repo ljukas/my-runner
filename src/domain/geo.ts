@@ -570,6 +570,9 @@ export function cameraForBoundingBox(
  * street map of the user's home. Never gated on a camera span; spec §8 has the arithmetic. */
 export const MIN_ROUTE_EXTENT_M = 60;
 
+/** Below this the start and finish markers collapse to one — loops start and end at the same door. */
+export const ENDPOINT_MERGE_M = 25;
+
 /** Chevron size as a fraction of the camera's fitted span — NOT the bbox diagonal, which the camera
  * does not track (spec §5): diagonal-sizing varies on-screen size ~2x from bbox shape alone. */
 export const CHEVRON_SIZE_RATIO = 0.05;

@@ -681,11 +681,18 @@ adapter, when `interactive` is false. The viewer is deliberately not flattened �
 that would collapse MapKit's own elements — but is not left mute either: since a
 polyline overlay has no accessibility representation of its own and the card's
 summary would otherwise be lost on the way in, it carries a route-summary label on
-a **footprint-free sibling node ahead of the map**, plus a real screen title. Not
-on the wrapper: `accessible` there is exactly the flattening the previous sentence
-rules out. Its wording differs from the card's, because `presentation: 'modal'`
-leaves the card in the hierarchy underneath and §7.4's two-"Close" hazard applies
-to any duplicated label.
+a sibling node, plus a real screen title. Two constraints pin that node's shape,
+and they nearly cancel: it cannot go on the wrapper, because `accessible` there is
+exactly the flattening the previous sentence rules out — and it cannot be
+positioned *over* the map either, because ADR 0005's overlap rule costs RN the very
+accessibility identity the node exists for, which is the shape of that ADR's own
+"RN 'Done' unfindable beneath a lingering form sheet". So it is laid out **in flow
+above** the map (1 pt tall, `pointerEvents="none"`): a real, non-empty frame that
+never intersects the host. A zero-size node is not an option either — VoiceOver
+skips empty frames, so it would be a silent no-op. Its wording differs from the
+card's, because `presentation: 'modal'` leaves the card in the hierarchy underneath
+and §7.4's two-"Close" hazard applies to any duplicated label. §10.7 must confirm
+it surfaces; the rule is empirical, so nothing here is settled without the check.
 
 ### 7.2 Summary card
 
@@ -1041,6 +1048,11 @@ match. Then tap, assert the "Route" title, dismiss by swipe, and re-assert
    state visible.
 7. **The card's `accessible` group surfacing in `inspect_screen`** with its
    composed label, and tappable by text (§7.1). This gates the Maestro plan.
+   **And the viewer's label node with it** — same ADR 0005 mechanism, same
+   `inspect_screen` evidence standard, and its 1 pt in-flow frame (§7.1) is a
+   judgement about where the host's frame ends, not a certainty. If it does not
+   surface, move it into the card-shaped fallback §7.1 already names rather than
+   positioning it over the map.
 8. Squircle clipping of the hosting view under `overflow-hidden`.
 9. Endpoint markers: balloon size acceptable, and the merge rule firing on a
    loop.

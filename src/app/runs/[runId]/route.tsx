@@ -37,12 +37,13 @@ export default function RunRouteScreen() {
 
   return (
     <View className="flex-1">
-      {/* why: footprint-free sibling — `accessible` on the wrapper flattens the map's own elements
-          (spec §7.1) */}
+      {/* why: in flow ABOVE the map, never over it — RN overlapping an ExpoSwiftUI host loses the very
+          a11y identity this node exists for (ADR 0005); `accessible` on the wrapper flattens the map
+          instead (spec §7.1). */}
       <View
         accessible
         accessibilityLabel={distance ? `Your ${distance} route` : 'Your route'}
-        className="absolute h-px w-px"
+        className="h-px"
         pointerEvents="none"
       />
 

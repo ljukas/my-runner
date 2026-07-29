@@ -4,6 +4,7 @@ import { ScrollView, useWindowDimensions, View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { Footer } from '@/components/ui/footer';
+import { useTheme } from '@/hooks/use-theme';
 import { completeAndAdvance } from '@/services/onboarding-store';
 import type { OnboardingStepId } from '@/services/onboarding';
 
@@ -41,6 +42,7 @@ export function OnboardingStepScreen({
   const busy = useRef(false);
   const { fontScale } = useWindowDimensions();
   const footnoteScrolls = fontScale >= FOOTNOTE_SCROLLS_ABOVE_FONT_SCALE;
+  const colors = useTheme();
 
   // why the guard: an async action (a permission prompt) leaves both CTAs live until it settles,
   // and a second tap would prompt twice and advance twice.
@@ -71,6 +73,19 @@ export function OnboardingStepScreen({
             its alignment when it moves here. */}
         {footnoteScrolls && footnote ? <View className="px-2 pt-5">{footnote}</View> : null}
       </ScrollView>
+
+      {/* why the negative margin: the footer is opaque and in layout, so scrolling content would
+          otherwise end at a hard edge against it. Pulling this strip back over its own height costs
+          no layout and no footer movement, and painting last puts it above the scroll content, which
+          then fades into the background instead of being cut off. The stop is the background at zero
+          alpha rather than `transparent`, which iOS fades through black. */}
+      <View
+        pointerEvents="none"
+        className="-mt-7 h-7"
+        style={{
+          experimental_backgroundImage: `linear-gradient(to bottom, ${colors.background}00, ${colors.background})`,
+        }}
+      />
 
       <Footer>
         {footnoteScrolls ? null : footnote}

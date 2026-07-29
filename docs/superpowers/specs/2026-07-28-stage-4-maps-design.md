@@ -22,9 +22,10 @@ truth, and `domain/geo.ts` already ships the smoother, `simplifyPolyline`
 
 | Topic | Decision |
 |---|---|
-| Run detail screen | **No `runs/[runId]` screen.** The map card goes into the existing `run-summary/[id]`, which already serves both fresh-finish and Log-revisit. Supersedes master spec §8/§13. |
+| Run detail screen | **No second detail screen.** The map card goes into the existing summary, which already serves both fresh-finish and Log-revisit. Supersedes master spec §8/§13's *screen split* — but not its route naming, see below. |
+| Route naming | The summary moves `run-summary/[id]` → **`runs/[runId]/index`**, and the viewer is its child **`runs/[runId]/route`** (§9.1). Clearer intent, and it restores master spec §8's `runs/[runId]` naming. |
 | Summary map | **Non-interactive**, camera-fitted preview in a `Card` directly under the headline, with a visible expand affordance; tapping it opens the viewer. |
-| Full-screen viewer | New route `run-route/[id]`, presented as **`presentation: 'modal'`** — swipe-down dismissal, with a toolbar `xmark` as redundancy (§7.3). |
+| Full-screen viewer | `runs/[runId]/route`, presented as **`presentation: 'modal'`** — swipe-down dismissal, with a toolbar `xmark` as redundancy (§7.4). |
 | Polyline colours | The existing **4-kind palette** (`useSegmentColors()`), **double-encoded with stroke width** so phase never depends on hue alone (§7.3). Supersedes master spec §8's accent/muted wording. |
 | Direction arrows | **Chevrons synthesised as extra 3-point polylines** — the only mechanism the API supports — in a dark casing ink, sized from the *fitted camera span* (§5). |
 | Geometry source | Derived from `run_points` (re-smoothed + DP-simplified). **Never** from `runs.summary_polyline`; nothing about finalize changes. |
@@ -624,7 +625,7 @@ hue alone because they also carry position and proportion; a map has neither.
 
 ### 7.4 Full-screen viewer
 
-`src/app/run-route/[id].tsx`, registered in the root `Stack` as
+`src/app/runs/[runId]/route.tsx`, registered in the root `Stack` as
 `presentation: 'modal'`, title **"Route"**, with a `Stack.Toolbar` `xmark`
 labelled **"Close map"** whose handler is `router.back()`.
 
@@ -649,8 +650,8 @@ Three corrections to the first draft, all from review:
   is a live risk.
 
 Nesting a modal over the summary's modal is fine — the app already stacks
-`session/[key]` (formSheet) → `run` (fullScreenModal) → `run-summary/[id]`
-(modal) in one root Stack. Header options are set once at registration and never
+`session/[key]` (formSheet) → `run` (fullScreenModal) → the summary (modal) in
+one root Stack. Header options are set once at registration and never
 toggled, per the verified gotcha that toggling `headerShown` on an in-flight
 modal freezes the screen.
 
@@ -736,6 +737,63 @@ branch is unreachable and a check guarding it would be dead code.
   branch-scoped, the first run on `main` after merge pays the full build again.
 - Local `bun run start` recompiles native once.
 
+### 9.1 Route rename
+
+The summary becomes a directory so the viewer can be its child:
+
+```
+src/app/run-summary/[id].tsx   →   src/app/runs/[runId]/index.tsx
+                          (new)    src/app/runs/[runId]/route.tsx
+```
+
+`/runs/[runId]` reads as the run's own surface and `/runs/[runId]/route` as a
+view of it, which `run-route/[id]` only implied. It also **restores master spec
+§8's route naming** — §8 chose `runs/[runId]` specifically "to avoid colliding
+with the `/history` tab route", and since that tab is now `log` there is no
+collision from either direction. The remaining deviation from §8 is only the
+screen *split*, not the naming.
+
+**No `_layout.tsx` goes in that directory.** expo-router only creates a nested
+navigator where one exists, so both files stay flat entries in the **root**
+Stack with their own `presentation` options — which is what ADR 0006 requires.
+Registered as `name="runs/[runId]/index"` and `name="runs/[runId]/route"`.
+
+Mechanical changes, all five current call sites:
+
+| File | Change |
+|---|---|
+| `src/app/_layout.tsx:100` | `name="run-summary/[id]"` → `"runs/[runId]/index"`, plus the new `"runs/[runId]/route"` screen |
+| `src/app/run.tsx:6,54-55` | import site (below) and `pathname: '/runs/[runId]'`, `params: { runId, celebrate: '1' }` |
+| `src/app/resume-run.tsx:35` | same pathname/param rename |
+| `src/app/(tabs)/log/index.tsx:88` | same pathname/param rename |
+| the screen itself | `useLocalSearchParams<'/runs/[runId]'>()` now yields `runId`, not `id` |
+
+**`UNSAVED_RUN_ID` moves out of the screen.** Today `run.tsx:6` imports it from
+the summary *route module* — one screen reaching into another, which ADR 0013's
+"screens compose only" argues against, and which would otherwise become the
+odd-looking `@/app/runs/[runId]`. Relocate it to `src/constants/routes.ts`. The
+sentinel's behaviour is unchanged: a dynamic segment cannot be empty, so a failed
+save still routes with it and the screen renders the save-failure state.
+
+**The rename is E2E-neutral.** No `.maestro/` flow references either route —
+they navigate by tapping and assert visible text, and none uses `openLink`. This
+removes the only objection to nesting raised earlier in the design.
+
+Two follow-through items the implementation must not skip. **Typed routes**: the
+new route literals do not type-check until Metro regenerates
+`.expo/types/router.d.ts` (start `bun expo start`, kill it once the file
+appears) — the caveat AGENTS.md already documents. And **stale path pointers**:
+`AGENTS.md` and ADRs 0005, 0006 and 0023 all name `run-summary/[id]`. ADR 0006's
+route inventory and AGENTS.md are live descriptions of the app and must be
+updated; ADR 0005's and 0023's mentions are historical evidence with line
+numbers, so update the *path* only and leave the reasoning and line references
+as the record of what was observed when. For the same reason, every
+`run-summary/[id].tsx:NN` citation in *this* spec refers to the file at its
+pre-rename path.
+
+The deep link changes from `runbro://run-summary/<id>` to `runbro://runs/<id>`;
+nothing in the repo or the flows uses either.
+
 **ADR 0010 amendment (required).** Its §1 mechanic ("`expo-build-properties`
 sets `ios.deploymentTarget: "18.0"`") is wrong twice over: the tool's option is
 deprecated, and the version rests on a README claim the package's own podspec,
@@ -756,9 +814,11 @@ caveat, and the narrow §4.3 deviation on where camera fit is invoked.
 §6 DP assignment to Stage 4 is satisfied by `toSegmentPolylines`; the promise
 that distance never derives from the rendered line is preserved (§6).
 
-**Master spec deviations to fold back:** §8/§13's `runs/[runId]` screen is
-dropped; §8's accent/muted colouring is replaced by the 4-kind palette plus
-width; §13's Stage 4 bullet gains the direction arrows. **Open for Stage 5:**
+**Master spec deviations to fold back:** §8/§13's *separate* run-detail screen is
+dropped, though its `runs/[runId]` route naming is now honoured (§9.1); §8's
+accent/muted colouring is replaced by the 4-kind palette plus width; §8's route
+tree gains `runs/[runId]/route`; §13's Stage 4 bullet gains the direction arrows.
+**Open for Stage 5:**
 master spec §9 assigns the `healthkit_saved` retry affordance to the deleted run
 detail screen; it needs a new home, presumably the summary.
 

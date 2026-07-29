@@ -23,7 +23,8 @@ const CHIP_SYMBOL_POINTS = 14;
 export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment[] }) {
   const router = useRouter();
   const colors = useTheme();
-  const route = useRunRoute(run.id, segments, CARD_ASPECT_RATIO);
+  // why: the caller (runs/[runId]/index) only mounts this card once its own live query has loaded.
+  const route = useRunRoute(run.id, segments, true, CARD_ASPECT_RATIO);
   // why: null until the first read resolves, and an unresolved answer must not offer a way out.
   const permission = useLocationPermission();
 

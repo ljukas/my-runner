@@ -1,15 +1,11 @@
 import { useMemo } from 'react';
 
-import {
-  CHEVRON_STROKE_W,
-  ROUTE_STROKE_W,
-  ROUTE_STROKE_W_RUN,
-  ROUTE_DIRECTION_COLOR,
-} from '@/constants/theme';
+import { CHEVRON_STROKE_W } from '@/constants/theme';
 import type { RunSegment } from '@/db/schema';
 import { loadRunFixes } from '@/db/run-points';
 import {
   boundingBox,
+  boundingBoxDiagonalM,
   cameraForBoundingBox,
   chevronsAlongRoute,
   DP_EPSILON_M,
@@ -19,8 +15,9 @@ import {
   type CameraFit,
   type LatLng,
 } from '@/domain/geo';
+import { toRouteLines } from '@/domain/route-render';
 import type { RouteMapDecoration, RouteMapRoute } from '@/components/route-map';
-import { useSegmentColors } from '@/hooks/use-theme';
+import { useRouteDirectionColor, useSegmentColors } from '@/hooks/use-theme';
 
 export type RunRoute =
   | { ready: false }
@@ -50,11 +47,13 @@ export function useRunRoute(
     const chunks = toSegmentPolylines(points, epsilon);
     if (chunks.length === 0) return null;
 
-    const bbox = boundingBox(points.map((p) => p.point));
+    // why: over what is DRAWN, not every render point — a dropped chunk's outlier is off-screen and
+    // must widen neither the readiness gate nor the camera.
+    const bbox = boundingBox(chunks.flatMap((chunk) => chunk.points));
     if (!bbox) return null;
-    const camera = cameraForBoundingBox(bbox, aspectRatio);
-    if (camera.fittedSpanM < MIN_ROUTE_EXTENT_M) return null;
+    if (boundingBoxDiagonalM(bbox) < MIN_ROUTE_EXTENT_M) return null;
 
+    const camera = cameraForBoundingBox(bbox, aspectRatio);
     return {
       camera,
       chunks,
@@ -67,33 +66,23 @@ export function useRunRoute(
   }, [runId, segments, aspectRatio, epsilon]);
 
   const segmentColors = useSegmentColors();
+  const directionColor = useRouteDirectionColor();
 
   return useMemo(() => {
     if (!geometry) return { ready: false };
-    const kindBySeq = new Map(segments.map((segment) => [segment.seq, segment.kind]));
 
     return {
       ready: true,
       camera: geometry.camera,
       endpoints: geometry.endpoints,
-      route: {
-        lines: geometry.chunks.map((chunk, index) => {
-          const kind = kindBySeq.get(chunk.segmentSeq) ?? 'walk';
-          return {
-            id: `seg-${index}`,
-            points: chunk.points,
-            color: segmentColors[kind],
-            width: kind === 'run' ? ROUTE_STROKE_W_RUN : ROUTE_STROKE_W,
-          };
-        }),
-      },
+      route: { lines: toRouteLines(geometry.chunks, segments, segmentColors) },
       decorations: geometry.chevrons.map((chevron, index) => ({
         id: `arrow-${index}`,
         points: [...chevron.points],
-        color: ROUTE_DIRECTION_COLOR,
+        color: directionColor,
         width: CHEVRON_STROKE_W,
         closed: false,
       })),
     };
-  }, [geometry, segments, segmentColors]);
+  }, [geometry, segments, segmentColors, directionColor]);
 }

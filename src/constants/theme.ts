@@ -67,9 +67,14 @@ export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>
   },
 };
 
-/** Casing ink for the direction chevrons. why: white measures 2.2:1 on warmup orange and 2.6:1 on
- * cooldown teal against WCAG 1.4.11's 3:1, and disappears where it overshoots onto light basemap. */
-export const ROUTE_DIRECTION_COLOR = 'rgba(0,0,0,0.55)';
+/** Casing ink for the direction chevrons, per scheme like `SegmentColors` — MapKit's basemap follows
+ * the system appearance, and a chevron's wings overhang it far more than they cover the line, so one
+ * fixed ink vanishes in one scheme or the other. Measured ratios are recorded in spec §5.
+ * Access via `useRouteDirectionColor()`. */
+export const RouteDirectionColors: Record<'light' | 'dark', string> = {
+  light: 'rgba(0,0,0,0.65)',
+  dark: 'rgba(255,255,255,0.95)',
+};
 /** Run intervals are drawn thicker so phase never depends on hue alone (spec §7.3). */
 export const ROUTE_STROKE_W = 4;
 export const ROUTE_STROKE_W_RUN = 7;

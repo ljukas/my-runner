@@ -5,7 +5,7 @@
 
 import { useColorScheme } from 'react-native';
 
-import { Colors, SegmentColors, StatColors } from '@/constants/theme';
+import { Colors, RouteDirectionColors, SegmentColors, StatColors } from '@/constants/theme';
 
 export function useTheme() {
   const scheme = useColorScheme();
@@ -17,6 +17,11 @@ export function useTheme() {
 export function useSegmentColors() {
   const scheme = useColorScheme();
   return SegmentColors[scheme === 'dark' ? 'dark' : 'light'];
+}
+
+export function useRouteDirectionColor() {
+  const scheme = useColorScheme();
+  return RouteDirectionColors[scheme === 'dark' ? 'dark' : 'light'];
 }
 
 export function useStatColors() {

@@ -461,3 +461,45 @@ export function simplifyPolyline(points: readonly LatLng[], epsilon = DP_EPSILON
   }
   return points.filter((_, i) => keep[i]);
 }
+
+/** why: the viewer zooms in far enough that the card's 5 m epsilon visibly cuts corners. */
+export const VIEWER_DP_EPSILON_M = 2;
+
+export interface SegmentPolyline {
+  segmentSeq: number;
+  points: LatLng[];
+  gapBefore: boolean;
+}
+
+/**
+ * One DP-simplified polyline per contiguous segment run. Adjacent non-gap chunks share their boundary
+ * coordinate by object reference (`simplifyPolyline` always retains endpoints), so differently-coloured
+ * lines meet exactly; a real gap deliberately does not, leaving the break the track actually has.
+ */
+export function toSegmentPolylines(
+  renderPoints: readonly RenderPoint[],
+  epsilon = DP_EPSILON_M,
+): SegmentPolyline[] {
+  const chunks: SegmentPolyline[] = [];
+  let current: SegmentPolyline | null = null;
+  // why: tracked across chunks, not read from the previous one — a segment can emit nothing at all.
+  let lastEmitted: LatLng | null = null;
+
+  for (const rp of renderPoints) {
+    if (!current || rp.segmentSeq !== current.segmentSeq || rp.gapBefore) {
+      if (current) chunks.push(current);
+      current = {
+        segmentSeq: rp.segmentSeq,
+        points: !rp.gapBefore && lastEmitted ? [lastEmitted] : [],
+        gapBefore: rp.gapBefore,
+      };
+    }
+    current.points.push(rp.point);
+    lastEmitted = rp.point;
+  }
+  if (current) chunks.push(current);
+
+  return chunks
+    .map((chunk) => ({ ...chunk, points: simplifyPolyline(chunk.points, epsilon) }))
+    .filter((chunk) => chunk.points.length >= 2);
+}

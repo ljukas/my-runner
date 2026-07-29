@@ -16,8 +16,10 @@ import {
   smoothTrack,
   smoothTrackBySegment,
   smoothTrackForRender,
+  toSegmentPolylines,
   type LatLng,
   type LocationFix,
+  type RenderPoint,
   type SegmentedFix,
 } from './geo';
 
@@ -533,5 +535,71 @@ describe('smoothTrackForRender', () => {
     // The gap's own restarted fix is a dropped seed, so the flag lands on the first KEPT point after it.
     expect(flagged[0].segmentSeq).toBe(1);
     expect(points.indexOf(flagged[0])).toBe(before.length - SEED_FIXES);
+  });
+});
+
+/**
+ * RenderPoints marching due north ~22 m apart, one per entry of `segments`; `gaps` holds the indices
+ * flagged `gapBefore`. The points are deliberately collinear, so DP reduces every chunk to its two
+ * endpoints — which is exactly what makes the boundary-sharing assertions meaningful.
+ */
+function makeRenderPoints(
+  segments: readonly number[],
+  gaps: readonly number[] = [],
+): RenderPoint[] {
+  return segments.map((segmentSeq, i) => ({
+    point: { lat: i * 0.0002, lng: 0 },
+    segmentSeq,
+    gapBefore: gaps.includes(i),
+  }));
+}
+
+describe('toSegmentPolylines', () => {
+  test('adjacent chunks share a bit-identical boundary vertex', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 1, 1, 1]));
+    expect(chunks).toHaveLength(2);
+    const seam = chunks[0].points.at(-1)!;
+    expect(chunks[1].points[0]).toBe(seam); // same object reference, not merely equal
+  });
+
+  test('every adjacent pair shares a vertex across many segments', () => {
+    const segments = Array.from({ length: 17 }, (_, s) => [s, s, s]).flat();
+    const chunks = toSegmentPolylines(makeRenderPoints(segments));
+    expect(chunks).toHaveLength(17);
+    for (let i = 1; i < chunks.length; i++) {
+      expect(chunks[i].points[0]).toBe(chunks[i - 1].points.at(-1)!);
+    }
+  });
+
+  test('a real gap leaves the chunks disjoint and flags the second', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 1, 1, 1], [3]));
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1].gapBefore).toBe(true);
+    expect(chunks[1].points[0]).not.toBe(chunks[0].points.at(-1));
+  });
+
+  test('a mid-segment gap yields two chunks with the same segmentSeq', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 0, 0, 0], [3]));
+    expect(chunks).toHaveLength(2);
+    expect(chunks.map((c) => c.segmentSeq)).toEqual([0, 0]);
+  });
+
+  test('a segment that emitted no points does not break continuity', () => {
+    // segmentSeq 1 never appears in the render stream (all its fixes were gated).
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 2, 2, 2]));
+    expect(chunks.map((c) => c.segmentSeq)).toEqual([0, 2]);
+    expect(chunks[1].points[0]).toBe(chunks[0].points.at(-1)!);
+  });
+
+  test('a single-point segment survives via the prepend', () => {
+    // The compressed-plan E2E case: most segments contribute one fix.
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 1, 2, 3]));
+    expect(chunks).toHaveLength(3);
+    for (const chunk of chunks) expect(chunk.points.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('drops a chunk that cannot form a line', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0], [0]));
+    expect(chunks).toHaveLength(0); // one point, no prepend (gapBefore) → nothing to draw
   });
 });

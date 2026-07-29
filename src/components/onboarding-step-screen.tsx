@@ -52,11 +52,15 @@ export function OnboardingStepScreen({
 
   return (
     <View className="flex-1 bg-background">
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerClassName="px-6 pb-3">
+      <ScrollView
+        className="flex-1"
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerClassName="px-6 pb-3"
+      >
         {children}
       </ScrollView>
 
-      <Footer className="absolute right-0 bottom-0 left-0">
+      <Footer>
         {footnote}
 
         {secondaryLabel ? (

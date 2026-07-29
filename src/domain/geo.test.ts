@@ -8,6 +8,7 @@ import {
   EARTH_RADIUS_M,
   encodePolyline,
   haversineMeters,
+  MAX_GAP_S,
   NEAR_STATIONARY_DEADBAND_M,
   simplifyPolyline,
   smoothFix,
@@ -435,5 +436,45 @@ describe('simplifyPolyline', () => {
     expect(simplifyPolyline([])).toEqual([]);
     expect(simplifyPolyline([north(0)])).toEqual([north(0)]);
     expect(simplifyPolyline([north(0), north(5)])).toEqual([north(0), north(5)]);
+  });
+});
+
+describe('SmoothStep.restarted', () => {
+  test('is true on the first fix', () => {
+    const step = smoothFix(createSmootherState(), makeFix({ timestamp: 0 }));
+    expect(step.restarted).toBe(true);
+  });
+
+  test('is false on an ordinary following fix', () => {
+    const first = smoothFix(createSmootherState(), makeFix({ timestamp: 0 }));
+    const second = smoothFix(first.state, makeFix({ timestamp: 1000, lat: 0.00001 }));
+    expect(second.restarted).toBe(false);
+  });
+
+  test('is true past MAX_GAP_S but false exactly at it', () => {
+    const start = smoothFix(createSmootherState(), makeFix({ timestamp: 0 }));
+    const atLimit = smoothFix(start.state, makeFix({ timestamp: MAX_GAP_S * 1000 }));
+    expect(atLimit.restarted).toBe(false);
+
+    const pastLimit = smoothFix(start.state, makeFix({ timestamp: MAX_GAP_S * 1000 + 1 }));
+    expect(pastLimit.restarted).toBe(true);
+  });
+
+  test('is false when the velocity gate rejects a fix', () => {
+    let state = createSmootherState();
+    for (let i = 0; i < 5; i++) {
+      state = smoothFix(state, makeFix({ timestamp: i * 1000, lat: i * 0.00002 })).state;
+    }
+    // 0.05 deg latitude in 1 s ≈ 5.5 km/s — far above the gate ceiling.
+    const gated = smoothFix(state, makeFix({ timestamp: 5000, lat: 0.05 }));
+    expect(gated.smoothedPoint).toBeNull();
+    expect(gated.restarted).toBe(false);
+  });
+
+  test('is false on a non-monotonic timestamp', () => {
+    const start = smoothFix(createSmootherState(), makeFix({ timestamp: 5000 }));
+    const backwards = smoothFix(start.state, makeFix({ timestamp: 4000 }));
+    expect(backwards.smoothedPoint).toBeNull();
+    expect(backwards.restarted).toBe(false);
   });
 });

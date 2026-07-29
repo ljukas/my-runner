@@ -145,6 +145,8 @@ export interface SmoothStep {
   acceptedDeltaMeters: number;
   /** Smoothed position for this fix, or null when the velocity gate rejected it. */
   smoothedPoint: LatLng | null;
+  /** why: the two `startAt` paths emit a RAW fix and break track continuity — render must know (ADR 0021 §5). */
+  restarted: boolean;
 }
 
 export interface SmoothedTrack {
@@ -245,18 +247,20 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
       state: startAt(state, fix, true),
       acceptedDeltaMeters: 0,
       smoothedPoint: { lat: fix.lat, lng: fix.lng },
+      restarted: true,
     };
   }
 
   const dtSec = (fix.timestamp - state.lastAcceptedTime) / 1000;
   if (dtSec <= 0) {
-    return { state, acceptedDeltaMeters: 0, smoothedPoint: null }; // non-monotonic timestamps → no Δt
+    return { state, acceptedDeltaMeters: 0, smoothedPoint: null, restarted: false }; // non-monotonic timestamps → no Δt
   }
   if (dtSec > MAX_GAP_S) {
     return {
       state: startAt(state, fix, false),
       acceptedDeltaMeters: 0,
       smoothedPoint: { lat: fix.lat, lng: fix.lng },
+      restarted: true,
     };
   }
 
@@ -268,7 +272,7 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
     const implied =
       haversineMeters({ lat: refLatM, lng: refLngM }, { lat: fix.lat, lng: fix.lng }) / dtMed;
     if (implied > RUNNING_SPEED_CEILING_MPS * VELOCITY_GATE_MARGIN) {
-      return { state, acceptedDeltaMeters: 0, smoothedPoint: null };
+      return { state, acceptedDeltaMeters: 0, smoothedPoint: null, restarted: false };
     }
   }
 
@@ -327,7 +331,7 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
     s.anchorLng = smoothedPoint.lng;
   }
 
-  return { state: s, acceptedDeltaMeters, smoothedPoint };
+  return { state: s, acceptedDeltaMeters, smoothedPoint, restarted: false };
 }
 
 /**

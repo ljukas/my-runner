@@ -24,7 +24,6 @@ const UI_SETTINGS: AppleMaps.MapUISettings = {
 
 export function RouteMap({
   route,
-  decorations,
   endpoints,
   camera,
   interactive,
@@ -36,14 +35,14 @@ export function RouteMap({
 
   const polylines = useMemo(
     () =>
-      [...route.lines, ...decorations].map((line) => ({
+      route.lines.map((line) => ({
         id: line.id,
         coordinates: line.points.map((p) => ({ latitude: p.lat, longitude: p.lng })),
         color: line.color,
         width: line.width,
         contourStyle: AppleMaps.ContourStyle.STRAIGHT,
       })),
-    [route, decorations],
+    [route],
   );
 
   const markers = useMemo(() => {

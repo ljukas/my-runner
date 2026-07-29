@@ -52,7 +52,6 @@ export default function RunRouteScreen() {
 
       <RouteMap
         route={route.route}
-        decorations={route.decorations}
         endpoints={route.endpoints}
         camera={route.camera}
         interactive

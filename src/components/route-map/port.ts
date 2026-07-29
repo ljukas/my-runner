@@ -14,14 +14,8 @@ export interface RouteMapRoute {
   lines: RouteMapLine[];
 }
 
-/** `closed` lets a decoration switch to a filled polygon without a port change (spec §5). */
-export interface RouteMapDecoration extends RouteMapLine {
-  closed: boolean;
-}
-
 export interface RouteMapProps {
   route: RouteMapRoute;
-  decorations: RouteMapDecoration[];
   endpoints: { start: LatLng; finish: LatLng } | null;
   camera: CameraFit;
   interactive: boolean;

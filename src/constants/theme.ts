@@ -67,16 +67,9 @@ export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>
   },
 };
 
-/** Casing ink for the direction chevrons; per-scheme because the basemap flips with the system
- * appearance. Ratios and method in spec §5. Access via `useRouteDirectionColor()`. */
-export const RouteDirectionColors: Record<'light' | 'dark', string> = {
-  light: 'rgba(0,0,0,0.65)',
-  dark: 'rgba(255,255,255,0.95)',
-};
 /** Run intervals are drawn thicker so phase never depends on hue alone (spec §7.3). */
 export const ROUTE_STROKE_W = 4;
 export const ROUTE_STROKE_W_RUN = 7;
-export const CHEVRON_STROKE_W = 3;
 
 /** Run-summary stat-tile accents (ADR 0013) — chosen for the summary cards and
  * intentionally INDEPENDENT of the segment-bar palette (they need not match).

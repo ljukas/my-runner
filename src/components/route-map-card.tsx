@@ -42,7 +42,6 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
     <Card surface="card" className="aspect-[3/2] overflow-hidden p-0">
       <RouteMap
         route={route.route}
-        decorations={route.decorations}
         endpoints={route.endpoints}
         camera={route.camera}
         interactive={false}

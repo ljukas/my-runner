@@ -1,13 +1,11 @@
 import { useMemo } from 'react';
 
-import { CHEVRON_STROKE_W } from '@/constants/theme';
 import type { RunSegment } from '@/db/schema';
 import { loadRunFixes } from '@/db/run-points';
 import {
   boundingBox,
   boundingBoxDiagonalM,
   cameraForBoundingBox,
-  chevronsAlongRoute,
   DP_EPSILON_M,
   MIN_ROUTE_EXTENT_M,
   smoothTrackForRender,
@@ -16,8 +14,8 @@ import {
   type LatLng,
 } from '@/domain/geo';
 import { toRouteLines } from '@/domain/route-render';
-import type { RouteMapDecoration, RouteMapRoute } from '@/components/route-map/port';
-import { useRouteDirectionColor, useSegmentColors } from '@/hooks/use-theme';
+import type { RouteMapRoute } from '@/components/route-map/port';
+import { useSegmentColors } from '@/hooks/use-theme';
 
 export type RunRoute =
   | { ready: false }
@@ -25,7 +23,6 @@ export type RunRoute =
       ready: true;
       camera: CameraFit;
       route: RouteMapRoute;
-      decorations: RouteMapDecoration[];
       endpoints: { start: LatLng; finish: LatLng };
     };
 
@@ -61,7 +58,6 @@ export function useRunRoute(
       return {
         camera,
         chunks,
-        chevrons: chevronsAlongRoute(chunks, camera.fittedSpanM),
         endpoints: {
           start: chunks[0].points[0],
           finish: chunks.at(-1)!.points.at(-1)!,
@@ -76,7 +72,6 @@ export function useRunRoute(
   }, [runId, loaded, aspectRatio, epsilon]);
 
   const segmentColors = useSegmentColors();
-  const directionColor = useRouteDirectionColor();
 
   return useMemo(() => {
     if (!geometry) return { ready: false };
@@ -86,13 +81,6 @@ export function useRunRoute(
       camera: geometry.camera,
       endpoints: geometry.endpoints,
       route: { lines: toRouteLines(geometry.chunks, segments, segmentColors) },
-      decorations: geometry.chevrons.map((chevron, index) => ({
-        id: `arrow-${index}`,
-        points: [...chevron.points],
-        color: directionColor,
-        width: CHEVRON_STROKE_W,
-        closed: false,
-      })),
     };
-  }, [geometry, segments, segmentColors, directionColor]);
+  }, [geometry, segments, segmentColors]);
 }

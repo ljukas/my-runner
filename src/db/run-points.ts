@@ -15,16 +15,8 @@ function rows(runId: string) {
 }
 
 /** A run's accepted fixes in insertion (`seq`) order — the order the live engine folded (ADR 0021 §3). */
-export function loadRunPoints(runId: string): SegmentedFix[] {
-  return rows(runId).map((row) => ({
-    timestamp: new Date(row.timestamp).getTime(),
-    lat: row.lat,
-    lng: row.lng,
-    altitude: row.altitude,
-    accuracy: row.accuracy,
-    speed: row.speed,
-    segmentSeq: row.segmentSeq,
-  }));
+export function loadRunFixes(runId: string): SegmentedFix[] {
+  return loadBufferedRunPoints(runId);
 }
 
 /** The same stream in the engine's buffered shape, which carries `seq` for resumed batch writes. */

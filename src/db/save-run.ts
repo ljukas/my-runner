@@ -4,13 +4,13 @@ import * as Crypto from 'expo-crypto';
 import { encodePolyline, smoothTrackBySegment } from '@/domain/geo';
 import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run-engine/types';
 import { db } from './client';
-import { loadRunPoints } from './run-points';
+import { loadRunFixes } from './run-points';
 import { runSegments, runs } from './schema';
 
 // why: re-fold the persisted fixes in `seq` order — the order the live engine used — so the
 // re-derived distance equals the live value (ADR 0021 §3).
 function rollupFromPoints(runId: string) {
-  const fixes = loadRunPoints(runId);
+  const fixes = loadRunFixes(runId);
   return { hasPoints: fixes.length > 0, ...smoothTrackBySegment(fixes) };
 }
 

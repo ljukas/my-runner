@@ -482,7 +482,8 @@ export function toSegmentPolylines(
 ): SegmentPolyline[] {
   const chunks: SegmentPolyline[] = [];
   let current: SegmentPolyline | null = null;
-  // why: tracked across chunks, not read from the previous one — a segment can emit nothing at all.
+  // why: the seam anchor is the last point actually drawn, which may predate the previous segment —
+  // a segment whose fixes were all gated contributes none.
   let lastEmitted: LatLng | null = null;
 
   for (const rp of renderPoints) {
@@ -499,9 +500,17 @@ export function toSegmentPolylines(
   }
   if (current) chunks.push(current);
 
-  return chunks
-    .map((chunk) => ({ ...chunk, points: simplifyPolyline(chunk.points, epsilon) }))
-    .filter((chunk) => chunk.points.length >= 2);
+  const kept: SegmentPolyline[] = [];
+  // why: a dropped chunk must hand its break on, or chevrons interpolate across the void it left.
+  let pendingGap = false;
+  for (const chunk of chunks) {
+    const points = simplifyPolyline(chunk.points, epsilon);
+    pendingGap = pendingGap || chunk.gapBefore;
+    if (points.length < 2) continue;
+    kept.push({ ...chunk, points, gapBefore: pendingGap });
+    pendingGap = false;
+  }
+  return kept;
 }
 
 /** why: without a floor a stationary run's zero-span bbox yields zoom = Infinity. */
@@ -528,28 +537,25 @@ export function cameraForBoundingBox(
   aspectRatio: number,
   paddingRatio = CAMERA_PADDING_RATIO,
 ): CameraFit {
+  // why: a pre-layout viewport measures 0/0 — a NaN or ≤ 0 ratio would otherwise fit to an infinite span.
+  const aspect = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
-  const cosLat = Math.cos(centerLat * DEG_TO_RAD);
-  const f = 1 / cosLat;
+  const f = 1 / Math.cos(centerLat * DEG_TO_RAD);
   const latSpanDeg = bbox.maxLat - bbox.minLat;
   const lngSpanDeg = bbox.maxLng - bbox.minLng;
 
   const neededDeg = Math.max(
-    lngSpanDeg / Math.max(1, aspectRatio * f),
-    (latSpanDeg * f) / Math.max(1 / aspectRatio, f),
+    lngSpanDeg / Math.max(1, aspect * f),
+    (latSpanDeg * f) / Math.max(1 / aspect, f),
   );
   const pad = 1 + 2 * paddingRatio;
   const spanDeg = Math.max(neededDeg, MIN_SPAN_DEG) * pad;
 
-  const widthM = lngSpanDeg * M_PER_DEG * cosLat;
-  const heightM = latSpanDeg * M_PER_DEG;
-  const fittedSpanM =
-    Math.max(Math.max(widthM / aspectRatio, heightM), MIN_SPAN_DEG * M_PER_DEG) * pad;
-
   return {
     center: { lat: centerLat, lng: (bbox.minLng + bbox.maxLng) / 2 },
     zoom: Math.log2(360 / spanDeg),
-    fittedSpanM,
+    // why: read off the same `spanDeg` the zoom asks for, so the two cannot disagree.
+    fittedSpanM: (spanDeg * Math.max(f, 1 / aspect) * M_PER_DEG) / f,
   };
 }
 
@@ -557,19 +563,19 @@ export function cameraForBoundingBox(
  * does not track (spec §5): diagonal-sizing varies on-screen size ~2x from bbox shape alone. */
 export const CHEVRON_SIZE_RATIO = 0.05;
 export const CHEVRON_MIN_SIZE_M = 3;
-/** A sanity rail, not a design parameter: it must NOT bind inside the C25K range, or arrows shrink
- * on screen exactly as the diagonal-sizing bug did. 400 m only binds past an 8 km fitted span. */
-export const CHEVRON_MAX_SIZE_M = 400;
+/** A sanity rail, not a design parameter: it must NOT bind inside the C25K range, or arrows shrink on
+ * screen as the diagonal-sizing bug did. 400 m bound at the 5 km goal state (~14 km fitted, portrait). */
+export const CHEVRON_MAX_SIZE_M = 800;
 export const CHEVRON_TARGET_COUNT = 8;
 export const CHEVRON_MIN_SPACING_MULTIPLIER = 4;
 export const CHEVRON_MIN_RUN_LENGTH_M = 20;
 export const CHEVRON_WING_DEG = 35;
-/** Bearing difference past which two nearby arrows count as opposed (retraced ground). */
-export const CHEVRON_OPPOSED_DEG = 120;
-export const CHEVRON_DEDUPE_MULTIPLIER = 2;
+/** why: two marks closer than half an arrow-length read as one mark whatever their bearings, so the
+ * radius is bearing-blind — a bearing test let same-direction laps stack 8 arrows on one spot. */
+export const CHEVRON_DEDUPE_MULTIPLIER = 0.5;
 
 export interface Chevron {
-  /** [back-left, tip, back-right] — a ">" pointing along travel. `sizeM` is tip-to-wing-end. */
+  /** [back-left, tip, back-right] — a ">" pointing along travel; wings are equidistant from the tip. */
   points: readonly [LatLng, LatLng, LatLng];
 }
 
@@ -587,7 +593,6 @@ function offsetMeters(from: LatLng, bearing: number, distM: number, cosLat: numb
   };
 }
 
-/** Contiguous runs of chunks with no real gap between them, as flat deduplicated point lists. */
 function gapFreeRuns(chunks: readonly SegmentPolyline[]): LatLng[][] {
   const runs: LatLng[][] = [];
   let current: LatLng[] | null = null;
@@ -610,7 +615,8 @@ function gapFreeRuns(chunks: readonly SegmentPolyline[]): LatLng[][] {
 /**
  * Direction arrows along the drawn route. Rides the already-simplified geometry (cheaper, and much less
  * bearing jitter than the raw stream). Spacing is global across runs so gaps cannot multiply the count,
- * and arrows on retraced ground are deduplicated so an out-and-back does not render them head-to-head.
+ * and a candidate too close to a placed arrow is dropped: retraced ground never stacks marks, at the
+ * cost of a multi-lap route getting one arrow per physical spot rather than an even spread.
  */
 export function chevronsAlongRoute(
   chunks: readonly SegmentPolyline[],
@@ -629,15 +635,19 @@ export function chevronsAlongRoute(
       }
       return { points, cumulative, length: cumulative.at(-1) ?? 0 };
     })
-    .filter((run) => run.length >= CHEVRON_MIN_RUN_LENGTH_M && run.points.length >= 2);
+    // why: a fragment shorter than the arrow it would carry cannot show one legibly.
+    .filter(
+      (run) => run.length >= Math.max(CHEVRON_MIN_RUN_LENGTH_M, sizeM) && run.points.length >= 2,
+    );
 
   const totalM = runs.reduce((sum, run) => sum + run.length, 0);
   if (totalM === 0) return [];
 
   const spacingM = Math.max(totalM / CHEVRON_TARGET_COUNT, sizeM * CHEVRON_MIN_SPACING_MULTIPLIER);
+  // why: the placement loop's exits are both comparisons, so a NaN spacing loops forever.
+  if (!Number.isFinite(spacingM) || spacingM <= 0) return [];
   const wing = CHEVRON_WING_DEG * DEG_TO_RAD;
-  const opposed = CHEVRON_OPPOSED_DEG * DEG_TO_RAD;
-  const accepted: { tip: LatLng; bearing: number }[] = [];
+  const accepted: { tip: LatLng; bearing: number; cosLat: number }[] = [];
 
   let runStart = 0;
   for (const run of runs) {
@@ -659,28 +669,22 @@ export function chevronsAlongRoute(
 
       const cosLat = Math.cos(tip.lat * DEG_TO_RAD);
       const bearing = bearingRad(from, to, cosLat);
+      // why: defensive — unreachable while the placement scan's `<` is strict, which may change.
       if (Number.isNaN(bearing)) continue;
 
       const clash = accepted.some(
-        (other) =>
-          haversineMeters(other.tip, tip) < sizeM * CHEVRON_DEDUPE_MULTIPLIER &&
-          Math.abs(
-            Math.atan2(Math.sin(other.bearing - bearing), Math.cos(other.bearing - bearing)),
-          ) > opposed,
+        (other) => haversineMeters(other.tip, tip) < sizeM * CHEVRON_DEDUPE_MULTIPLIER,
       );
-      if (!clash) accepted.push({ tip, bearing });
+      if (!clash) accepted.push({ tip, bearing, cosLat });
     }
     runStart += run.length;
   }
 
-  return accepted.map(({ tip, bearing }) => {
-    const cosLat = Math.cos(tip.lat * DEG_TO_RAD);
-    return {
-      points: [
-        offsetMeters(tip, bearing + Math.PI + wing, sizeM, cosLat),
-        tip,
-        offsetMeters(tip, bearing + Math.PI - wing, sizeM, cosLat),
-      ] as const,
-    };
-  });
+  return accepted.map(({ tip, bearing, cosLat }) => ({
+    points: [
+      offsetMeters(tip, bearing + Math.PI + wing, sizeM, cosLat),
+      tip,
+      offsetMeters(tip, bearing + Math.PI - wing, sizeM, cosLat),
+    ] as const,
+  }));
 }

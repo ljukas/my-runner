@@ -529,8 +529,6 @@ export interface CameraFit {
   center: LatLng;
   /** expo-maps zoom: the library shows `360 / 2^zoom` degrees on BOTH axes (spec §3). */
   zoom: number;
-  /** Vertical extent the camera will show, in metres. */
-  fittedSpanM: number;
 }
 
 /**
@@ -561,8 +559,6 @@ export function cameraForBoundingBox(
   return {
     center: { lat: centerLat, lng: (bbox.minLng + bbox.maxLng) / 2 },
     zoom: Math.log2(360 / spanDeg),
-    // why: read off the same `spanDeg` the zoom asks for, so the two cannot disagree.
-    fittedSpanM: (spanDeg * Math.max(f, 1 / aspect) * M_PER_DEG) / f,
   };
 }
 

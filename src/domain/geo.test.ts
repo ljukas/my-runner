@@ -702,23 +702,6 @@ describe('cameraForBoundingBox', () => {
     }
   });
 
-  test('fittedSpanM is exactly the vertical extent the zoom will show', () => {
-    // Flooring the zoom in degrees while flooring fittedSpanM in metres let the two disagree
-    // wherever MIN_SPAN_DEG binds, which is why the degenerate `point` bbox is in this list.
-    for (const box of [stockholm, wide, tall, point]) {
-      for (const aspect of aspects) {
-        const fit = cameraForBoundingBox(box, aspect);
-        expect(fit.fittedSpanM / (shownSpanDeg(fit, aspect).lat * M_PER_DEG)).toBeCloseTo(1, 9);
-      }
-    }
-  });
-
-  test('fittedSpanM widens as the viewport narrows, for one bbox', () => {
-    const portrait = cameraForBoundingBox(stockholm, 393 / 852).fittedSpanM;
-    const landscape = cameraForBoundingBox(stockholm, 1.5).fittedSpanM;
-    expect(portrait).toBeGreaterThan(landscape);
-  });
-
   test('falls back to a square viewport for a degenerate aspect ratio', () => {
     const square = cameraForBoundingBox(stockholm, 1);
     for (const aspect of [NaN, 0, -1.5]) {
@@ -745,16 +728,6 @@ describe('cameraForBoundingBox', () => {
       expect(zoom).toBeLessThan(previous);
       previous = zoom;
     }
-  });
-
-  test('fittedSpanM grows with the route and is at least the floor', () => {
-    const small = cameraForBoundingBox(stockholm, 1.5).fittedSpanM;
-    const big = cameraForBoundingBox(
-      { minLat: 59.3, maxLat: 59.4, minLng: 18.0, maxLng: 18.2 },
-      1.5,
-    ).fittedSpanM;
-    expect(big).toBeGreaterThan(small);
-    expect(small).toBeGreaterThan(0);
   });
 });
 
@@ -795,15 +768,6 @@ describe('route extent gate (spec §8)', () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0].points).toHaveLength(2);
     expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeLessThan(MIN_ROUTE_EXTENT_M);
-  });
-
-  test('a camera span could never reject that run, at any surface aspect', () => {
-    // Regression pin: fittedSpanM is floored at MIN_SPAN_DEG · padding ≈ 72 m > MIN_ROUTE_EXTENT_M, so
-    // gating on it was dead code — and being aspect-dependent it also differed card-vs-viewer.
-    const bbox = drawnBbox(toSegmentPolylines(smoothTrackForRender(stationaryFixes(4))))!;
-    for (const aspect of [3 / 2, 393 / 852, 1]) {
-      expect(cameraForBoundingBox(bbox, aspect).fittedSpanM).toBeGreaterThan(MIN_ROUTE_EXTENT_M);
-    }
   });
 
   test('ignores an outlier that no chunk draws', () => {

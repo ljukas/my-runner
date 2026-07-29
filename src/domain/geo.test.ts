@@ -3,11 +3,15 @@ import { describe, expect, test } from 'bun:test';
 import {
   accuracyFilter,
   boundingBox,
+  CAMERA_PADDING_RATIO,
   cameraForBoundingBox,
   CHEVRON_DEDUPE_MULTIPLIER,
+  CHEVRON_MAX_SIZE_M,
   CHEVRON_MIN_RUN_LENGTH_M,
+  CHEVRON_MIN_SIZE_M,
   CHEVRON_SIZE_RATIO,
   CHEVRON_TARGET_COUNT,
+  CHEVRON_WING_DEG,
   chevronsAlongRoute,
   createSmootherState,
   DP_EPSILON_M,
@@ -26,6 +30,7 @@ import {
   toSegmentPolylines,
   type BoundingBox,
   type CameraFit,
+  type Chevron,
   type LatLng,
   type LocationFix,
   type RenderPoint,
@@ -513,13 +518,16 @@ describe('smoothTrackForRender', () => {
     expect(points).toHaveLength(fixes.length - SEED_FIXES);
   });
 
-  test('a legal but far cold-start fix never reaches the output', () => {
-    const fixes = makeSegmentedTrack([0, 0, 0, 0, 0, 0, 0, 0]);
+  test('a legal but far cold-start fix decays out of the drawn line', () => {
+    const fixes = makeSegmentedTrack(Array.from({ length: 25 }, () => 0));
     // A 45 m eastward error on the first fix passes accuracyFilter (<= 50 m).
-    fixes[0] = { ...fixes[0], lng: 45 / (111_320 * Math.cos(0)), accuracy: 45 };
-    const points = smoothTrackForRender(fixes);
-    const maxEastM = Math.max(...points.map((p) => Math.abs(p.point.lng) * 111_320));
-    expect(maxEastM).toBeLessThan(7);
+    fixes[0] = { ...fixes[0], lng: 45 / M_PER_DEG, accuracy: 45 };
+    const eastM = smoothTrackForRender(fixes).map((p) => Math.abs(p.point.lng) * M_PER_DEG);
+    // The residual transient is inherent (the filter seeds velocity from two points), so bound it
+    // by a fraction of the injected error rather than by its fitted peak …
+    expect(Math.max(...eastM)).toBeLessThan(45 / 4);
+    // … and require the tail to converge well inside DP_EPSILON_M, where no spur can survive.
+    for (const m of eastM.slice(-5)) expect(m).toBeLessThan(2);
   });
 
   test('tags points with their segmentSeq', () => {
@@ -612,6 +620,15 @@ describe('toSegmentPolylines', () => {
     const chunks = toSegmentPolylines(makeRenderPoints([0], [0]));
     expect(chunks).toHaveLength(0); // one point, no prepend (gapBefore) → nothing to draw
   });
+
+  test('carries the gap flag past a dropped single-point chunk', () => {
+    // The post-gap segment contributes one point, so its chunk is dropped after simplification. If
+    // the flag dies with it, everything downstream reads the break as continuous line.
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 1, 2, 2], [2]));
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1].gapBefore).toBe(true);
+    expect(chunks[1].points[0]).not.toBe(chunks[0].points.at(-1));
+  });
 });
 
 /** Inverse of the library's conversion: what span (in degrees) a zoom asks for. */
@@ -619,19 +636,26 @@ function spanDegForZoom(zoom: number): number {
   return 360 / 2 ** zoom;
 }
 
-/** Does the region MapKit will show contain the bbox? Mirrors the expand-only fit in projected units. */
-function containsBbox(bbox: BoundingBox, fit: CameraFit, aspectRatio: number): boolean {
+/** Degrees MapKit will actually show on each axis. Mirrors the expand-only fit in projected units. */
+function shownSpanDeg(fit: CameraFit, aspectRatio: number): { lng: number; lat: number } {
   const f = 1 / Math.cos(fit.center.lat * (Math.PI / 180));
   const s = spanDegForZoom(fit.zoom);
-  const shownLng = s * Math.max(1, aspectRatio * f);
-  const shownLat = (s * Math.max(1 / aspectRatio, f)) / f;
+  return { lng: s * Math.max(1, aspectRatio * f), lat: (s * Math.max(1 / aspectRatio, f)) / f };
+}
+
+function containsBbox(bbox: BoundingBox, fit: CameraFit, aspectRatio: number): boolean {
+  const shown = shownSpanDeg(fit, aspectRatio);
   return (
-    shownLng >= bbox.maxLng - bbox.minLng - 1e-12 && shownLat >= bbox.maxLat - bbox.minLat - 1e-12
+    shown.lng >= bbox.maxLng - bbox.minLng - 1e-12 && shown.lat >= bbox.maxLat - bbox.minLat - 1e-12
   );
 }
 
 describe('cameraForBoundingBox', () => {
   const stockholm: BoundingBox = { minLat: 59.32, maxLat: 59.34, minLng: 18.06, maxLng: 18.08 };
+  const wide: BoundingBox = { minLat: 59.3275, maxLat: 59.3325, minLng: 18.045, maxLng: 18.095 };
+  const tall: BoundingBox = { minLat: 59.305, maxLat: 59.355, minLng: 18.0675, maxLng: 18.0725 };
+  const point: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.07, maxLng: 18.07 };
+  const aspects = [393 / 852, 1, 1.5];
 
   test('centres on the bbox midpoint', () => {
     const fit = cameraForBoundingBox(stockholm, 1.5);
@@ -670,8 +694,45 @@ describe('cameraForBoundingBox', () => {
     expect(ratio).toBeCloseTo(1.3, 6); // 1 + 2·0.15
   });
 
+  test('frames a non-square bbox tightly on its binding axis', () => {
+    // Containment alone is satisfied by any wider frame; the binding axis must carry the padding
+    // and nothing more, or the fit is not the minimum the spec §4.2 derivation claims.
+    for (const box of [wide, tall]) {
+      for (const aspect of aspects) {
+        const shown = shownSpanDeg(cameraForBoundingBox(box, aspect), aspect);
+        const tightest = Math.min(
+          shown.lng / (box.maxLng - box.minLng),
+          shown.lat / (box.maxLat - box.minLat),
+        );
+        expect(tightest).toBeCloseTo(1 + 2 * CAMERA_PADDING_RATIO, 9);
+      }
+    }
+  });
+
+  test('fittedSpanM is exactly the vertical extent the zoom will show', () => {
+    // Flooring the zoom in degrees and fittedSpanM in metres let the two disagree by up to 5x.
+    for (const box of [stockholm, wide, tall, point]) {
+      for (const aspect of aspects) {
+        const fit = cameraForBoundingBox(box, aspect);
+        expect(fit.fittedSpanM / (shownSpanDeg(fit, aspect).lat * M_PER_DEG)).toBeCloseTo(1, 9);
+      }
+    }
+  });
+
+  test('fittedSpanM widens as the viewport narrows, for one bbox', () => {
+    const portrait = cameraForBoundingBox(stockholm, 393 / 852).fittedSpanM;
+    const landscape = cameraForBoundingBox(stockholm, 1.5).fittedSpanM;
+    expect(portrait).toBeGreaterThan(landscape);
+  });
+
+  test('falls back to a square viewport for a degenerate aspect ratio', () => {
+    const square = cameraForBoundingBox(stockholm, 1);
+    for (const aspect of [NaN, 0, -1.5]) {
+      expect(cameraForBoundingBox(stockholm, aspect)).toEqual(square);
+    }
+  });
+
   test('floors a degenerate bbox instead of returning an infinite zoom', () => {
-    const point: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.07, maxLng: 18.07 };
     const fit = cameraForBoundingBox(point, 1.5);
     expect(Number.isFinite(fit.zoom)).toBe(true);
     expect(spanDegForZoom(fit.zoom)).toBeCloseTo(MIN_SPAN_DEG * 1.3, 8);
@@ -703,8 +764,6 @@ describe('cameraForBoundingBox', () => {
   });
 });
 
-const M_PER_DEG_LAT = 111_320;
-
 function chunkFrom(points: LatLng[], segmentSeq = 0, gapBefore = false): SegmentPolyline {
   return { segmentSeq, points, gapBefore };
 }
@@ -716,8 +775,8 @@ function leg(origin: LatLng, bearingDeg: number, lengthM: number): SegmentPolyli
   return chunkFrom([
     origin,
     {
-      lat: origin.lat + (Math.cos(rad) * lengthM) / M_PER_DEG_LAT,
-      lng: origin.lng + (Math.sin(rad) * lengthM) / (M_PER_DEG_LAT * cosLat),
+      lat: origin.lat + (Math.cos(rad) * lengthM) / M_PER_DEG,
+      lng: origin.lng + (Math.sin(rad) * lengthM) / (M_PER_DEG * cosLat),
     },
   ]);
 }
@@ -726,9 +785,80 @@ function leg(origin: LatLng, bearingDeg: number, lengthM: number): SegmentPolyli
 function offsetM(origin: LatLng, p: LatLng) {
   const cosLat = Math.cos(origin.lat * (Math.PI / 180));
   return {
-    east: (p.lng - origin.lng) * M_PER_DEG_LAT * cosLat,
-    north: (p.lat - origin.lat) * M_PER_DEG_LAT,
+    east: (p.lng - origin.lng) * M_PER_DEG * cosLat,
+    north: (p.lat - origin.lat) * M_PER_DEG,
   };
+}
+
+const northOf = (origin: LatLng, m: number): LatLng => ({
+  lat: origin.lat + m / M_PER_DEG,
+  lng: origin.lng,
+});
+
+const gapped = (chunk: SegmentPolyline, segmentSeq: number): SegmentPolyline => ({
+  ...chunk,
+  segmentSeq,
+  gapBefore: true,
+});
+
+/** Bearing from `from` to `p`, degrees clockwise from north, measured in metres (not degrees). */
+function bearingDegFrom(from: LatLng, p: LatLng): number {
+  const { east, north } = offsetM(from, p);
+  return ((Math.atan2(east, north) * 180) / Math.PI + 360) % 360;
+}
+
+/** `b - a` wrapped into (-180, 180]. */
+function angleDiffDeg(a: number, b: number): number {
+  return ((((b - a) % 360) + 540) % 360) - 180;
+}
+
+const tipOf = (chevron: Chevron): LatLng => chevron.points[1];
+
+/** Tip-to-wing length, in the same flat metre frame the chevron was built in. */
+function sizeOf(chevron: Chevron): number {
+  const { east, north } = offsetM(tipOf(chevron), chevron.points[0]);
+  return Math.hypot(east, north);
+}
+
+/** Closest pair of tips in metres; Infinity for fewer than two arrows. */
+function minTipSeparationM(chevrons: readonly Chevron[]): number {
+  let min = Infinity;
+  for (let i = 0; i < chevrons.length; i++) {
+    for (let j = i + 1; j < chevrons.length; j++) {
+      min = Math.min(min, haversineMeters(tipOf(chevrons[i]), tipOf(chevrons[j])));
+    }
+  }
+  return min;
+}
+
+/** Shortest distance from `p` to any segment of any of `polylines`, in metres. */
+function distanceToPolylinesM(p: LatLng, polylines: readonly LatLng[][]): number {
+  let min = Infinity;
+  for (const line of polylines) {
+    for (let i = 1; i < line.length; i++) {
+      const a = offsetM(p, line[i - 1]);
+      const b = offsetM(p, line[i]);
+      const dx = b.east - a.east;
+      const dy = b.north - a.north;
+      const lenSq = dx * dx + dy * dy;
+      const t = lenSq === 0 ? 0 : Math.min(1, Math.max(0, -(a.east * dx + a.north * dy) / lenSq));
+      min = Math.min(min, Math.hypot(a.east + t * dx, a.north + t * dy));
+    }
+  }
+  return min;
+}
+
+/** Closed ring of `vertices` points `radiusM` from `center`, the first coordinate repeated last. */
+function closedLoop(center: LatLng, radiusM: number, vertices: number): LatLng[] {
+  const cosLat = Math.cos(center.lat * (Math.PI / 180));
+  const ring = Array.from({ length: vertices }, (_, i) => {
+    const angle = (2 * Math.PI * i) / vertices;
+    return {
+      lat: center.lat + (Math.cos(angle) * radiusM) / M_PER_DEG,
+      lng: center.lng + (Math.sin(angle) * radiusM) / (M_PER_DEG * cosLat),
+    };
+  });
+  return [...ring, ring[0]];
 }
 
 describe('chevronsAlongRoute', () => {
@@ -737,9 +867,29 @@ describe('chevronsAlongRoute', () => {
     expect(chevronsAlongRoute([short], 500)).toHaveLength(0);
   });
 
-  test('points along travel — north-east at Stockholm latitude', () => {
-    // why this bearing: due-N and due-E are the two bearings at which a missing cos(latitude)
-    // term produces ZERO error, so they cannot catch the likeliest bug (spec §10).
+  test('gates a run at the minimum-length boundary, to within a micrometre', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    // A 200 m fitted span keeps sizeM (10 m) under the absolute floor, so the constant is what binds.
+    const under = leg(origin, 0, CHEVRON_MIN_RUN_LENGTH_M - 1e-6);
+    const atLimit = leg(origin, 0, CHEVRON_MIN_RUN_LENGTH_M + 1e-6);
+    expect(chevronsAlongRoute([under], 200)).toHaveLength(0);
+    expect(chevronsAlongRoute([atLimit], 200)).toHaveLength(1);
+  });
+
+  test('a fragment shorter than the arrow it would carry gets none', () => {
+    // 45 m of drawn line cannot legibly show the 100 m arrow a 2 km fitted span asks for. The global
+    // grid lands a target exactly at the fragment's start, so only the length gate keeps it clear.
+    const origin = { lat: 59.33, lng: 18.07 };
+    const main = leg(origin, 0, 3000);
+    const fragment = gapped(leg(northOf(origin, 6000), 0, 45), 1);
+    const chevrons = chevronsAlongRoute([main, fragment], 2000);
+    expect(chevrons.length).toBeGreaterThan(0);
+    for (const chevron of chevrons) {
+      expect(distanceToPolylinesM(tipOf(chevron), [fragment.points])).toBeGreaterThan(45);
+    }
+  });
+
+  test('the tip interpolates along the leg — equal metre offsets north-east', () => {
     const origin = { lat: 59.33, lng: 18.07 };
     const chevrons = chevronsAlongRoute([leg(origin, 45, 800)], 800);
     expect(chevrons.length).toBeGreaterThan(0);
@@ -756,6 +906,55 @@ describe('chevronsAlongRoute', () => {
       const { east, north } = offsetM(origin, chevrons[0].points[1]);
       expect(east / north).toBeCloseTo(1, 1);
     }
+  });
+
+  test('the wings follow the metre-frame bearing at three latitudes', () => {
+    // why the wings: the tip is plain lat/lng interpolation along the leg and never sees the bearing,
+    // so a missing cos(latitude) term is only visible here. why 45 deg: due-N and due-E are the two
+    // bearings at which that term produces ZERO error (spec §10).
+    for (const lat of [0, 59.33, 60]) {
+      const [chevron] = chevronsAlongRoute([leg({ lat, lng: 18.07 }, 45, 800)], 800);
+      const tip = tipOf(chevron);
+      expect(bearingDegFrom(tip, chevron.points[0])).toBeCloseTo(45 + 180 + CHEVRON_WING_DEG, 1);
+      expect(bearingDegFrom(tip, chevron.points[2])).toBeCloseTo(45 + 180 - CHEVRON_WING_DEG, 1);
+    }
+  });
+
+  test('each wing sits CHEVRON_WING_DEG off the reverse bearing', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    for (const bearing of [0, 90, 137, 250, 359]) {
+      const [chevron] = chevronsAlongRoute([leg(origin, bearing, 800)], 800);
+      const tip = tipOf(chevron);
+      const reverse = bearing + 180;
+      expect(angleDiffDeg(reverse, bearingDegFrom(tip, chevron.points[0]))).toBeCloseTo(
+        CHEVRON_WING_DEG,
+        1,
+      );
+      expect(angleDiffDeg(reverse, bearingDegFrom(tip, chevron.points[2]))).toBeCloseTo(
+        -CHEVRON_WING_DEG,
+        1,
+      );
+    }
+  });
+
+  test('the mark measures 1.15 x sizeM wide and 0.82 x sizeM deep (spec §5)', () => {
+    // Pins the wing angle's magnitude against the dimensions §5 commits to, not against the constant
+    // it is computed from: at 2 deg the arrows would collapse to spikes and still be "on bearing".
+    const [chevron] = chevronsAlongRoute([leg({ lat: 59.33, lng: 18.07 }, 0, 800)], 800);
+    const size = sizeOf(chevron);
+    const wingSpan = offsetM(chevron.points[0], chevron.points[2]);
+    expect(Math.hypot(wingSpan.east, wingSpan.north) / size).toBeCloseTo(1.15, 2);
+    expect(-offsetM(tipOf(chevron), chevron.points[0]).north / size).toBeCloseTo(0.82, 2);
+  });
+
+  test('the size rail does not bind inside the C25K range', () => {
+    // §5's goal state: a 5 km point-to-point, portrait (fits ~14 km, so it wants a ~705 m arrow). A
+    // rail that binds here shrinks the arrow on screen exactly as the diagonal-sizing bug did.
+    const origin = { lat: 59.33, lng: 18.07 };
+    const route = [origin, leg(origin, 90, 5000).points[1]];
+    const fit = cameraForBoundingBox(boundingBox(route)!, 393 / 852);
+    const [chevron] = chevronsAlongRoute([chunkFrom(route)], fit.fittedSpanM);
+    expect(sizeOf(chevron)).toBeCloseTo(fit.fittedSpanM * CHEVRON_SIZE_RATIO, 6);
   });
 
   test('wings sit behind the tip', () => {
@@ -788,6 +987,34 @@ describe('chevronsAlongRoute', () => {
     }
   });
 
+  test('an out-and-back 30 m apart keeps arrows on both legs', () => {
+    // At 30 m the two lines are visually distinct (~28 pt on an 852 pt viewport); suppressing the
+    // return leg there reads as "I only went one way". Only a true retrace should collapse.
+    const origin = { lat: 59.33, lng: 18.07 };
+    const out = leg(origin, 90, 400);
+    const shifted = leg(northOf(origin, 30), 90, 400);
+    const back = gapped(chunkFrom([shifted.points[1], shifted.points[0]]), 1);
+    const chevrons = chevronsAlongRoute([out, back], 1000); // sizeM 50 m, dedupe radius 25 m
+    expect(chevrons).toHaveLength(4);
+    for (const line of [out.points, back.points]) {
+      const onLine = chevrons.filter((c) => distanceToPolylinesM(tipOf(c), [line]) < 0.1);
+      expect(onLine).toHaveLength(2);
+    }
+  });
+
+  test('drops a candidate inside the dedupe radius and keeps one just outside', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    const radius = 1000 * CHEVRON_SIZE_RATIO * CHEVRON_DEDUPE_MULTIPLIER; // 25 m
+    // Global spacing lands the second leg's arrows at the same two east offsets as the first's, so
+    // each pair is exactly `separationM` apart and only the radius decides.
+    const parallelLegs = (separationM: number) => [
+      leg(origin, 90, 400),
+      gapped(leg(northOf(origin, separationM), 90, 400), 1),
+    ];
+    expect(chevronsAlongRoute(parallelLegs(radius - 1), 1000)).toHaveLength(2);
+    expect(chevronsAlongRoute(parallelLegs(radius + 1), 1000)).toHaveLength(4);
+  });
+
   test('arrow count stays near the target however many gaps split the track', () => {
     const origin = { lat: 59.33, lng: 18.07 };
     for (const gaps of [0, 2, 5]) {
@@ -803,6 +1030,36 @@ describe('chevronsAlongRoute', () => {
     }
   });
 
+  test('spacing is global: a long gapped route still gets ~CHEVRON_TARGET_COUNT arrows', () => {
+    // 20 km at a 4 km fitted span leaves the minimum-spacing floor behind (totalM/8 = 2500 m vs
+    // 4·sizeM = 800 m), which the 2400 m fixture above never does — under per-run spacing the floor
+    // hides the bug. Legs sit 55 km apart so nothing is deduplicated.
+    const origin = { lat: 59.33, lng: 18.07 };
+    for (const gaps of [0, 2, 5, 10]) {
+      const legLength = 20_000 / (gaps + 1);
+      const chunks = Array.from({ length: gaps + 1 }, (_, i) => {
+        const start = { lat: origin.lat + i * 0.5, lng: origin.lng };
+        return { ...leg(start, 0, legLength), gapBefore: i > 0, segmentSeq: i };
+      });
+      expect(chevronsAlongRoute(chunks, 4000)).toHaveLength(CHEVRON_TARGET_COUNT);
+    }
+  });
+
+  test('no arrow bridges a gap — every tip sits on a drawn run', () => {
+    // Spec §10: chevrons must never interpolate across a dropout. The two runs are 4.7 km apart, so
+    // treating them as one would plant most arrows in the void between them.
+    const origin = { lat: 59.33, lng: 18.07 };
+    const before = leg(origin, 0, 300);
+    const after = gapped(leg(northOf(origin, 5000), 0, 300), 1);
+    const chevrons = chevronsAlongRoute([before, after], 600);
+    expect(chevrons.length).toBeGreaterThan(0);
+    for (const chevron of chevrons) {
+      expect(distanceToPolylinesM(tipOf(chevron), [before.points, after.points])).toBeLessThan(
+        0.01,
+      );
+    }
+  });
+
   test('on-screen size stays in a narrow band across route archetypes', () => {
     const origin = { lat: 59.33, lng: 18.07 };
     const fractions = [200, 800, 2400, 9000].map((span) => {
@@ -814,15 +1071,71 @@ describe('chevronsAlongRoute', () => {
     expect(spread).toBeLessThan(1.2);
   });
 
-  test('a duplicated boundary vertex never yields a due-north arrow', () => {
+  test('clamps arrow size at both rails', () => {
+    const origin = { lat: 59.33, lng: 18.07 };
+    const sizeAt = (spanM: number, legM: number) =>
+      sizeOf(chevronsAlongRoute([leg(origin, 0, legM)], spanM)[0]);
+    expect(sizeAt(40, 200)).toBeCloseTo(CHEVRON_MIN_SIZE_M, 6); // 40 · 0.05 = 2 m, floored to 3
+    expect(sizeAt(40_000, 20_000)).toBeCloseTo(CHEVRON_MAX_SIZE_M, 6); // 2 km, capped to 800
+    expect(sizeAt(4000, 20_000)).toBeCloseTo(4000 * CHEVRON_SIZE_RATIO, 6); // between the rails
+  });
+
+  test('a duplicated boundary vertex still yields well-formed arrows', () => {
+    // The guard for this is defensive: the placement scan's strict `<` cannot select a zero-length
+    // segment, so this asserts the arrows are sound rather than that the guard fired.
     const origin = { lat: 59.33, lng: 18.07 };
     const east = leg(origin, 90, 900);
     const seam = east.points[1];
     // The shared-vertex rule means the seam appears at the end of one chunk and the start of the next.
     const next = chunkFrom([seam, { lat: seam.lat, lng: seam.lng + 0.02 }], 1);
-    for (const chevron of chevronsAlongRoute([east, next], 1800)) {
-      const { east: e, north: n } = offsetM(chevron.points[1], chevron.points[0]);
-      expect(Math.abs(n)).toBeLessThan(Math.abs(e)); // eastbound: wings trail west, not south
+    const chevrons = chevronsAlongRoute([east, next], 1800);
+    expect(chevrons.length).toBeGreaterThan(0);
+    for (const chevron of chevrons) {
+      for (const p of chevron.points) {
+        expect(Number.isFinite(p.lat) && Number.isFinite(p.lng)).toBe(true);
+      }
+      for (const wing of [chevron.points[0], chevron.points[2]]) {
+        const { east: e, north: n } = offsetM(tipOf(chevron), wing);
+        expect(e).toBeLessThan(0); // eastbound throughout: wings trail west …
+        expect(Math.abs(n)).toBeLessThan(Math.abs(e)); // … not north or south
+      }
     }
+  });
+
+  test('spreads arrows around a genuine closed loop, camera fit included', () => {
+    // The only test piping a real cameraForBoundingBox output into the arrows, which is how the hook
+    // wires them. 32-gon, radius 127 m → 797 m round; portrait fits 716 m, so the 4·sizeM floor sets
+    // spacing at 143 m → 6 arrows, the closure pair 79 m apart.
+    const loop = closedLoop({ lat: 59.33, lng: 18.07 }, 127, 32);
+    const fit = cameraForBoundingBox(boundingBox(loop)!, 393 / 852);
+    const chevrons = chevronsAlongRoute([chunkFrom(loop)], fit.fittedSpanM);
+    expect(chevrons).toHaveLength(6);
+    expect(sizeOf(chevrons[0])).toBeCloseTo(fit.fittedSpanM * CHEVRON_SIZE_RATIO, 6);
+    expect(minTipSeparationM(chevrons)).toBeGreaterThan(
+      fit.fittedSpanM * CHEVRON_SIZE_RATIO * CHEVRON_DEDUPE_MULTIPLIER,
+    );
+    for (const chevron of chevrons) {
+      expect(distanceToPolylinesM(tipOf(chevron), [loop])).toBeLessThan(0.01);
+    }
+  });
+
+  test('eight laps of one loop never stack arrows on the same spot', () => {
+    // 8 laps of a 400 m circuit is the C25K graduation distance, and spacing = totalM/8 is then
+    // exactly one lap, so every arrow targets the same physical point. Only one survives: the
+    // trade-off is fewer arrows on a multi-lap route, never a cluster of overlapping ones.
+    const ring = closedLoop({ lat: 59.33, lng: 18.07 }, 64, 32).slice(0, -1);
+    const laps = Array.from({ length: 8 }, () => ring).flat();
+    const fit = cameraForBoundingBox(boundingBox(laps)!, 393 / 852);
+    const chevrons = chevronsAlongRoute([chunkFrom([...laps, ring[0]])], fit.fittedSpanM);
+    expect(chevrons).toHaveLength(1);
+    expect(minTipSeparationM(chevrons)).toBeGreaterThan(
+      fit.fittedSpanM * CHEVRON_SIZE_RATIO * CHEVRON_DEDUPE_MULTIPLIER,
+    );
+  });
+
+  test('a non-finite fitted span returns nothing instead of hanging', () => {
+    // A pre-layout 0/0 aspect ratio used to reach the placement loop, whose only exits are
+    // comparisons — both false for NaN.
+    expect(chevronsAlongRoute([leg({ lat: 59.33, lng: 18.07 }, 0, 800)], NaN)).toEqual([]);
   });
 });

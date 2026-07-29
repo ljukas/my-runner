@@ -43,8 +43,8 @@ export function RouteUnavailableCard({
           <Button
             variant="secondary"
             size="sm"
-            // why: mirrors run-location-banner — Settings has no Location row for an app that has
-            // never asked, so 'undetermined' must re-prompt natively instead (ADR 0008 §2).
+            // why: Settings has no Location row for an app that never asked — 'undetermined' has to
+            // re-prompt instead (ADR 0008 §2), as run-location-banner already does.
             label={denied ? 'Open Settings' : 'Enable Location'}
             onPress={() =>
               void (denied ? Linking.openSettings() : locationTracker.requestPermission())

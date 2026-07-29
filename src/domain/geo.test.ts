@@ -767,7 +767,6 @@ describe('cameraForBoundingBox', () => {
   });
 });
 
-/** The stationary/treadmill case: N accepted fixes at one coordinate (ADR 0021's deadband). */
 function stationaryFixes(count: number): SegmentedFix[] {
   return Array.from({ length: count }, (_, i) => ({
     timestamp: i * 1000,

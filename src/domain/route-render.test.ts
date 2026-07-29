@@ -38,7 +38,7 @@ describe('toRouteLines', () => {
   });
 
   test('draws a chunk whose segmentSeq has no segment row as walk', () => {
-    // The misalignment save-run.ts warns about in __DEV__ (ADR 0021 §4): the fallback is load-bearing.
+    // The fallback is load-bearing: save-run.ts warns about this misalignment in __DEV__.
     const [line] = toRouteLines([chunk(99)], SEGMENTS, COLORS);
     expect(line.color).toBe('#walk');
     expect(line.width).toBe(ROUTE_STROKE_W);

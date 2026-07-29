@@ -28,8 +28,8 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
   const permission = useLocationPermission();
 
   if (!route.ready) {
-    // why: save-run nulls summaryPolyline iff the run persisted no accepted fixes — the only per-run
-    // record of which case this was, and it cannot be re-read from today's permission.
+    // why: save-run nulls summaryPolyline iff the run recorded no accepted fixes — the only per-run
+    // record of the reason.
     return (
       <RouteUnavailableCard recordedFixes={run.summaryPolyline !== null} permission={permission} />
     );

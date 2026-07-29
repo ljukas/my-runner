@@ -67,10 +67,8 @@ export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>
   },
 };
 
-/** Casing ink for the direction chevrons, per scheme like `SegmentColors` — MapKit's basemap follows
- * the system appearance, and a chevron's wings overhang it far more than they cover the line, so one
- * fixed ink vanishes in one scheme or the other. Measured ratios are recorded in spec §5.
- * Access via `useRouteDirectionColor()`. */
+/** Casing ink for the direction chevrons; per-scheme because the basemap flips with the system
+ * appearance. Ratios and method in spec §5. Access via `useRouteDirectionColor()`. */
 export const RouteDirectionColors: Record<'light' | 'dark', string> = {
   light: 'rgba(0,0,0,0.65)',
   dark: 'rgba(255,255,255,0.95)',

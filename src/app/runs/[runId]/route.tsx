@@ -37,9 +37,8 @@ export default function RunRouteScreen() {
 
   return (
     <View className="flex-1">
-      {/* why: a sibling node, not an `accessible` wrapper — the wrapper would flatten MapKit's own
-          elements (spec §7.1); the wording differs from the card's so that two labels live in the
-          hierarchy at once without an ambiguous target (cf. §7.4's two-"Close" hazard). */}
+      {/* why: footprint-free sibling — `accessible` on the wrapper flattens the map's own elements
+          (spec §7.1) */}
       <View
         accessible
         accessibilityLabel={distance ? `Your ${distance} route` : 'Your route'}

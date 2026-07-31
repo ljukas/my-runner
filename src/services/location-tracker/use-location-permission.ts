@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { locationTracker, type LocationPermissionStatus } from './index';
+import { locationTracker } from './adapter';
+import type { LocationPermissionStatus } from './port';
 
 let cached: LocationPermissionStatus | null = null;
 

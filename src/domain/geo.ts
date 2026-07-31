@@ -70,6 +70,13 @@ export function boundingBox(points: readonly LatLng[]): BoundingBox | null {
   return { minLat, maxLat, minLng, maxLng };
 }
 
+export function boundingBoxDiagonalM(bbox: BoundingBox): number {
+  return haversineMeters(
+    { lat: bbox.minLat, lng: bbox.minLng },
+    { lat: bbox.maxLat, lng: bbox.maxLng },
+  );
+}
+
 /**
  * Google encoded polyline for the sequence (empty input → ''). Precision must be ≤ 6:
  * the encoder's 32-bit bitwise ops overflow at ≥ 7 and silently corrupt output.
@@ -145,6 +152,8 @@ export interface SmoothStep {
   acceptedDeltaMeters: number;
   /** Smoothed position for this fix, or null when the velocity gate rejected it. */
   smoothedPoint: LatLng | null;
+  /** why: the two `startAt` paths emit a RAW fix and break track continuity — render must know (ADR 0021 §5). */
+  restarted: boolean;
 }
 
 export interface SmoothedTrack {
@@ -245,18 +254,20 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
       state: startAt(state, fix, true),
       acceptedDeltaMeters: 0,
       smoothedPoint: { lat: fix.lat, lng: fix.lng },
+      restarted: true,
     };
   }
 
   const dtSec = (fix.timestamp - state.lastAcceptedTime) / 1000;
   if (dtSec <= 0) {
-    return { state, acceptedDeltaMeters: 0, smoothedPoint: null }; // non-monotonic timestamps → no Δt
+    return { state, acceptedDeltaMeters: 0, smoothedPoint: null, restarted: false }; // non-monotonic timestamps → no Δt
   }
   if (dtSec > MAX_GAP_S) {
     return {
       state: startAt(state, fix, false),
       acceptedDeltaMeters: 0,
       smoothedPoint: { lat: fix.lat, lng: fix.lng },
+      restarted: true,
     };
   }
 
@@ -268,7 +279,7 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
     const implied =
       haversineMeters({ lat: refLatM, lng: refLngM }, { lat: fix.lat, lng: fix.lng }) / dtMed;
     if (implied > RUNNING_SPEED_CEILING_MPS * VELOCITY_GATE_MARGIN) {
-      return { state, acceptedDeltaMeters: 0, smoothedPoint: null };
+      return { state, acceptedDeltaMeters: 0, smoothedPoint: null, restarted: false };
     }
   }
 
@@ -327,7 +338,7 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
     s.anchorLng = smoothedPoint.lng;
   }
 
-  return { state: s, acceptedDeltaMeters, smoothedPoint };
+  return { state: s, acceptedDeltaMeters, smoothedPoint, restarted: false };
 }
 
 /**
@@ -367,6 +378,38 @@ export function smoothTrackBySegment(fixes: readonly SegmentedFix[]): SmoothedRo
     if (step.smoothedPoint) points.push(step.smoothedPoint);
   }
   return { distanceM, points, distanceBySegmentSeq };
+}
+
+/** why: the first two fixes after a start/gap-reset carry the RAW measurement, and DP always keeps an
+ * endpoint — a legal 50 m fix would otherwise be a permanent spur and would inflate the camera fit. */
+export const SEED_FIXES = 2;
+
+export interface RenderPoint {
+  point: LatLng;
+  segmentSeq: number;
+  /** True when this point is the first emitted after a real GPS gap (ADR 0021 §5) — never for the track's start. */
+  gapBefore: boolean;
+}
+
+/**
+ * Render-side fold over `smoothFix` — same reducer as the live engine, so the drawn line is the same
+ * smoothed track the distance came from. Presentation only: never a distance source (ADR 0021 §6).
+ * Inputs must already pass `accuracyFilter`.
+ */
+export function smoothTrackForRender(fixes: readonly SegmentedFix[]): RenderPoint[] {
+  let state = createSmootherState();
+  const out: RenderPoint[] = [];
+  let pendingGap = false;
+
+  for (const fix of fixes) {
+    const step = smoothFix(state, fix);
+    state = step.state;
+    if (step.restarted && out.length > 0) pendingGap = true;
+    if (!step.smoothedPoint || state.fixesSinceReset <= SEED_FIXES) continue;
+    out.push({ point: step.smoothedPoint, segmentSeq: fix.segmentSeq, gapBefore: pendingGap });
+    pendingGap = false;
+  }
+  return out;
 }
 
 function perpDistanceM(
@@ -425,3 +468,124 @@ export function simplifyPolyline(points: readonly LatLng[], epsilon = DP_EPSILON
   }
   return points.filter((_, i) => keep[i]);
 }
+
+/** why: the viewer zooms in far enough that the card's 5 m epsilon visibly cuts corners. */
+export const VIEWER_DP_EPSILON_M = 2;
+
+export interface SegmentPolyline {
+  segmentSeq: number;
+  points: LatLng[];
+  gapBefore: boolean;
+}
+
+/**
+ * One DP-simplified polyline per contiguous segment run. Adjacent non-gap chunks share their boundary
+ * coordinate by object reference (`simplifyPolyline` always retains endpoints), so differently-coloured
+ * lines meet exactly; a real gap deliberately does not, leaving the break the track actually has.
+ */
+export function toSegmentPolylines(
+  renderPoints: readonly RenderPoint[],
+  epsilon = DP_EPSILON_M,
+): SegmentPolyline[] {
+  const chunks: SegmentPolyline[] = [];
+  let current: SegmentPolyline | null = null;
+  // why: the seam anchor is the last point actually drawn, which may predate the previous segment —
+  // a segment whose fixes were all gated contributes none.
+  let lastEmitted: LatLng | null = null;
+
+  for (const rp of renderPoints) {
+    if (!current || rp.segmentSeq !== current.segmentSeq || rp.gapBefore) {
+      if (current) chunks.push(current);
+      current = {
+        segmentSeq: rp.segmentSeq,
+        points: !rp.gapBefore && lastEmitted ? [lastEmitted] : [],
+        gapBefore: rp.gapBefore,
+      };
+    }
+    current.points.push(rp.point);
+    lastEmitted = rp.point;
+  }
+  if (current) chunks.push(current);
+
+  const kept: SegmentPolyline[] = [];
+  // why: a dropped chunk must hand its break on, or the next drawn line spans across the void it left.
+  let pendingGap = false;
+  for (const chunk of chunks) {
+    const points = simplifyPolyline(chunk.points, epsilon);
+    pendingGap = pendingGap || chunk.gapBefore;
+    if (points.length < 2) continue;
+    kept.push({ ...chunk, points, gapBefore: pendingGap });
+    pendingGap = false;
+  }
+  return kept;
+}
+
+/** why: without a floor a stationary run's zero-span bbox yields zoom = Infinity. */
+export const MIN_SPAN_DEG = 0.0005;
+/** Fraction of the content span added per side; the slack it buys is p/(1+2p) (spec §4.2). */
+export const CAMERA_PADDING_RATIO = 0.15;
+
+export interface CameraFit {
+  center: LatLng;
+  /** expo-maps zoom: the library shows `360 / 2^zoom` degrees on BOTH axes (spec §3). */
+  zoom: number;
+}
+
+/**
+ * Smallest camera that provably contains `bbox` at the given viewport aspect ratio (width / height).
+ * Needs no pixel dimensions: the library's span is isotropic in degrees and MapKit only ever expands
+ * a requested region, so the failure mode is a marginally loose frame, never a clipped route.
+ * Antimeridian- and pole-naive, like `boundingBox`.
+ */
+export function cameraForBoundingBox(
+  bbox: BoundingBox,
+  aspectRatio: number,
+  paddingRatio = CAMERA_PADDING_RATIO,
+): CameraFit {
+  // why: a pre-layout viewport measures 0/0, which turns the whole fit NaN.
+  const aspect = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
+  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
+  const f = 1 / Math.cos(centerLat * DEG_TO_RAD);
+  const latSpanDeg = bbox.maxLat - bbox.minLat;
+  const lngSpanDeg = bbox.maxLng - bbox.minLng;
+
+  const neededDeg = Math.max(
+    lngSpanDeg / Math.max(1, aspect * f),
+    (latSpanDeg * f) / Math.max(1 / aspect, f),
+  );
+  const pad = 1 + 2 * paddingRatio;
+  const spanDeg = Math.max(neededDeg, MIN_SPAN_DEG) * pad;
+
+  return {
+    center: { lat: centerLat, lng: (bbox.minLng + bbox.maxLng) / 2 },
+    zoom: Math.log2(360 / spanDeg),
+  };
+}
+
+/** why: a treadmill run has plenty of fixes and no extent — without this the card draws a dot on a
+ * street map of the user's home. Never gated on a camera span; spec §8 has the arithmetic.
+ * why derived from the accuracy limit: two accepted fixes can each sit ACCURACY_LIMIT_M off truth, so
+ * indoor WiFi drift alone produces an extent up to 2× it — a smaller floor is inside the noise it
+ * has to reject, which is what the flat 60 m was.
+ * why 2× exactly: it is the point above which no passing extent is explainable by two fixes' noise.
+ * It briefly sat at 1.5× to stay inside what the Maestro harness could travel, which is moot now
+ * that simulated GPS motion is out of scope for E2E (ADR 0001, 2026-07-31 amendment) — no automated
+ * flow depends on this threshold being reachable. */
+export const MIN_ROUTE_EXTENT_M = 2 * ACCURACY_LIMIT_M;
+
+/** Below this the start and finish markers collapse to one — loops start and end at the same door. */
+export const ENDPOINT_MERGE_M = 25;
+
+/**
+ * Floor for presenting a recorded distance at all, as an average speed rather than a distance.
+ *
+ * why a speed and not a floor in metres: no absolute floor separates the two cases, because a
+ * 30-minute indoor session accumulates more drift past the deadband than a legitimately short
+ * partial run covers — any floor high enough to reject the first hides the second. Average speed
+ * separates them, since drift has no net direction and lands far below walking pace however long it
+ * runs. Reuses the smoother's own "not really moving" threshold rather than inventing a second one.
+ *
+ * Without this, a run with no usable fixes renders "0.00 km" beside a nonsense pace (observed on a
+ * simulator with a static location: 1.2 m over 40 s → 556:54 /km).
+ */
+export const MIN_MEASURED_SPEED_MPS = NEAR_STATIONARY_SPEED_MPS;

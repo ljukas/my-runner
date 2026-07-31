@@ -94,3 +94,45 @@ regenerates the expo-updates embedded manifest), cutting a run from ~25 min to
 ~5–7 min; a fingerprint miss (a native change) does the full `eas build --local`
 and re-primes the cache. Design:
 `docs/superpowers/specs/2026-07-13-e2e-fingerprint-app-reuse-design.md`.
+
+## Amendment (2026-07-31): simulated GPS *motion* is out of scope for Maestro
+
+Maestro cannot drive a moving location stream into this app, so a flow asserting
+recorded distance, pace or a drawn route cannot pass. `run-distance.yaml` — which
+covered exactly that — is **removed** rather than left permanently red; what it
+covered moves to the device checklist (Stage 4 section).
+
+The cause is structural, not a misconfiguration, and was measured rather than
+inferred:
+
+- `travel` is not a distinct primitive. `maestro.orchestra.geo.Traveller` calls
+  `Maestro.setLocation` in a loop, interpolating between waypoints — so it is
+  repeated discrete `setLocation`, and open upstream issue
+  [#921](https://github.com/mobile-dev-inc/maestro/issues/921) ("setLocation
+  causes issue if called multiple times") is the same defect.
+- Maestro's iOS driver never invokes `xcrun simctl location`. No jar in the
+  distribution passes a `location` subcommand to simctl, so `setLocation` does not
+  drive the simulator's location engine and CoreLocation reports no movement.
+- Waypoint count is not the variable: 2 waypoints and 3 waypoints both recorded
+  ~1.2 m over a 40 s session (rendering `0.00 km`), and 11 waypoints hung the run.
+- It is not about which expo-location API we consume. Adding a foreground
+  `watchPositionAsync` alongside the `startLocationUpdatesAsync` task (ADR 0008)
+  changed nothing: the same build recorded no distance under `travel` and passed
+  under `simctl location start`. A dual-source tracker was therefore rejected —
+  it gains no product benefit (the task already runs `BestForNavigation` at
+  `distanceInterval: 0`), feeds two streams into a smoother tuned for one
+  (ADR 0021), and puts a handoff seam exactly where ADR 0008 exists to prevent
+  one.
+
+**What works, for manual verification:** `xcrun simctl location <udid> start`
+drives the simulator's route engine, which CoreLocation reports as genuine moving
+fixes. With it, the full former flow passed end to end — distance, pace, route
+card, full-screen viewer, splits and the Log round trip:
+
+```bash
+xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59.3353,18.0686
+```
+
+That is a **manual** tool, not a suite step: a scenario cannot run for the whole
+suite, because `complete-session.yaml` asserts the *absence* of distance. Revisit
+if Maestro ever routes iOS `setLocation` through `simctl location`.

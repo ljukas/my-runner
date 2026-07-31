@@ -1,4 +1,4 @@
-# 10. Maps: expo-maps (alpha) with an iOS 18.0 floor, react-native-maps as pre-approved fallback
+# 10. Maps: expo-maps (alpha) with an iOS 17.0 floor, react-native-maps as pre-approved fallback
 
 > **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
 
@@ -6,7 +6,13 @@ Date: 2026-07-11
 
 ## Status
 
-Accepted
+Accepted, **amended 2026-07-29** on implementation — see
+[Amendment (2026-07-29)](#amendment-2026-07-29). The shipped floor is **17.0**
+via app.json's built-in `ios.deploymentTarget`, not 18.0 via
+`expo-build-properties`. The title, Decision and Consequences are corrected in
+place; the filename keeps `ios18-floor` because ADR filenames are permanent
+links. Research findings under Context are left as the dated 2026-07-11 record
+of what was believed then, and the amendment says where they were wrong.
 
 ## Context
 
@@ -15,7 +21,9 @@ recorded route as segment-colored polylines with start/finish markers and a
 camera fitted to the route, behind the `RouteMap` component port (ADR 0003,
 ADR 0005). Choosing the map library carries the most user-visible
 irreversibility in the app: expo-maps requires raising the iOS deployment
-target to 18.0, which is a public, ratcheting change.
+target to 18.0, which is a public, ratcheting change. (**That premise was
+false** — the requirement is 17.0, and only the README claimed 18.0; see the
+amendment.)
 
 Research findings (verified 2026-07-11):
 
@@ -47,14 +55,15 @@ Research findings (verified 2026-07-11):
 ## Decision
 
 **expo-maps (`AppleMaps.View`) renders routes behind the `RouteMap` port,
-and the iOS deployment target moves to 18.0 — with react-native-maps
+and the iOS deployment target moves to 17.0 — with react-native-maps
 pre-approved as the fallback and explicit triggers for flipping.**
 
-1. **Adoption mechanics (Stage 4):** `expo-build-properties` sets
-   `ios.deploymentTarget: "18.0"`; expo-maps is version-pinned; the feature
-   checklist (per-polyline color/width, markers, camera control) is
-   re-verified against the installed package at install time, alpha being
-   what it is.
+1. **Adoption mechanics (Stage 4):** app.json's **built-in**
+   `ios.deploymentTarget` sets `"17.0"` — **not** `expo-build-properties`,
+   whose equivalent option has been deprecated for this purpose since SDK 56;
+   expo-maps is version-pinned; the feature checklist (per-polyline
+   color/width, markers, camera control) is re-verified against the installed
+   package at install time, alpha being what it is.
 2. **`RouteMap` owns the camera-fit math.** Since no bounds-fitting API
    exists, center/zoom derive from the route's bounding box (a pure helper
    in `domain/geo.ts`, unit-tested). Callers pass segments + points; the
@@ -86,10 +95,12 @@ pre-approved as the fallback and explicit triggers for flipping.**
 - The app renders native Apple Maps inside SwiftUI-native screens —
   consistent with the system-UI bet (ADR 0005) at zero account/token cost,
   which no third-party map matches.
-- The iOS 18.0 floor is a real but small and shrinking exclusion (non-updater
-  tail only; no hardware left behind vs iOS 17), and it is reversible: the
-  floor exists *because of* expo-maps, so flipping to the fallback also
-  restores iOS 15.1+.
+- The iOS 17.0 floor **does** leave hardware behind, which the original 18.0
+  framing obscured: the app's effective floor was 16.4 (nothing being set), and
+  16.4 still runs on iPhone 8/8 Plus/X. 17.0 and 18.0 drop that 2017 cohort
+  alike, so the real cost is those devices, not the non-updater software tail
+  the adoption statistics above measure. It stays reversible — the floor exists
+  *because of* expo-maps, so flipping to the fallback restores iOS 15.1+.
 - Alpha churn is contained the same way every platform risk in this app is:
   a pinned version, a port boundary, a pre-agreed fallback with explicit
   triggers — the decision to flip requires no new debate.
@@ -116,3 +127,114 @@ pre-approved as the fallback and explicit triggers for flipping.**
 - **Defer maps beyond v1** — rejected: the route map is Stage 4's entire
   user-visible value and a core paid-app-parity feature; deferral would
   also leave `summary_polyline` and `run_points` write-only data.
+
+## Amendment (2026-07-29)
+
+Written on implementing Stage 4. Sources are the design spec
+[2026-07-28-stage-4-maps-design.md](../superpowers/specs/2026-07-28-stage-4-maps-design.md)
+§3, §4.2, §4.3, §9 and §13, all re-derived from expo-maps' own source by
+independent reviewers.
+
+1. **The floor is 17.0, set through app.json's built-in `ios.deploymentTarget`.**
+   Not 18.0, and not via `expo-build-properties` — that package's option has
+   been deprecated for this purpose since SDK 56 ("use built-in
+   `ios.deploymentTarget` property instead") and would add a dependency plus
+   four unrelated `Podfile.properties.json` side effects. The built-in property
+   rewrites the **app target's** `IPHONEOS_DEPLOYMENT_TARGET` and leaves Pods at
+   16.4, as every SDK 57 app does; the app target is what gates App Store
+   installs via `MinimumOSVersion`. Confirmed in the built binary's Info.plist.
+   Note the failure mode: `expo run:ios` reuses an existing `ios/`, so this
+   field does nothing until `bun run prebuild:dev` runs.
+
+2. **The 18.0 requirement was a README error, contradicted four ways.**
+   expo-maps' own podspec is at 16.4 (its release XCFramework declares
+   `minos 16.0`); its iOS-17 renderer is *complete*, not a stub — same
+   `MapPolyline`/`.stroke`, markers, annotations, `mapControls` and camera code,
+   including `emphasis: MUTED`; `isMapsAvailable` reports true from 17.0; and the
+   SDK 57 docs page states no deployment target at all, version-annotating only
+   the click handlers (18.0+) and `monogram` (17.0+). iOS 18 gates only click
+   events and programmatic selection, neither of which a read-only map uses.
+   Below 17 the package renders `EmptyView()` — blank, no crash — which is why
+   17.0 is the minimum at which a map renders at all.
+
+3. **The real trade was never 17-vs-18 — it was whether to drop 2017 iPhones,**
+   and the original ADR missed that framing entirely. The app's effective floor
+   was 16.4 because nothing was set, and 16.4 still supports iPhone 8/8 Plus/X;
+   **both** 17.0 and 18.0 drop that hardware. The adoption statistics under
+   Context measure the iOS-18-vs-17 software tail, not this hardware cohort, so
+   they do not support the decision they were cited for.
+
+   **Counter-argument, recorded rather than buried (spec §13).** One reviewer
+   argued for keeping 16.4 and gating the map at runtime via `Platform.Version`:
+   under a 17.0 floor those owners lose *the whole app* — coach, cues, timer,
+   distance, splits — whereas under 16.4 plus a gate they lose *one card*. For a
+   free C25K app aimed at beginners on older hardware, whose value is the
+   coaching rather than the cartography, that trade plausibly points the other
+   way. The reviewer also showed the "dead code" argument for the floor is
+   circular: the runtime check is only dead *because* the floor was raised. The
+   floor stands, chosen deliberately so everyone who can install gets the same
+   experience rather than a silently blank map — but it is a judgement call with
+   a live objection, not a settled fact, and reversing it costs one gate.
+
+4. **The camera fit is our exact minimum-span formula, and it is load-bearing.**
+   expo-maps requests an *isotropic degree span* while Mercator stretches
+   latitude by `f = 1 / cos(centerLat)` (exactly `dy/dφ`); MapKit then fits that
+   region to the view, only ever *expanding* it. With `A` the viewport aspect
+   ratio, `S = max(lngSpanDeg / max(1, A·f), latSpanDeg·f / max(1/A, f))` and
+   `zoom = log2(360 / (S · (1 + 2·padding)))`. Brute-force validated against an
+   exact Mercator/aspect-expand simulation over 40 000 random `(A, lat, bbox)`
+   triples: `formulaS / trueMinimalS ∈ [0.99962, 1.0000029]`. It rests on
+   expo-maps' own degree→region conversion, so **re-verify it against
+   `MapUtils.swift` on every expo-maps bump** — an upstream change there silently
+   breaks every camera in the app. Antimeridian- and pole-naive by inheritance,
+   which is outside the C25K footprint.
+
+5. **Polyline `id` is a correctness requirement, not a nicety.**
+   `ExpoAppleMapPolyline` is `Identifiable` with `id` defaulting to
+   `UUID().uuidString`, rendered through `ForEach`. Omit it and every prop update
+   mints fresh identities, so SwiftUI tears down and rebuilds all overlays. The
+   port's `RouteMapLine.id` therefore has to be deterministic.
+
+6. **The missing interaction lock is a wrapper gap, not a platform limitation.**
+   The original ADR assumed Apple offered no interaction lock. It does:
+   `MapInteractionModes` has existed since iOS 14 and sits in the very
+   initializer expo-maps calls
+   (`init<C>(position:bounds:interactionModes:scope:content:)`), but expo-maps
+   never passes it. So the inert preview is achieved RN-side with
+   `pointerEvents="none"`, and a one-argument upstream fix or patch would remove
+   the need for that workaround. (`scrollGesturesEnabled` and friends genuinely
+   are Google-only.) Worth revisiting on each bump.
+
+7. **Paint order is array order, and nothing else.** The content builder runs
+   markers → polylines → polygons → circles → annotations, and there is no
+   z-index in the Apple path or anywhere in `_MapKit_SwiftUI` — so position
+   within the array is the only lever. Device-verified on the 17.5 runtime that
+   a later array entry does paint above an earlier one. Apple documents nothing
+   here for SwiftUI, so any future overlay must re-check it; the design spec
+   retains a **polygons fallback** as the contingency if it ever stops holding,
+   even though its only consumer (direction chevrons) was removed from the
+   product. Also note `compassEnabled`, `myLocationButtonEnabled`,
+   `togglePitchEnabled` and `properties.selectionEnabled` all default to **true**,
+   and POIs default to all-shown — a read-only map must suppress each explicitly.
+
+8. **Reverted — Decision item 2 stands: the port takes the bbox, the adapter fits
+   the camera.** This item previously recorded a narrow deviation in which
+   `useRunRoute` computed `cameraForBoundingBox` over the drawn chunks and passed
+   a ready `camera` to `RouteMap`, which only latched it. Its justification — "the
+   port surface stays library-agnostic" — did not survive review: `CameraFit.zoom`
+   *is* expo-maps' own convention (the library shows `360 / 2^zoom` degrees on
+   **both** axes, and the fit bakes in that isotropic-degree plus `f = 1/cos(lat)`
+   Mercator quirk), so every caller of the port had to speak it, and the
+   react-native-maps fallback item 3 pre-approves would have had to invert it. The
+   port now carries `bbox` in plain degrees plus the viewport `aspectRatio`, and
+   `adapter.ios.tsx` calls the fit.
+
+   The reuse concern that motivated the deviation is still honoured, because what
+   crosses the port is the **already-reduced bbox**, not the route lines: the hook
+   still decides which chunks are drawn and reduces them exactly once, so the
+   adapter cannot disagree with the route-extent gate about the route's extent — it
+   only converts a bbox and an aspect ratio into this library's zoom. The freeze is
+   also unchanged and now reads as the contract it always was: the Swift host snaps
+   to any later `cameraPosition`, so the adapter takes the fit once in `useState`'s
+   initializer, and a re-fit would yank a view the user has panned. The math
+   remains a pure, unit-tested helper in `domain/geo.ts`.

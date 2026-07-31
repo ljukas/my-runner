@@ -57,13 +57,13 @@ export default function SessionSheet() {
     }
     // The engine's start() no-ops unless idle, so reset any prior finished run
     // here (its state lingers harmlessly until now — no screen reads it between
-    // runs). This is why the summary no longer needs to reset the engine on "Done".
+    // runs). This is why the summary no longer needs to reset the engine when it's dismissed.
     runEngine.reset();
     runEngine.start(session);
     // Replace, not push: the run screen is a full-screen modal, so the session
     // sheet must leave the stack — otherwise the lingering formSheet bleeds into
     // the accessibility tree behind the run/summary modals and occludes their
-    // controls (e.g. the summary's "Done").
+    // controls (e.g. the summary's toolbar "Close").
     router.replace('/run');
   };
 

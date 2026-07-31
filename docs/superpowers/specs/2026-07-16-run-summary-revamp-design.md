@@ -4,6 +4,13 @@
 **Status:** Proposed
 **Screen:** `src/app/run-summary.tsx`
 
+**Superseded in part (2026-07-30):** the pinned bottom "Done" button specified
+below (component item 5, and the `dismissAll()` note under Consequences) was
+removed. The toolbar `xmark` ("Close") — which already called the same
+`dismissAll()` — and the page sheet's swipe-down are the summary's only exits.
+Everything else here shipped as written; the screen has since moved to
+`src/app/runs/[runId]/index.tsx`.
+
 ## Problem
 
 `run-summary.tsx` has two problems:

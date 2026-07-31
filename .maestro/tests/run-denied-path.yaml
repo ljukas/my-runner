@@ -36,7 +36,7 @@ tags:
 - assertNotVisible: "Interval Pace"
 - assertNotVisible: "Avg Pace"
 - assertNotVisible: "Distance"
-- tapOn: "Done"
+- tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:
     element:

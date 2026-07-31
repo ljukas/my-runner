@@ -2,11 +2,25 @@ appId: se.lukaslindqvist.runbro.e2e
 tags:
   - session
 ---
-- runFlow: ../helpers/start-first-session.yaml
+# A fixed point, set before the run opens the fix stream: the location task keeps delivering
+# fixes for it (distanceInterval: 0), so this stationary run records real points that never
+# leave one spot — zero route extent. The only automated cover for the route-extent gate
+# (domain/geo.ts's MIN_ROUTE_EXTENT_M, read in use-run-route.ts): a reverted predicate there
+# would render a map with a single dot instead of the fallback card.
+- runFlow: ../helpers/launch-and-onboard.yaml
+- setLocation:
+    latitude: 59.3293
+    longitude: 18.0686
+- runFlow: ../helpers/start-w1d1.yaml
 - extendedWaitUntil:
     visible:
       text: "Nice work.*"
     timeout: 120000
+# The route card sits above the stat grid, reachable without scrolling. The heading is common
+# to both no-route reasons (no fixes at all vs. fixes with no extent) — asserted generically,
+# since which copy renders is a separate, open question (see AGENTS.md's e2e notes).
+- assertVisible: "No route for this run"
+- assertNotVisible: "Map of your .* route.*"
 # Every session is bracketed by a warm-up — the finished run's segment key names
 # it in the summary's colour legend. Asserted here, on the settled summary, not
 # on the run screen: the compressed warm-up is ~5 s and races Maestro's poll
@@ -20,7 +34,7 @@ tags:
 # Granted but stationary → zero distance: the derived tiles and the splits card stay out.
 - assertNotVisible: "Distance"
 - assertNotVisible: "Interval Pace"
-- tapOn: "Done"
+- tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:
     element:

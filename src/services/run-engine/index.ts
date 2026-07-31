@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
-import { findActiveRun, loadRunPoints } from '@/db/active-run';
+import { findActiveRun } from '@/db/active-run';
+import { loadBufferedRunPoints } from '@/db/run-points';
 import { dbRunPersistence } from '@/db/save-run';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
@@ -104,7 +105,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
 /** Rebuilds the interrupted run in the engine from its persisted points (ADR 0021 §3). */
 export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean> {
   try {
-    return runEngine.restore({ ...candidate, points: loadRunPoints(candidate.runId) });
+    return runEngine.restore({ ...candidate, points: loadBufferedRunPoints(candidate.runId) });
   } catch (error) {
     console.warn('[run-engine] resume failed', error);
     return false;

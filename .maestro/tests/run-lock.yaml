@@ -77,7 +77,7 @@ tags:
 - assertVisible: "Paused"
 # End the run rather than abandoning it mid-flow: this is the end-to-end proof that the unlocked
 # transport really is live — End opens the sheet the locked tap could not, "End run" finalizes a
-# partial, and "Done" unwinds the modal stack to the plan list. Flow isolation does not depend
+# partial, and Close unwinds the modal stack to the plan list. Flow isolation does not depend
 # on it: every flow launches with `clearState: true`, so no 'active' row reaches the next one.
 - tapOn: "End"
 - tapOn: "End run"
@@ -85,5 +85,5 @@ tags:
     visible:
       text: "Good effort.*"
     timeout: 30000
-- tapOn: "Done"
+- tapOn: "Close"
 - assertVisible: "Week 1 ·.*"

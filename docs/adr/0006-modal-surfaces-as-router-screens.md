@@ -68,10 +68,12 @@ Per-surface assignments and the rules that de-risk them:
    `gestureEnabled: false`; leaving mid-run goes through the explicit
    End-run confirmation only. (Android later: falls back to `modal`; a
    back-handler guard joins the Android pass.)
-3. **Run summary (`run-summary`)** — entered via `router.replace` from the
-   run screen so back/dismiss can never return to a finished run; Done
-   dismisses to Plan (`dismissTo`/`dismissAll` are available if the stack
-   deepens).
+3. **Run summary (`runs/[runId]`)** — entered via `router.replace` from the
+   run screen so back/dismiss can never return to a finished run. Its toolbar
+   `xmark` ("Close") calls `dismissAll()`, landing on Plan after a run and on
+   Log after a revisit; the page sheet's swipe-down reaches the same place.
+   (A pinned bottom "Done" duplicated that until 2026-07-30 — removed as
+   redundant, not as a behaviour change: it had always called `dismissAll()`.)
 4. **Onboarding (`onboarding/`)** — `presentation: 'fullScreenModal'` over
    the tabs, hosting its own step routes.
 5. **Fallback rule (pre-approved, per surface):** if a formSheet behavior

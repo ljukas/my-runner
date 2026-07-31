@@ -85,7 +85,7 @@ export default function LogScreen() {
               key={run.id}
               modifiers={[accessibilityLabel(rowA11yLabel(run))]}
               onPress={() =>
-                router.navigate({ pathname: '/run-summary/[id]', params: { id: run.id } })
+                router.navigate({ pathname: '/runs/[runId]', params: { runId: run.id } })
               }
             >
               <HStack spacing={12}>

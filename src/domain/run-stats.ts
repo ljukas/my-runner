@@ -1,3 +1,4 @@
+import { MIN_MEASURED_SPEED_MPS } from './geo';
 import type { SegmentKind } from './plan';
 
 export interface RunStatsSegment {
@@ -27,6 +28,15 @@ export function runStats(segments: RunStatsSegment[]): RunStats {
 /** A segment plus its recorded distance; `distanceM` is null when GPS was off. */
 export interface PaceSegment extends RunStatsSegment {
   distanceM: number | null;
+}
+
+/**
+ * Whether a recorded distance represents movement worth presenting, rather than drift that cleared
+ * the deadband — see `MIN_MEASURED_SPEED_MPS`. Callers hide distance, pace and splits when false.
+ */
+export function hasMeasuredDistance(distanceM: number | null, durationS: number): boolean {
+  if (distanceM === null || durationS <= 0) return false;
+  return distanceM / durationS >= MIN_MEASURED_SPEED_MPS;
 }
 
 /** Pace in seconds per km; null for degenerate input (no distance or no time) so callers show a placeholder. */

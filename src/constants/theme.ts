@@ -67,6 +67,10 @@ export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>
   },
 };
 
+/** Run intervals are drawn thicker so phase never depends on hue alone (spec §7.3). */
+export const ROUTE_STROKE_W = 4;
+export const ROUTE_STROKE_W_RUN = 7;
+
 /** Run-summary stat-tile accents (ADR 0013) — chosen for the summary cards and
  * intentionally INDEPENDENT of the segment-bar palette (they need not match).
  * Apple iOS system colors, per color scheme. Access via `useStatColors()`. */

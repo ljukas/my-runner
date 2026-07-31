@@ -30,7 +30,7 @@ tags:
     visible:
       text: "Good effort.*"
     timeout: 30000
-- tapOn: "Done"
+- tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:
     element:

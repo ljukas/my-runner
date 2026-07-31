@@ -92,16 +92,23 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
      `Island useViewportSizeMeasurement` painted and took a coordinate tap while
      being **absent** from that hierarchy — a real VoiceOver defect, and the same
      shape as the run summary's RN "Done" that painted and tapped while unfindable
-     beneath a lingering form sheet (`session/[key].tsx:63-67`).
+     beneath a lingering form sheet (`session/[key].tsx:63-67`). (That button was
+     removed 2026-07-30; the observation stands as recorded.)
 
      **The first draft of this note blamed siblinghood, and shipped code falsifies
-     that.** `run-summary/[id].tsx:81-99` lays an RN `ScrollView` beside
+     that.** `runs/[runId]/index.tsx` laid an RN `ScrollView` beside
      `Footer → Island.Button fill "Done"` — a real Host — and CI-gated flows assert
-     the RN strings inside it on that very screen (`run-distance.yaml:42-43`
-     "Distance"/"Avg Pace"; `complete-session.yaml` "Nice work.*", "Warm Up"),
+     the RN strings inside it on that very screen (`complete-session.yaml`
+     "Nice work.*", "Warm Up"; also `run-distance.yaml`'s "Distance"/"Avg Pace"
+     until that flow was removed on 2026-07-31 — ADR 0001's amendment),
      while `segment-breakdown.tsx` records VoiceOver already speaking its RN legend.
      `session/[key].tsx` is the same shape. Non-overlapping RN siblings are
      therefore fine; **z-order over a Host is the hazard.**
+
+     *2026-07-30:* removing that footer left the summary Host-free on its normal
+     path (its only remaining Host, `RunUnavailable`, renders on the error path),
+     so `session/[key].tsx` — RN content laid out beside an Island — is now the
+     live witness. Those same flows still pass against the RN-only summary.
 
      The rule that follows: **RN owns the screen root and SwiftUI goes into it as
      islands, sized to their content and laid out in flow.** Do not stack RN over a
@@ -187,3 +194,39 @@ Settings mostly SwiftUI; active-run screen hybrid; `RouteMap` an RN island).
 - **Defer @expo/ui until the Android pass** — rejected: v1 is iOS-first by
   decision, and deferral trades the product's fidelity goal for a parity
   problem v1 does not have.
+
+## Amendment (2026-07-31): narrow deviation from Decision item 1 — the route card's expand chip
+
+`route-map-card.tsx` renders its expand chip as an `absolute`-positioned RN `View`
+**over** `AppleMaps.View`, which is an `ExpoSwiftUI.View, ExpoSwiftUI.WithHostingView`
+— the z-order-over-a-Host case item 1 prohibits. It stays, deliberately and narrowly.
+
+**Why it is safe here.** Item 1 exists to prevent two specific failures, and the
+chip can cause neither:
+
+- **Stolen taps** — `pointerEvents="none"`, so the whole subtree is unreachable to
+  the gesture system and every touch lands on the map's own `Pressable`.
+- **Lost accessibility identity** — `accessibilityElementsHidden` plus
+  `importantForAccessibility="no-hide-descendants"`, so the chip has no a11y node
+  to lose. The map's `Pressable` carries the button role and the composed
+  `"Map of your 2.84 km route"` label.
+
+The chip is decorative: it is the only visible cue that an inert map opens, and at
+accessibility text sizes the only content in the card at all.
+
+**Why not moved in flow.** Both in-flow placements were built and looked at on the
+simulator. Because the map fills the card's 3:2 box, "not overlapping" necessarily
+means a strip above or below it, and either reads as a dead white band with a
+floating glyph — the map also loses the card's squircle on the edge it no longer
+touches. The affordance was verified still tappable in that form, so the objection
+is aesthetic, not functional; it simply costs more than the latent risk it removes.
+
+**This deviation is void the moment the chip must be tappable or spoken.** At that
+point it acquires exactly the identity item 1 protects, and it moves in flow — the
+shape that avoids the dead band is a labelled header row (`Route` as a footnote
+header plus the glyph, map in a rounded box beneath), matching the sibling summary
+cards; that also makes `CARD_ASPECT_RATIO` exact rather than an under-estimate.
+
+Contrast `runs/[runId]/route.tsx`, which puts its 1 pt a11y node *in flow above*
+the map and cites this same rule: that node exists **to be spoken**, so no
+deviation is available to it.

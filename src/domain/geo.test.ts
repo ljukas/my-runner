@@ -3,19 +3,32 @@ import { describe, expect, test } from 'bun:test';
 import {
   accuracyFilter,
   boundingBox,
+  boundingBoxDiagonalM,
+  CAMERA_PADDING_RATIO,
+  cameraForBoundingBox,
   createSmootherState,
   DP_EPSILON_M,
   EARTH_RADIUS_M,
   encodePolyline,
   haversineMeters,
+  MAX_GAP_S,
+  MIN_ROUTE_EXTENT_M,
+  MIN_SPAN_DEG,
   NEAR_STATIONARY_DEADBAND_M,
+  SEED_FIXES,
   simplifyPolyline,
   smoothFix,
   smoothTrack,
   smoothTrackBySegment,
+  smoothTrackForRender,
+  toSegmentPolylines,
+  type BoundingBox,
+  type CameraFit,
   type LatLng,
   type LocationFix,
+  type RenderPoint,
   type SegmentedFix,
+  type SegmentPolyline,
 } from './geo';
 
 /** A fully-formed fix; override only the field under test. */
@@ -409,6 +422,19 @@ describe('smoothTrackBySegment — per-segment attribution (ADR 0021 §4)', () =
   });
 });
 
+/** A straight northbound 1 Hz walker; `segments` gives the segmentSeq per fix. */
+function makeSegmentedTrack(segments: readonly number[], startMs = 0): SegmentedFix[] {
+  return segments.map((segmentSeq, i) => ({
+    timestamp: startMs + i * 1000,
+    lat: i * 0.000012, // ~1.34 m/s
+    lng: 0,
+    altitude: null,
+    accuracy: 5,
+    speed: null,
+    segmentSeq,
+  }));
+}
+
 describe('simplifyPolyline', () => {
   const M = M_PER_DEG;
   const north = (m: number): LatLng => ({ lat: m / M, lng: 0 });
@@ -437,3 +463,329 @@ describe('simplifyPolyline', () => {
     expect(simplifyPolyline([north(0), north(5)])).toEqual([north(0), north(5)]);
   });
 });
+
+describe('SmoothStep.restarted', () => {
+  test('is true on the first fix', () => {
+    const step = smoothFix(createSmootherState(), makeFix({ timestamp: 0 }));
+    expect(step.restarted).toBe(true);
+  });
+
+  test('is false on an ordinary following fix', () => {
+    const first = smoothFix(createSmootherState(), makeFix({ timestamp: 0 }));
+    const second = smoothFix(first.state, makeFix({ timestamp: 1000, lat: 0.00001 }));
+    expect(second.restarted).toBe(false);
+  });
+
+  test('is true past MAX_GAP_S but false exactly at it', () => {
+    const start = smoothFix(createSmootherState(), makeFix({ timestamp: 0 }));
+    const atLimit = smoothFix(start.state, makeFix({ timestamp: MAX_GAP_S * 1000 }));
+    expect(atLimit.restarted).toBe(false);
+
+    const pastLimit = smoothFix(start.state, makeFix({ timestamp: MAX_GAP_S * 1000 + 1 }));
+    expect(pastLimit.restarted).toBe(true);
+  });
+
+  test('is false when the velocity gate rejects a fix', () => {
+    let state = createSmootherState();
+    for (let i = 0; i < 5; i++) {
+      state = smoothFix(state, makeFix({ timestamp: i * 1000, lat: i * 0.00002 })).state;
+    }
+    // 0.05 deg latitude in 1 s ≈ 5.5 km/s — far above the gate ceiling.
+    const gated = smoothFix(state, makeFix({ timestamp: 5000, lat: 0.05 }));
+    expect(gated.smoothedPoint).toBeNull();
+    expect(gated.restarted).toBe(false);
+  });
+
+  test('is false on a non-monotonic timestamp', () => {
+    const start = smoothFix(createSmootherState(), makeFix({ timestamp: 5000 }));
+    const backwards = smoothFix(start.state, makeFix({ timestamp: 4000 }));
+    expect(backwards.smoothedPoint).toBeNull();
+    expect(backwards.restarted).toBe(false);
+  });
+});
+
+describe('smoothTrackForRender', () => {
+  test('drops the raw seed fixes', () => {
+    const fixes = makeSegmentedTrack([0, 0, 0, 0, 0]);
+    const points = smoothTrackForRender(fixes);
+    expect(points).toHaveLength(fixes.length - SEED_FIXES);
+  });
+
+  test('a legal but far cold-start fix decays out of the drawn line', () => {
+    const fixes = makeSegmentedTrack(Array.from({ length: 25 }, () => 0));
+    // A 45 m eastward error on the first fix passes accuracyFilter (<= 50 m).
+    fixes[0] = { ...fixes[0], lng: 45 / M_PER_DEG, accuracy: 45 };
+    const eastM = smoothTrackForRender(fixes).map((p) => Math.abs(p.point.lng) * M_PER_DEG);
+    // The residual transient is inherent (the filter seeds velocity from two points), so bound it
+    // by a fraction of the injected error rather than by its fitted peak …
+    expect(Math.max(...eastM)).toBeLessThan(45 / 4);
+    // … and require the tail to converge well inside DP_EPSILON_M, where no spur can survive.
+    for (const m of eastM.slice(-5)) expect(m).toBeLessThan(2);
+  });
+
+  test('tags points with their segmentSeq', () => {
+    const points = smoothTrackForRender(makeSegmentedTrack([0, 0, 0, 1, 1, 2, 2]));
+    expect(points.map((p) => p.segmentSeq)).toEqual([0, 1, 1, 2, 2]);
+  });
+
+  test('no point is flagged gapBefore on a continuous track', () => {
+    const points = smoothTrackForRender(makeSegmentedTrack([0, 0, 0, 0, 0]));
+    expect(points.some((p) => p.gapBefore)).toBe(false);
+  });
+
+  test('carries the gap flag to the first point emitted after the gap', () => {
+    const before = makeSegmentedTrack([0, 0, 0, 0, 0]);
+    const afterStart = (MAX_GAP_S + 10) * 1000;
+    const after = makeSegmentedTrack([1, 1, 1, 1, 1], afterStart).map((f) => ({
+      ...f,
+      lat: 0.001 + f.lat,
+    }));
+    const points = smoothTrackForRender([...before, ...after]);
+    const flagged = points.filter((p) => p.gapBefore);
+    expect(flagged).toHaveLength(1);
+    // The gap's own restarted fix is a dropped seed, so the flag lands on the first KEPT point after it.
+    expect(flagged[0].segmentSeq).toBe(1);
+    expect(points.indexOf(flagged[0])).toBe(before.length - SEED_FIXES);
+  });
+});
+
+/**
+ * RenderPoints marching due north ~22 m apart, one per entry of `segments`; `gaps` holds the indices
+ * flagged `gapBefore`. The points are deliberately collinear, so DP reduces every chunk to its two
+ * endpoints — which is exactly what makes the boundary-sharing assertions meaningful.
+ */
+function makeRenderPoints(
+  segments: readonly number[],
+  gaps: readonly number[] = [],
+): RenderPoint[] {
+  return segments.map((segmentSeq, i) => ({
+    point: { lat: i * 0.0002, lng: 0 },
+    segmentSeq,
+    gapBefore: gaps.includes(i),
+  }));
+}
+
+describe('toSegmentPolylines', () => {
+  test('adjacent chunks share a bit-identical boundary vertex', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 1, 1, 1]));
+    expect(chunks).toHaveLength(2);
+    const seam = chunks[0].points.at(-1)!;
+    expect(chunks[1].points[0]).toBe(seam); // same object reference, not merely equal
+  });
+
+  test('every adjacent pair shares a vertex across many segments', () => {
+    const segments = Array.from({ length: 17 }, (_, s) => [s, s, s]).flat();
+    const chunks = toSegmentPolylines(makeRenderPoints(segments));
+    expect(chunks).toHaveLength(17);
+    for (let i = 1; i < chunks.length; i++) {
+      expect(chunks[i].points[0]).toBe(chunks[i - 1].points.at(-1)!);
+    }
+  });
+
+  test('a real gap leaves the chunks disjoint and flags the second', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 1, 1, 1], [3]));
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1].gapBefore).toBe(true);
+    expect(chunks[1].points[0]).not.toBe(chunks[0].points.at(-1));
+  });
+
+  test('a mid-segment gap yields two chunks with the same segmentSeq', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 0, 0, 0], [3]));
+    expect(chunks).toHaveLength(2);
+    expect(chunks.map((c) => c.segmentSeq)).toEqual([0, 0]);
+  });
+
+  test('a segment that emitted no points does not break continuity', () => {
+    // segmentSeq 1 never appears in the render stream (all its fixes were gated).
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 0, 2, 2, 2]));
+    expect(chunks.map((c) => c.segmentSeq)).toEqual([0, 2]);
+    expect(chunks[1].points[0]).toBe(chunks[0].points.at(-1)!);
+  });
+
+  test('a single-point segment survives via the prepend', () => {
+    // The compressed-plan E2E case: most segments contribute one fix.
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 1, 2, 3]));
+    expect(chunks).toHaveLength(3);
+    for (const chunk of chunks) expect(chunk.points.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('drops a chunk that cannot form a line', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints([0], [0]));
+    expect(chunks).toHaveLength(0); // one point, no prepend (gapBefore) → nothing to draw
+  });
+
+  test('carries the gap flag past a dropped single-point chunk', () => {
+    // The post-gap segment contributes one point, so its chunk is dropped after simplification. If
+    // the flag dies with it, everything downstream reads the break as continuous line.
+    const chunks = toSegmentPolylines(makeRenderPoints([0, 0, 1, 2, 2], [2]));
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1].gapBefore).toBe(true);
+    expect(chunks[1].points[0]).not.toBe(chunks[0].points.at(-1));
+  });
+});
+
+/** Inverse of the library's conversion: what span (in degrees) a zoom asks for. */
+function spanDegForZoom(zoom: number): number {
+  return 360 / 2 ** zoom;
+}
+
+/** Degrees MapKit will actually show on each axis. Mirrors the expand-only fit in projected units. */
+function shownSpanDeg(fit: CameraFit, aspectRatio: number): { lng: number; lat: number } {
+  const f = 1 / Math.cos(fit.center.lat * (Math.PI / 180));
+  const s = spanDegForZoom(fit.zoom);
+  return { lng: s * Math.max(1, aspectRatio * f), lat: (s * Math.max(1 / aspectRatio, f)) / f };
+}
+
+function containsBbox(bbox: BoundingBox, fit: CameraFit, aspectRatio: number): boolean {
+  const shown = shownSpanDeg(fit, aspectRatio);
+  return (
+    shown.lng >= bbox.maxLng - bbox.minLng - 1e-12 && shown.lat >= bbox.maxLat - bbox.minLat - 1e-12
+  );
+}
+
+describe('cameraForBoundingBox', () => {
+  const stockholm: BoundingBox = { minLat: 59.32, maxLat: 59.34, minLng: 18.06, maxLng: 18.08 };
+  const wide: BoundingBox = { minLat: 59.3275, maxLat: 59.3325, minLng: 18.045, maxLng: 18.095 };
+  const tall: BoundingBox = { minLat: 59.305, maxLat: 59.355, minLng: 18.0675, maxLng: 18.0725 };
+  const point: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.07, maxLng: 18.07 };
+  const aspects = [393 / 852, 1, 1.5];
+
+  test('centres on the bbox midpoint', () => {
+    const fit = cameraForBoundingBox(stockholm, 1.5);
+    expect(fit.center.lat).toBeCloseTo(59.33, 10);
+    expect(fit.center.lng).toBeCloseTo(18.07, 10);
+  });
+
+  test('contains the bbox for a square aspect', () => {
+    expect(containsBbox(stockholm, cameraForBoundingBox(stockholm, 1), 1)).toBe(true);
+  });
+
+  test('contains the bbox when A·f > 1 (the card)', () => {
+    const aspect = 1.5; // f ≈ 1.96 at 59.33°N → A·f ≈ 2.9
+    expect(containsBbox(stockholm, cameraForBoundingBox(stockholm, aspect), aspect)).toBe(true);
+  });
+
+  test('contains the bbox when A·f < 1 (the real full-screen regime)', () => {
+    const aspect = 393 / 852; // iPhone 15 Pro portrait → A·f ≈ 0.90, the second max() branch
+    expect(aspect * (1 / Math.cos(59.33 * (Math.PI / 180)))).toBeLessThan(1);
+    expect(containsBbox(stockholm, cameraForBoundingBox(stockholm, aspect), aspect)).toBe(true);
+  });
+
+  test('contains a pure east-west and a pure north-south line', () => {
+    const ew: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.06, maxLng: 18.09 };
+    const ns: BoundingBox = { minLat: 59.32, maxLat: 59.35, minLng: 18.07, maxLng: 18.07 };
+    for (const aspect of [0.46, 1, 1.5]) {
+      expect(containsBbox(ew, cameraForBoundingBox(ew, aspect), aspect)).toBe(true);
+      expect(containsBbox(ns, cameraForBoundingBox(ns, aspect), aspect)).toBe(true);
+    }
+  });
+
+  test('padding adds p/(1+2p) slack per side', () => {
+    const tight = cameraForBoundingBox(stockholm, 1, 0);
+    const padded = cameraForBoundingBox(stockholm, 1, 0.15);
+    const ratio = spanDegForZoom(padded.zoom) / spanDegForZoom(tight.zoom);
+    expect(ratio).toBeCloseTo(1.3, 6); // 1 + 2·0.15
+  });
+
+  test('frames a non-square bbox tightly on its binding axis', () => {
+    // Containment alone is satisfied by any wider frame; the binding axis must carry the padding
+    // and nothing more, or the fit is not the minimum the spec §4.2 derivation claims.
+    for (const box of [wide, tall]) {
+      for (const aspect of aspects) {
+        const shown = shownSpanDeg(cameraForBoundingBox(box, aspect), aspect);
+        const tightest = Math.min(
+          shown.lng / (box.maxLng - box.minLng),
+          shown.lat / (box.maxLat - box.minLat),
+        );
+        expect(tightest).toBeCloseTo(1 + 2 * CAMERA_PADDING_RATIO, 9);
+      }
+    }
+  });
+
+  test('falls back to a square viewport for a degenerate aspect ratio', () => {
+    const square = cameraForBoundingBox(stockholm, 1);
+    for (const aspect of [NaN, 0, -1.5]) {
+      expect(cameraForBoundingBox(stockholm, aspect)).toEqual(square);
+    }
+  });
+
+  test('floors a degenerate bbox instead of returning an infinite zoom', () => {
+    const fit = cameraForBoundingBox(point, 1.5);
+    expect(Number.isFinite(fit.zoom)).toBe(true);
+    expect(spanDegForZoom(fit.zoom)).toBeCloseTo(MIN_SPAN_DEG * 1.3, 8);
+  });
+
+  test('zoom decreases monotonically as the bbox grows', () => {
+    let previous = Infinity;
+    for (const size of [0.002, 0.02, 0.2, 2]) {
+      const box: BoundingBox = {
+        minLat: 59.33,
+        maxLat: 59.33 + size,
+        minLng: 18.07,
+        maxLng: 18.07 + size,
+      };
+      const { zoom } = cameraForBoundingBox(box, 1.5);
+      expect(zoom).toBeLessThan(previous);
+      previous = zoom;
+    }
+  });
+});
+
+function stationaryFixes(count: number): SegmentedFix[] {
+  return Array.from({ length: count }, (_, i) => ({
+    timestamp: i * 1000,
+    lat: 59.33,
+    lng: 18.07,
+    altitude: null,
+    accuracy: 5,
+    speed: null,
+    segmentSeq: 0,
+  }));
+}
+
+const drawnBbox = (chunks: readonly SegmentPolyline[]) =>
+  boundingBox(chunks.flatMap((chunk) => chunk.points));
+
+describe('route extent gate (spec §8)', () => {
+  test('measures the bbox diagonal in metres', () => {
+    // 0.001° of latitude ≈ 111.19 m, and the same longitude delta at the equator, so the diagonal
+    // is that leg times √2.
+    const diagonal = boundingBoxDiagonalM({ minLat: 0, maxLat: 0.001, minLng: 0, maxLng: 0.001 });
+    expect(diagonal).toBeCloseTo(Math.SQRT2 * 0.001 * M_PER_DEG, 1);
+  });
+
+  test('is zero when the drawn line never leaves one coordinate', () => {
+    // Subsumes spec §8's "at least two distinct coordinates": a repeated coordinate measures 0 m.
+    const repeated = { lat: 59.33, lng: 18.07 };
+    expect(drawnBbox([chunkFrom([repeated, { ...repeated }])])).not.toBeNull();
+    expect(boundingBoxDiagonalM(drawnBbox([chunkFrom([repeated, { ...repeated }])])!)).toBe(0);
+  });
+
+  test('a stationary run is rejected, though it produces a drawable chunk', () => {
+    const chunks = toSegmentPolylines(smoothTrackForRender(stationaryFixes(4)));
+    // It survives every earlier stage: simplifyPolyline returns a copy for 2 points, so the chunk is
+    // never dropped — the extent gate is the only thing standing between it and a map of the runner's home.
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].points).toHaveLength(2);
+    expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeLessThan(MIN_ROUTE_EXTENT_M);
+  });
+
+  test('ignores an outlier that no chunk draws', () => {
+    // A single-point chunk is dropped after simplification, so its coordinate is not on screen and
+    // must not widen the predicate either.
+    const points = makeRenderPoints([0, 0, 1]);
+    points[2] = { ...points[2], point: { lat: 60, lng: 19 }, gapBefore: true };
+    const chunks = toSegmentPolylines(points);
+    expect(chunks).toHaveLength(1);
+    expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeLessThan(MIN_ROUTE_EXTENT_M);
+  });
+
+  test('a real route clears the gate', () => {
+    const chunks = toSegmentPolylines(makeRenderPoints(Array.from({ length: 30 }, () => 0)));
+    expect(boundingBoxDiagonalM(drawnBbox(chunks)!)).toBeGreaterThan(MIN_ROUTE_EXTENT_M);
+  });
+});
+
+function chunkFrom(points: LatLng[], segmentSeq = 0, gapBefore = false): SegmentPolyline {
+  return { segmentSeq, points, gapBefore };
+}

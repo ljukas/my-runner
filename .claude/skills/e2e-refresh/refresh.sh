@@ -46,8 +46,17 @@ if [ -f "$TARBALL" ]; then
     say "extracting $TARBALL (newer than the extracted .app)"
     [ -n "$existing" ] && rm -rf "$existing"
     tar -xzf "$TARBALL" -C "$BUILD"
-    fingerprint >"$FP_FILE"
-    say "recorded native fingerprint: $(cat "$FP_FILE")"
+    # why: do NOT stamp the CURRENT tree's fingerprint here. Extracting an old tarball today would
+    # record today's hash against yesterday's binary, and the gate below would then report a match and
+    # repack onto a native shell missing modules the config now requires (observed: a pre-expo-maps app
+    # passing the gate, then crashing on `Cannot find native module 'ExpoMaps'`). Only `e2e:build`, which
+    # knows the tree it actually built from, may record a fingerprint — so an unstamped tarball fails
+    # closed below rather than silently passing.
+    if [ -f "$FP_FILE" ]; then
+      say "adopted $TARBALL; build-recorded fingerprint: $(cat "$FP_FILE")"
+    else
+      say "adopted $TARBALL, but it carries no build-recorded fingerprint"
+    fi
   fi
 fi
 
@@ -62,9 +71,18 @@ current=$(fingerprint)
 [ -n "$current" ] && [ "$current" != "null" ] || die "fingerprint generation failed"
 recorded=$(cat "$FP_FILE" 2>/dev/null || true)
 
+if [ -z "$recorded" ]; then
+  die "no build-recorded fingerprint for $SOURCE_APP, so it cannot be trusted to match
+the current native config. Repacking JS onto a native shell built from a different config
+yields fresh code on the wrong binary — it crashes at import on a missing native module
+rather than failing a test. Run a full build, which records the fingerprint it built from:
+  bun run e2e:build
+then re-run this script." 3
+fi
+
 if [ "$current" != "$recorded" ]; then
   die "native fingerprint changed since $SOURCE_APP was built.
-  built:   ${recorded:-<unrecorded>}
+  built:   $recorded
   current: $current
 Repacking onto a stale native shell yields JS-fresh code on the wrong native
 binary. Run a full build in the background:

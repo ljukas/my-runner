@@ -4,7 +4,8 @@ Date: 2026-07-21
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge.
+Accepted. Implemented and shipping: the smoothing pipeline landed in Stage 3 and
+the rendering half in Stage 4. One open Milestone-0 item is recorded in §6 below.
 
 ## Context
 
@@ -95,6 +96,39 @@ artifacts users actually notice are removed.**
    only: **distance is NEVER derived from `summary_polyline` or the simplified
    line — only from `run_points`.** Epsilon is capped to avoid flattening tight
    real features.
+
+   **Landed (2026-07-29)** as `toSegmentPolylines` in `domain/geo.ts`, per
+   surface: ε = 5 m for the card, 2 m for the viewer. The presentation-only
+   promise holds — DP shortens the *drawn* path against the smoothed track
+   (9–13% under AR(1) noise, 23% under white noise) and distance is unaffected
+   because it never reads the line.
+
+   **Open Milestone-0 item — the smoother's residual is pace-dependent, and
+   there is no regression net for tuning it.** Benchmarking the shipped filter
+   under AR(1) noise (φ = 0.9–0.98) shows it works — error cut 3–5×, exact on a
+   noiseless control — but the residual is **+5.6 to +6.8% jogging versus +18.6
+   to +22.6% walking**, already 3.7% at 3.2 m/s. That is a law, not an artefact:
+   per step `E|s·û + n| ≈ s + σ⊥²/(2s)`, so the relative excess is
+   `σ⊥²/(2s²Δt)` — **quadratic in 1/pace** — and `relative_excess · speed²` held
+   constant at 0.38–0.41 across a 3.2× pace range, both duration- and
+   distance-matched. This matters disproportionately here because C25K week 1 is
+   ~62% walking, i.e. the app's own beginners sit at the worst end of the curve.
+
+   The remedy from the fallback ladder (item 8, "tune params first") is
+   confirmed to work: sweeping
+   `KALMAN_PROCESS_NOISE` down 100–300× takes walk error to 4.7–6.8% and jog to
+   1.4–2.0%. **But the existing CV-walker fixture returns exactly 82.60 m at
+   every `q`** — it is perfectly constant-velocity, so the CV model is exact
+   regardless — which means the suite has *no guard against over-smoothing*, the
+   very risk Consequences names. Tuning at Milestone-0 would therefore run
+   without a net; a non-constant-velocity fixture has to come first. Both belong
+   to the distance path and must be validated against real device tracks, not
+   synthetic noise. Related: `smoothFix` has a one-second cliff just below
+   `MAX_GAP_S`, where a 29 s dropout yields a ~38 m excursion that raises no
+   `gapBefore` and survives DP — deliberately left for the same tuning pass
+   rather than worked around in the render path, since a render-only heuristic
+   would make the drawn line disagree with the distance, which §3 exists to
+   prevent.
 7. **Rejected:** hosted snap services (network/account/telemetry vs no-backend);
    on-device OSM matching engines (no Expo/iOS path; unbounded on-device
    road-graph); reliance on Apple's internal snap (undocumented,

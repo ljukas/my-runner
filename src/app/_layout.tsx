@@ -97,7 +97,7 @@ export default function RootLayout() {
         />
 
         <Stack.Screen
-          name="run-summary/[id]"
+          name="runs/[runId]/index"
           options={{ presentation: 'modal', headerLargeTitleEnabled: true, title: '' }}
         >
           <Stack.Toolbar placement="right">
@@ -105,6 +105,18 @@ export default function RootLayout() {
               icon="xmark"
               accessibilityLabel="Close"
               onPress={() => router.dismissAll()}
+            />
+          </Stack.Toolbar>
+        </Stack.Screen>
+
+        <Stack.Screen name="runs/[runId]/route" options={{ presentation: 'modal', title: 'Route' }}>
+          <Stack.Toolbar placement="right">
+            <Stack.Toolbar.Button
+              icon="xmark"
+              accessibilityLabel="Close map"
+              // why: a cold deep link has no back entry; fall back to dismissTo so the swipe isn't
+              // the only exit (spec §7.4).
+              onPress={() => (router.canGoBack() ? router.back() : router.dismissTo('/log'))}
             />
           </Stack.Toolbar>
         </Stack.Screen>

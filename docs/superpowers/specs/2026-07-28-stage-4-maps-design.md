@@ -571,7 +571,17 @@ adapter, when `interactive` is false. The viewer is deliberately not flattened �
 that would collapse MapKit's own elements — but is not left mute either: since a
 polyline overlay has no accessibility representation of its own and the card's
 summary would otherwise be lost on the way in, it carries a route-summary label on
-a sibling node, plus a real screen title. Two constraints pin that node's shape,
+a sibling node, plus a real screen title. *Amended 2026-07-31: the screen title is
+gone* — the header is transparent with an empty `headerTitle` so the map runs
+full-bleed, and an empty native nav title is not an accessibility element, so
+VoiceOver has no screen name to announce on push. The sibling node is therefore
+**load-bearing alone**, not one half of a pair. Accepted deliberately rather than
+by oversight: the node is first in flow, so it is the screen's opening
+announcement, and "Your 2.1 km route" names the screen better than the
+tautological "Route" it replaced. Not VoiceOver-verified — the node's *presence*
+is (device checklist item 7, both renderers), the push-focus behaviour is
+inferred. Restoring a title means giving up the full-bleed map, so treat that as
+a design trade rather than a bug fix. Two constraints pin that node's shape,
 and they nearly cancel: it cannot go on the wrapper, because `accessible` there is
 exactly the flattening the previous sentence rules out — and it cannot be
 positioned *over* the map either, because ADR 0005's overlap rule costs RN the very

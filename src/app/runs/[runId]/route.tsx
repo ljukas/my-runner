@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
@@ -7,6 +7,7 @@ import { useSafeAreaFrame } from 'react-native-safe-area-context';
 import { RouteMap } from '@/components/route-map';
 import { RunUnavailable } from '@/components/run-unavailable';
 import { db } from '@/db/client';
+import { runNotDeleted } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
 import { formatDistanceKm } from '@/domain/format';
 import { VIEWER_DP_EPSILON_M } from '@/domain/geo';
@@ -17,26 +18,41 @@ export default function RunRouteScreen() {
   const { runId } = useLocalSearchParams<'/runs/[runId]/route'>();
   const frame = useSafeAreaFrame();
 
-  const { data: segments, updatedAt } = useLiveQuery(
+  const {
+    data: runRows,
+    updatedAt: runLoaded,
+    error: runError,
+  } = useLiveQuery(
+    db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.id, runId), runNotDeleted)),
+    [runId],
+  );
+  const {
+    data: segments,
+    updatedAt: segmentsLoaded,
+    error: segmentsError,
+  } = useLiveQuery(
     db.select().from(runSegments).where(eq(runSegments.runId, runId)).orderBy(asc(runSegments.seq)),
     [runId],
   );
-  const { data: runRows } = useLiveQuery(db.select().from(runs).where(eq(runs.id, runId)), [runId]);
 
-  // why: full frame height under-estimates the aspect ratio, so cameraForBoundingBox only ever
-  // requests MORE span than the true fit needs (spec §4.2) — the route can never clip.
-  const route = useRunRoute(
-    runId,
-    segments,
-    updatedAt !== undefined,
-    frame.width / frame.height,
-    VIEWER_DP_EPSILON_M,
-  );
+  const run = runRows[0];
+  // why: both queries, not just the segments' — the a11y label below reads the run row, and gating on
+  // one of the two lets VoiceOver announce the route without its distance and then correct itself.
+  const loaded = runLoaded !== undefined && segmentsLoaded !== undefined;
+  const failed = runError !== undefined || segmentsError !== undefined;
 
-  if (updatedAt !== undefined && !route.ready) return <RunUnavailable unsaved={false} />;
-  if (!route.ready) return <View className="flex-1 bg-background" />;
+  const route = useRunRoute(runId, segments, loaded, VIEWER_DP_EPSILON_M);
 
-  const distance = runRows[0]?.distanceM ? formatDistanceKm(runRows[0].distanceM) : null;
+  if (failed || (loaded && !run)) return <RunUnavailable reason="missing" />;
+  if (!loaded) return <View className="flex-1 bg-background" />;
+  // why: a real run with nothing drawable is not a missing one. Deep links and state restoration both
+  // reach this screen for a treadmill run, which the summary explains with RouteUnavailableCard.
+  if (!route.ready) return <RunUnavailable reason="no-route" />;
+
+  const distance = run?.distanceM != null ? formatDistanceKm(run.distanceM) : null;
 
   return (
     <View className="flex-1">
@@ -50,10 +66,15 @@ export default function RunRouteScreen() {
         pointerEvents="none"
       />
 
+      {/* why the full frame height: it under-estimates the aspect ratio, because the map sits below
+          the nav bar — and under-estimating it only ever asks for MORE span (spec §7.4), so no inset
+          subscription or header constant is needed. Conditional on the padding, not absolute: for a
+          latitude-dominated route the aspect term drops out of the fit entirely. */}
       <RouteMap
         route={route.route}
         endpoints={route.endpoints}
-        camera={route.camera}
+        bbox={route.bbox}
+        aspectRatio={frame.width / frame.height}
         interactive
         style={{ flex: 1 }}
       />

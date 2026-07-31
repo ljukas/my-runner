@@ -563,8 +563,29 @@ export function cameraForBoundingBox(
 }
 
 /** why: a treadmill run has plenty of fixes and no extent — without this the card draws a dot on a
- * street map of the user's home. Never gated on a camera span; spec §8 has the arithmetic. */
-export const MIN_ROUTE_EXTENT_M = 60;
+ * street map of the user's home. Never gated on a camera span; spec §8 has the arithmetic.
+ * why derived from the accuracy limit: two accepted fixes can each sit ACCURACY_LIMIT_M off truth, so
+ * indoor WiFi drift alone produces an extent up to 2× it — a smaller floor is inside the noise it
+ * has to reject, which is what the flat 60 m was.
+ * why 2× exactly: it is the point above which no passing extent is explainable by two fixes' noise.
+ * It briefly sat at 1.5× to stay inside what the Maestro harness could travel, which is moot now
+ * that simulated GPS motion is out of scope for E2E (ADR 0001, 2026-07-31 amendment) — no automated
+ * flow depends on this threshold being reachable. */
+export const MIN_ROUTE_EXTENT_M = 2 * ACCURACY_LIMIT_M;
 
 /** Below this the start and finish markers collapse to one — loops start and end at the same door. */
 export const ENDPOINT_MERGE_M = 25;
+
+/**
+ * Floor for presenting a recorded distance at all, as an average speed rather than a distance.
+ *
+ * why a speed and not a floor in metres: no absolute floor separates the two cases, because a
+ * 30-minute indoor session accumulates more drift past the deadband than a legitimately short
+ * partial run covers — any floor high enough to reject the first hides the second. Average speed
+ * separates them, since drift has no net direction and lands far below walking pace however long it
+ * runs. Reuses the smoother's own "not really moving" threshold rather than inventing a second one.
+ *
+ * Without this, a run with no usable fixes renders "0.00 km" beside a nonsense pace (observed on a
+ * simulator with a static location: 1.2 m over 40 s → 556:54 /km).
+ */
+export const MIN_MEASURED_SPEED_MPS = NEAR_STATIONARY_SPEED_MPS;

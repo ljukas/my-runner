@@ -257,3 +257,32 @@ build — the trend (plateau, not climb) is the evidence.
    pre-existing regression unrelated to Stage 4's map work, out of this
    task's scope to root-cause without native debugging tools, and does not
    block the map checklist.
+
+## GPS-motion payload — device-only from 2026-07-31
+
+`run-distance.yaml` covered the Stage-3/4 headline payload and was **removed**:
+Maestro cannot drive simulated GPS motion into this app, so the flow could never
+pass (ADR 0001, 2026-07-31 amendment). Nothing in `.maestro/` asserts recorded
+distance, pace or a drawn route any more, so these are now device/manual checks.
+
+Cover them on the outdoor run in Part 2, or on the simulator with the simulator's
+own route engine — which does produce genuine moving fixes:
+
+```bash
+xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59.3353,18.0686
+# then run a session; `xcrun simctl location <udid> clear` afterwards
+```
+
+| # | Check | Was covered by |
+| --- | --- | --- |
+| G1 | Summary shows a non-zero Distance and a plausible Avg Pace | `run-distance` |
+| G2 | The same distance reaches the Log row (write → finalize → read → display, ADR 0021 §3) | `run-distance` |
+| G3 | Route card renders a segment-coloured line with start/finish markers | `run-distance` |
+| G4 | Card opens the full-screen viewer; closing returns to an intact summary | `run-distance` |
+| G5 | Interval Pace card lists per-segment splits with the fastest badged | `run-distance` |
+| G6 | Distance/Avg Pace tiles and Interval Pace are **absent** when no movement was measured (`hasMeasuredDistance`, spec §8) | `complete-session` (still covered) |
+
+G6 stays covered automatically; G1–G5 do not. Verified manually on 2026-07-31 via
+the route-engine command above: all five passed (0.11 km over a 40 s compressed
+session, pace 5:57 /km, route card and viewer both rendering, splits and Log row
+correct).

@@ -5,12 +5,11 @@ import { loadRunFixes } from '@/db/run-points';
 import {
   boundingBox,
   boundingBoxDiagonalM,
-  cameraForBoundingBox,
   DP_EPSILON_M,
   MIN_ROUTE_EXTENT_M,
   smoothTrackForRender,
   toSegmentPolylines,
-  type CameraFit,
+  type BoundingBox,
   type LatLng,
 } from '@/domain/geo';
 import { toRouteLines } from '@/domain/route-render';
@@ -21,7 +20,7 @@ export type RunRoute =
   | { ready: false }
   | {
       ready: true;
-      camera: CameraFit;
+      bbox: BoundingBox;
       route: RouteMapRoute;
       endpoints: { start: LatLng; finish: LatLng };
     };
@@ -37,10 +36,10 @@ export function useRunRoute(
   runId: string,
   segments: readonly RunSegment[],
   loaded: boolean,
-  aspectRatio: number,
   epsilon = DP_EPSILON_M,
 ): RunRoute {
-  // why: split from colouring so a light/dark switch never re-runs the ~1800-row read.
+  // why: keyed on neither the viewport nor the palette, so a rotation, a keyboard, the modal
+  // settling, or a light/dark switch never re-runs the ~1800-row read and refold.
   const geometry = useMemo(() => {
     if (!loaded) return null;
     try {
@@ -54,9 +53,8 @@ export function useRunRoute(
       // why: toSegmentPolylines drops chunks under 2 points, so bbox is never null here.
       if (boundingBoxDiagonalM(bbox!) < MIN_ROUTE_EXTENT_M) return null;
 
-      const camera = cameraForBoundingBox(bbox!, aspectRatio);
       return {
-        camera,
+        bbox: bbox!,
         chunks,
         endpoints: {
           start: chunks[0].points[0],
@@ -69,7 +67,7 @@ export function useRunRoute(
       console.warn('[use-run-route] geometry load failed; showing the fallback', error);
       return null;
     }
-  }, [runId, loaded, aspectRatio, epsilon]);
+  }, [runId, loaded, epsilon]);
 
   const segmentColors = useSegmentColors();
 
@@ -78,7 +76,7 @@ export function useRunRoute(
 
     return {
       ready: true,
-      camera: geometry.camera,
+      bbox: geometry.bbox,
       endpoints: geometry.endpoints,
       route: { lines: toRouteLines(geometry.chunks, segments, segmentColors) },
     };

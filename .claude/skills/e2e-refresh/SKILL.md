@@ -53,7 +53,7 @@ involved:
 | Onboarding steps, permission priming | `onboarding`, `location-primer-allow`, `location-primer-deny`, `location-jit-ask` |
 | Run screen, controls, cues | `run-controls`, `complete-session`, `run-abandon` |
 | Resume / crash recovery | `run-resume`, `resume-decline` |
-| GPS, distance, pace | `run-distance`, `run-denied-path` |
+| GPS, distance, pace | `run-denied-path` (the no-permission path only — recorded distance/pace/route have **no** flow coverage; ADR 0001's 2026-07-31 amendment, device checklist G1–G5) |
 | History, plan, session detail | `log-revisit`, `complete-session` |
 
 ## 3. Run them

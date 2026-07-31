@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   bestRunSegment,
+  hasMeasuredDistance,
   paceSecPerKm,
   runStats,
   segmentPaceSecPerKm,
@@ -127,5 +128,41 @@ describe('bestRunSegment', () => {
     const first: PaceSegment = { kind: 'run', distanceM: 1000, actualDurationS: 300 }; // 300 s/km
     const second: PaceSegment = { kind: 'run', distanceM: 2000, actualDurationS: 600 }; // 300 s/km
     expect(bestRunSegment([first, second])).toBe(first);
+  });
+});
+
+describe('hasMeasuredDistance', () => {
+  test('rejects a run with no recorded distance', () => {
+    expect(hasMeasuredDistance(null, 1800)).toBe(false);
+  });
+
+  test('rejects the observed no-fix run: 1.2 m over 40 s', () => {
+    // The case that rendered "0.00 km" beside a 556:54 /km pace.
+    expect(hasMeasuredDistance(1.2, 40)).toBe(false);
+  });
+
+  test('rejects drift accumulated over a full 30-minute indoor session', () => {
+    // The reason the floor is a speed, not a distance: 400 m of jitter over 30 min is more than a
+    // short partial run covers, so any absolute floor rejecting this would also hide that.
+    expect(hasMeasuredDistance(400, 1800)).toBe(false);
+  });
+
+  test('accepts a legitimately short partial run a distance floor would have hidden', () => {
+    // 3 minutes of walking, ~1.4 m/s.
+    expect(hasMeasuredDistance(250, 180)).toBe(true);
+  });
+
+  test('accepts a walk and a jog', () => {
+    expect(hasMeasuredDistance(2500, 1800)).toBe(true); // ~1.4 m/s
+    expect(hasMeasuredDistance(5000, 1800)).toBe(true); // ~2.8 m/s
+  });
+
+  test('accepts a short run interval, whose own distance is small but not slow', () => {
+    expect(hasMeasuredDistance(4, 2)).toBe(true);
+  });
+
+  test('rejects a zero or negative duration rather than dividing by it', () => {
+    expect(hasMeasuredDistance(100, 0)).toBe(false);
+    expect(hasMeasuredDistance(100, -1)).toBe(false);
   });
 });

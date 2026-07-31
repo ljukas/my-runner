@@ -34,7 +34,7 @@ tags:
 # Granted but stationary → zero distance: the derived tiles and the splits card stay out.
 - assertNotVisible: "Distance"
 - assertNotVisible: "Interval Pace"
-- tapOn: "Done"
+- tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:
     element:

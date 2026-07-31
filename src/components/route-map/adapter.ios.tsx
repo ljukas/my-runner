@@ -2,7 +2,7 @@ import { AppleMaps } from 'expo-maps';
 import { useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { ENDPOINT_MERGE_M, haversineMeters } from '@/domain/geo';
+import { cameraForBoundingBox, ENDPOINT_MERGE_M, haversineMeters } from '@/domain/geo';
 import { useTheme } from '@/hooks/use-theme';
 import type { RouteMapProps } from './port';
 
@@ -25,7 +25,8 @@ const UI_SETTINGS: AppleMaps.MapUISettings = {
 export function RouteMap({
   route,
   endpoints,
-  camera,
+  bbox,
+  aspectRatio,
   interactive,
   accessibilityLabel,
   onPress,
@@ -68,16 +69,19 @@ export function RouteMap({
     ];
   }, [endpoints, colors]);
 
-  // why: AppleMaps.View's Swift host snaps its camera to any later cameraPosition prop change
-  // (spec §4.3), so it must be frozen once via useState's initializer, not derived from props.
-  const [latchedCamera] = useState(camera);
+  // why here and not across the port: `zoom` is expo-maps' own convention (360 / 2^zoom degrees on
+  // both axes), so fitting belongs on this side of the boundary (ADR 0010) even though the maths is
+  // a pure domain helper. why frozen: AppleMaps.View's Swift host snaps to any later cameraPosition
+  // prop change (spec §4.3), so the fit is taken once in useState's initializer — a later re-fit
+  // would yank a view the user has panned.
+  const [camera] = useState(() => cameraForBoundingBox(bbox, aspectRatio));
 
   const cameraPosition = useMemo(
     () => ({
-      coordinates: { latitude: latchedCamera.center.lat, longitude: latchedCamera.center.lng },
-      zoom: latchedCamera.zoom,
+      coordinates: { latitude: camera.center.lat, longitude: camera.center.lng },
+      zoom: camera.zoom,
     }),
-    [latchedCamera],
+    [camera],
   );
 
   const map = (

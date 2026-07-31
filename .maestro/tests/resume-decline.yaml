@@ -15,10 +15,10 @@ tags:
     timeout: 60000
 - tapOn: "Save as Partial"
 # The declined run's summary replaces the sheet, acknowledged like any other fresh finish
-# (`celebrate`): the ended-early headline and the bottom "Done", not a Log revisit's neutral date.
+# (`celebrate`): the ended-early headline, not a Log revisit's neutral date.
 - assertVisible: "Good effort.*"
 - assertVisible: "Partial"
-- tapOn: "Done"
+- tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:
     element:

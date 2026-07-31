@@ -39,18 +39,26 @@ export function RouteUnavailableCard({
           : 'No location was recorded for this run, so there is no map. Your time and intervals were still recorded.'}
       </Text>
       {offerCta ? (
-        <View className="flex-row">
-          <Button
-            variant="secondary"
-            size="sm"
-            // why: Settings has no Location row for an app that never asked — 'undetermined' has to
-            // re-prompt instead (ADR 0008 §2), as run-location-banner already does.
-            label={denied ? 'Open Settings' : 'Enable Location'}
-            onPress={() =>
-              void (denied ? Linking.openSettings() : locationTracker.requestPermission())
-            }
-          />
-        </View>
+        <>
+          {/* why: granting only makes the button disappear — the reason is per-run and immutable, so
+              this run gains neither a map nor a distance. Without saying so, the CTA promises a fix
+              for the run being looked at. */}
+          <Text variant="small" tone="secondary">
+            This run stays as it is — Location only adds maps and distance to future runs.
+          </Text>
+          <View className="flex-row">
+            <Button
+              variant="secondary"
+              size="sm"
+              // why: Settings has no Location row for an app that never asked — 'undetermined' has to
+              // re-prompt instead (ADR 0008 §2), as run-location-banner already does.
+              label={denied ? 'Open Settings' : 'Enable Location'}
+              onPress={() =>
+                void (denied ? Linking.openSettings() : locationTracker.requestPermission())
+              }
+            />
+          </View>
+        </>
       ) : null}
     </Card>
   );

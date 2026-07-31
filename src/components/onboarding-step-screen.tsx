@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useRef, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ScrollView, useWindowDimensions, View } from 'react-native';
 
 import { Island } from '@/components/island';
@@ -44,6 +44,14 @@ export function OnboardingStepScreen({
   const footnoteScrolls = fontScale >= FOOTNOTE_SCROLLS_ABOVE_FONT_SCALE;
   const colors = useTheme();
 
+  // why: the strip is an overlay, not iOS's scroll-edge effect, so painting it unconditionally fades
+  // the last line of a step whose content already fits — an affordance for scrolling that cannot
+  // happen. Compared with a 1 pt slack for float rounding.
+  const [overflows, setOverflows] = useState(false);
+  const viewportH = useRef(0);
+  const contentH = useRef(0);
+  const syncOverflow = () => setOverflows(contentH.current > viewportH.current + 1);
+
   // why the guard: an async action (a permission prompt) leaves both CTAs live until it settles,
   // and a second tap would prompt twice and advance twice.
   const press = (handler?: (advance: () => void) => void | Promise<void>) => () => {
@@ -66,6 +74,14 @@ export function OnboardingStepScreen({
         className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="px-6 pb-3"
+        onLayout={(event) => {
+          viewportH.current = event.nativeEvent.layout.height;
+          syncOverflow();
+        }}
+        onContentSizeChange={(_, height) => {
+          contentH.current = height;
+          syncOverflow();
+        }}
       >
         {children}
 
@@ -79,13 +95,15 @@ export function OnboardingStepScreen({
           no layout and no footer movement, and painting last puts it above the scroll content, which
           then fades into the background instead of being cut off. The stop is the background at zero
           alpha rather than `transparent`, which iOS fades through black. */}
-      <View
-        pointerEvents="none"
-        className="-mt-7 h-7"
-        style={{
-          experimental_backgroundImage: `linear-gradient(to bottom, ${colors.background}00, ${colors.background})`,
-        }}
-      />
+      {overflows ? (
+        <View
+          pointerEvents="none"
+          className="-mt-7 h-7"
+          style={{
+            experimental_backgroundImage: `linear-gradient(to bottom, ${colors.background}00, ${colors.background})`,
+          }}
+        />
+      ) : null}
 
       <Footer>
         {footnoteScrolls ? null : footnote}

@@ -47,7 +47,7 @@ tags:
 - extendedWaitUntil:
     visible: "Nice work.*"
     timeout: 120000
-- tapOn: "Done"
+- tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:
     element:

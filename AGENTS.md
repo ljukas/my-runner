@@ -106,7 +106,10 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   unique heading before tapping its CTA; disambiguate repeats with `index`;
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
   only, commented at each use site — currently the icon-only `plan-next-*`
-  arrow. Ground every string with the MCP `inspect_screen` tool against the
+  arrow. An icon-only **native** control is not one of those cases: tap its
+  `accessibilityLabel` (`tapOn: "Close"` hits the run summary's toolbar `xmark`;
+  ADR 0016's 2026-07-30 amendment), and keep those labels distinct across
+  stacked modals. Ground every string with the MCP `inspect_screen` tool against the
   running app; consult the MCP `cheat_sheet` tool and
   https://docs.maestro.dev/llms.txt for flow syntax.
   If a future escape hatch needs a `testID` on a bare `@expo/ui` SwiftUI
@@ -123,6 +126,20 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   which makes the seconds-long compressed plan reachable (`src/services/e2e.ts`)
   and default-on, so a full session finishes in seconds with no toggle
   interaction.
+- **GPS *motion* cannot be tested by Maestro — don't write a flow that needs it**
+  ([ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md), 2026-07-31
+  amendment). `travel` is not a real primitive: it loops `setLocation`
+  (upstream [#921](https://github.com/mobile-dev-inc/maestro/issues/921)), and
+  Maestro's iOS driver never calls `xcrun simctl location`, so CoreLocation
+  reports no movement and the app records ~0 m. Measured, not guessed: 2 and 3
+  waypoints both gave ~1.2 m, 11 waypoints hung, and adding a foreground
+  `watchPositionAsync` changed nothing. `run-distance.yaml` was removed for this
+  reason — anything needing recorded distance, pace or a drawn route belongs to
+  [the device checklist](docs/milestone-0-device-checklist.md), not `.maestro/`.
+  To verify by hand, drive the simulator's own route engine (this *does* work,
+  and the whole former flow passes under it) — but never as a suite step, since
+  `complete-session.yaml` asserts the absence of distance:
+  `xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59.3353,18.0686`
 - **Policy:** the full suite is the maintainer's — run locally before merging to
   `main` any change touching `src/`, `app.json`, or dependencies — and the
   `e2e-ios` check's. Agents run the *targeted* flows their change affects, via

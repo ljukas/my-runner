@@ -217,12 +217,24 @@ independent reviewers.
    `togglePitchEnabled` and `properties.selectionEnabled` all default to **true**,
    and POIs default to all-shown — a read-only map must suppress each explicitly.
 
-8. **Narrow deviation from Decision item 2: the hook invokes the camera fit, not
-   the port.** `useRunRoute` computes `cameraForBoundingBox` over the drawn
-   chunks and passes a ready `camera` to `RouteMap`, which only latches it (the
-   Swift host snaps to any later `cameraPosition` change, so it must be frozen
-   once). Having the port re-derive it would redo a reduction the hook has
-   already done and risk disagreeing with the route-extent gate about the
-   route's extent. What Decision item 2 was protecting is intact: the *math*
-   remains a pure, unit-tested helper in `domain/geo.ts`, and the port surface
-   stays library-agnostic.
+8. **Reverted — Decision item 2 stands: the port takes the bbox, the adapter fits
+   the camera.** This item previously recorded a narrow deviation in which
+   `useRunRoute` computed `cameraForBoundingBox` over the drawn chunks and passed
+   a ready `camera` to `RouteMap`, which only latched it. Its justification — "the
+   port surface stays library-agnostic" — did not survive review: `CameraFit.zoom`
+   *is* expo-maps' own convention (the library shows `360 / 2^zoom` degrees on
+   **both** axes, and the fit bakes in that isotropic-degree plus `f = 1/cos(lat)`
+   Mercator quirk), so every caller of the port had to speak it, and the
+   react-native-maps fallback item 3 pre-approves would have had to invert it. The
+   port now carries `bbox` in plain degrees plus the viewport `aspectRatio`, and
+   `adapter.ios.tsx` calls the fit.
+
+   The reuse concern that motivated the deviation is still honoured, because what
+   crosses the port is the **already-reduced bbox**, not the route lines: the hook
+   still decides which chunks are drawn and reduces them exactly once, so the
+   adapter cannot disagree with the route-extent gate about the route's extent — it
+   only converts a bbox and an aspect ratio into this library's zoom. The freeze is
+   also unchanged and now reads as the contract it always was: the Swift host snaps
+   to any later `cameraPosition`, so the adapter takes the fit once in `useState`'s
+   initializer, and a re-fit would yank a view the user has panned. The math
+   remains a pure, unit-tested helper in `domain/geo.ts`.

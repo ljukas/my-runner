@@ -5,19 +5,19 @@ import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { RunSegment } from '@/db/schema';
 import { SEGMENT_KIND_LABEL, formatDistanceKm, formatPace } from '@/domain/format';
-import { bestRunSegment, segmentPaceSecPerKm } from '@/domain/run-stats';
+import { bestRunSegment, hasMeasuredDistance, segmentPaceSecPerKm } from '@/domain/run-stats';
 import { useSegmentColors } from '@/hooks/use-theme';
 import { cn } from '@/lib/cn';
 
 /**
  * Per-segment distance and pace for a finished run (ADR 0013 domain component), with the fastest
- * run interval badged. Renders nothing when no segment carries a distance, so a run recorded
- * without GPS keeps its time-only summary.
+ * run interval badged. Renders nothing when no segment recorded measured movement, so a run without
+ * GPS — or one whose only distance is drift — keeps its time-only summary (spec §8).
  */
 export function SegmentSplits({ segments }: { segments: RunSegment[] }) {
   const segmentColors = useSegmentColors();
   const best = bestRunSegment(segments);
-  const hasDistance = segments.some((s) => s.distanceM !== null && s.distanceM > 0);
+  const hasDistance = segments.some((s) => hasMeasuredDistance(s.distanceM, s.actualDurationS));
   // Stack the numbers under the phase name at accessibility Dynamic Type, as StatList.Row does.
   const stacked = PixelRatio.getFontScale() >= 1.6;
 

@@ -337,17 +337,19 @@ carry forward.
 ```ts
 type RunRoute =
   | { ready: false }
-  | { ready: true; camera: CameraFit; route: RouteMapRoute; decorations: RouteMapDecoration[];
+  | { ready: true; bbox: BoundingBox; route: RouteMapRoute;
       endpoints: { start: LatLng; finish: LatLng } };
 
 function useRunRoute(runId: string, segments: readonly RunSegment[],
-                     aspectRatio: number, epsilon?: number): RunRoute;
+                     loaded: boolean, epsilon?: number): RunRoute;
 ```
 
-**Two memos, not one.** Geometry is keyed on `[runId, segments, aspectRatio,
-epsilon]` and is theme-free; colouring is keyed on `[geometry, segmentColors]`.
-A single memo including `segmentColors` would re-run a ~1710-row SQLite read on
-every light/dark switch just to change four hex strings.
+**Two memos, not one.** Geometry is keyed on `[runId, loaded, epsilon]` and is
+both theme-free and viewport-free; colouring is keyed on `[geometry, segments,
+segmentColors]`. A single memo including `segmentColors` would re-run a ~1710-row
+SQLite read on every light/dark switch just to change four hex strings — and one
+including the aspect ratio would re-run it on every rotation, keyboard, or modal
+settle, which is why the hook takes no aspect ratio at all (§6.1).
 
 `loadRunPoints` is synchronous, so there is no effect and no loading state.
 `segments` comes from the screen's existing live query — the hook never queries
@@ -363,17 +365,28 @@ Both screens gate on the `updatedAt !== undefined` idiom already used in
 while `segments.length === 0`. If the bbox can ever change after mount, the
 adapter must `key`-remount rather than rely on a camera prop update.
 
-The hook — not the port — computes the camera, because it already reduces the
-same bbox for the extent gate (§8): `endpoints` and the `MIN_ROUTE_EXTENT_M`
-check both need the bounding box of the *drawn* chunks (deliberately excluding
-any dropped chunk's outlier), so building the camera from that same bbox is
-reuse, not duplication. Handing the bbox to `RouteMap` instead would make the
-port re-derive "which points are drawn" from the route lines it's given —
-redoing a reduction the hook has already done, and risking disagreement with
-the extent gate over what counts as the route's extent. This is a deliberate,
-narrow deviation from ADR 0010 §2's "`RouteMap` owns the camera-fit math": the
-*math* remains a pure, unit-tested helper in `domain/geo.ts`, which is what the
-ADR was protecting. Record it in the amendment.
+### 6.1 The hook reduces the bbox; the adapter fits the camera
+
+The hook owns **which points are drawn** and reduces them exactly once:
+`endpoints` and the `MIN_ROUTE_EXTENT_M` check both need the bounding box of the
+*drawn* chunks (deliberately excluding any dropped chunk's outlier), so that bbox
+is computed here and nowhere else.
+
+It does **not** compute the camera. `CameraFit.zoom` is expo-maps' own convention
+(§3), so a hook that produced it would push a library's units through the port and
+force the react-native-maps fallback (ADR 0010 §3) to invert them. The hook
+therefore returns the `bbox`, the port carries it in plain degrees alongside the
+viewport `aspectRatio`, and `adapter.ios.tsx` calls `cameraForBoundingBox` — which
+stays a pure, unit-tested helper in `domain/geo.ts`.
+
+Note this is *not* the same as handing `RouteMap` the route lines and asking it to
+re-derive the extent: the already-reduced bbox crosses the port, so the adapter
+cannot disagree with the extent gate about what the route's extent is. An earlier
+revision had the hook fit the camera and recorded it as a deviation from ADR 0010
+§2; that deviation is reverted, and ADR 0010's amendment item 8 records why.
+
+It also means the hook takes no aspect ratio, so a viewport change cannot
+invalidate the geometry memo and re-run the read (§6).
 
 `endpoints` are the first point of the first chunk and the last point of the last
 chunk — the route's true extremities even when a gap split the track.
@@ -506,7 +519,10 @@ interface RouteMapRoute { lines: RouteMapLine[] }          // segment-coloured c
 interface RouteMapProps {
   route: RouteMapRoute;
   endpoints: { start: LatLng; finish: LatLng } | null;
-  camera: CameraFit;
+  /** The drawn route's extent, in plain degrees — no library's zoom convention crosses here (§6.1). */
+  bbox: BoundingBox;
+  /** Viewport width / height. Read once, when the adapter fixes its camera on mount. */
+  aspectRatio: number;
   interactive: boolean;
   /** Applied only when `interactive` is false — see the accessibility note. */
   accessibilityLabel?: string;
@@ -585,9 +601,12 @@ the only visible cue at accessibility text sizes.
 
 It sits **directly under `RunSummaryHeadline`**, above `RunStatGrid`. With GPS
 the grid is six tiles in three rows under a headline and a large title, so
-placing the map after it puts the route below the fold on an SE-class screen
-while the fresh-finish "Done" footer invites the user to leave — inverting the
-emotional hierarchy for a beginner, whose route *is* the reward. The colour
+placing the map after it puts the route below the fold on an SE-class screen —
+inverting the emotional hierarchy for a beginner, whose route *is* the reward.
+(Until 2026-07-30 a fresh-finish "Done" footer sharpened this by inviting the
+user to leave before scrolling that far; the toolbar "Close" that replaced it
+makes the same invitation more quietly, so the placement argument stands on the
+fold alone.) The colour
 legend consequently sits a scroll below rather than directly beneath, which the
 width double-encoding (§7.3) is what makes tolerable.
 
@@ -614,22 +633,26 @@ labelled **"Close map"** whose handler is `router.back()`.
 Three corrections to the first draft, all from review:
 
 - **`presentation: 'modal'`, not `fullScreenModal`.** The original justification
-  — that a toolbar `xmark` is "already-proven" for Maestro — is contradicted by
-  `log-revisit.yaml:24-29`, which states the summary's xmark "has no text-first
-  target (ADR 0016)" and dismisses with a coordinate swipe instead; no shipped
-  flow taps it. And `fullScreenModal` is the one iOS presentation with **no**
-  dismiss gesture, so a user who has pinch-zoomed into their route would have
-  exactly one small glyph as an exit, and §10's round trip would be unwritable
-  if that glyph does not resolve. `modal` inherits the swipe-down dismissal this
-  repo has already shipped, and keeps the xmark as redundancy.
+  — that a toolbar `xmark` is "already-proven" for Maestro — was rejected on a
+  premise since falsified: `log-revisit.yaml` stated the summary's xmark "has no
+  text-first target (ADR 0016)" and dismissed with a coordinate swipe instead, and
+  no shipped flow tapped it. *2026-07-30:* `tapOn: "Close"` does resolve it, and
+  eight flows now depend on that (ADR 0016's amendment). The conclusion holds
+  anyway, because it never rested on that premise: `fullScreenModal` is the one
+  iOS presentation with **no** dismiss gesture, so a user who has pinch-zoomed
+  into their route would have exactly one small glyph as an exit. `modal`
+  inherits the swipe-down dismissal this repo has already shipped, and keeps the
+  xmark as redundancy.
 - **`router.back()`, not `dismissAll()`.** The summary's xmark calls
   `router.dismissAll()` (`_layout.tsx:103-109`), so "mirroring" it literally
-  would unwind to the Plan tab and discard the summary — including an
-  un-acknowledged "Done" on a fresh finish.
+  would unwind to the Plan tab and discard the summary underneath — a fresh
+  finish the user had not yet chosen to leave.
 - **A distinct `accessibilityLabel`.** The summary's is "Close"; two
   simultaneous "Close" elements across stacked modals would make the §10
   dismissal ambiguous, which ADR 0005's lingering-form-sheet observation shows
-  is a live risk.
+  is a live risk. Load-bearing rather than precautionary now that flows tap
+  "Close" by label — anchored full-match matching is what keeps "Close" and
+  "Close map" apart with both modals in the hierarchy.
 
 Nesting a modal over the summary's modal is fine — the app already stacks
 `session/[key]` (formSheet) → `run` (fullScreenModal) → the summary (modal) in
@@ -640,10 +663,25 @@ modal freezes the screen.
 The screen live-queries `runSegments` for its `id` (an approved live-query table
 scoped to a fixed `run_id`) — and `runs`, the way the summary does, for the distance
 its accessibility label is composed from — gates on the loaded idiom (§4.3), and
-calls `useRunRoute` with ε=2 m and the **content box's** aspect ratio — the window
-minus the nav bar and safe-area insets, not the window itself, since the map
-does not fill it. Being independently deep-linkable, it handles a bad `id` with
-the shared unavailable-state component (§7.5).
+calls `useRunRoute` with ε=2 m, and hands `RouteMap` the window's aspect ratio
+(the hook itself takes none — §6.1).
+
+**Shipped deviation from this section.** The true viewport is the *content box* —
+the window minus the nav bar and safe-area insets, since the map does not fill it
+— and this section originally required it. The shipped code passes the raw window
+frame, which under-estimates the aspect ratio, and the fit only ever *loosens*
+when it is under-estimated: the longitude term in `cameraForBoundingBox` is
+`lngSpan / max(1, aspect·f)`, so a smaller aspect asks for more span. That buys
+the simpler value: no `useSafeAreaInsets` subscription and no hard-coded header
+constant to drift out of date, at the cost of a marginally loose frame. Note the
+guarantee is **conditional, not absolute**: for a latitude-dominated route the
+aspect term drops out of the `max` entirely and the `1 + 2·padding` factor carries
+the margin instead, so cutting `CAMERA_PADDING_RATIO` would start clipping
+north–south routes here before anywhere else.
+
+Being independently deep-linkable, it handles a bad `id` with the shared
+unavailable-state component (§7.5) — and a soft-deleted one, since it applies
+`runNotDeleted` (ADR 0004) rather than matching on `id` alone.
 
 ### 7.5 Shared unavailable state
 
@@ -668,8 +706,43 @@ A treadmill run in February is an entirely normal thing for a C25K beginner.
 bounding-box diagonal, in metres, over the coordinates of the *kept* chunks
 (`boundingBoxDiagonalM`, against `MIN_ROUTE_EXTENT_M`). Measuring the kept chunks
 rather than every render point keeps an outlier that nothing draws out of the
-predicate, and the 60 m threshold subsumes "at least two distinct post-DP
+predicate, and the threshold subsumes "at least two distinct post-DP
 coordinates" — a repeated coordinate measures 0 m.
+
+**The threshold is derived from the accuracy limit, not chosen.**
+`MIN_ROUTE_EXTENT_M = 2 · ACCURACY_LIMIT_M = 100 m`. It shipped as a flat 60 m,
+which is *inside the noise it exists to reject*: `accuracyFilter` accepts a fix at
+up to 50 m of horizontal accuracy, two accepted fixes can therefore each sit that
+far off truth, and indoor WiFi positioning moves in exactly that range while
+staying under the velocity gate (a 40 m shift over 10 s implies 4 m/s, well below
+`RUNNING_SPEED_CEILING_MPS · VELOCITY_GATE_MARGIN`). A treadmill run could
+accumulate a 60–90 m drift envelope, clear the gate, and render the street map of
+the runner's home that this section exists to prevent.
+
+**It briefly sat at 1.5× (75 m), and no longer needs to.** The lower value existed
+only to stay within what the E2E harness could travel in a 40 s compressed
+session. That constraint is gone: Maestro cannot drive simulated GPS *motion* into
+this app at all, `run-distance.yaml` is removed, and the payload moved to the
+device checklist (ADR 0001, 2026-07-31 amendment). With no automated flow
+depending on the threshold being reachable, it returns to where the noise argument
+actually lands.
+
+The counter-pressure is a legitimately tight loop — laps of a small field can
+cover kilometres inside a ~110 m box — which now falls back rather than mapping.
+That is the safe direction to err, but it is a real false negative, and the
+multiplier is the knob if it turns out to bite.
+
+**Distance, pace and splits have their own floor, and it is a speed.** A run with
+no usable fixes still accumulates a little drift past the near-stationary deadband,
+which rendered `0.00 km` beside a `556:54 /km` pace and a splits card of all-zero
+rows. Neither `!= null` nor `> 0` catches that. No floor in *metres* catches it
+either: 30 minutes of indoor jitter accumulates further than a legitimately short
+partial run covers, so any floor high enough to reject the first hides the second.
+The predicate is therefore average speed — `hasMeasuredDistance` in
+`domain/run-stats.ts`, against `MIN_MEASURED_SPEED_MPS = NEAR_STATIONARY_SPEED_MPS`
+— because drift has no net direction and stays far below walking pace however long
+it runs. `RunStatGrid` drops the Distance and Avg Pace tiles when it is false, and
+`SegmentSplits` renders nothing.
 
 **The gate must never read a camera property.** The first implementation gated on
 `cameraForBoundingBox`'s `fittedSpanM`, which fails twice over. It is
@@ -678,9 +751,9 @@ card's 3:2 and fail it at the viewer's ~0.55 — the user taps a working map and
 lands on "This run isn't available". Worse, it can never reject anything:
 `fittedSpanM` derives from `max(neededDeg, MIN_SPAN_DEG) · (1 + 2·padding)` scaled
 by `max(f, 1/A)/f`, which is ≥ 1 by construction, so its floor is
-`0.0005 · 1.3 · 111 195 ≈ 72.3 m` — above `MIN_ROUTE_EXTENT_M` at every latitude
-and aspect tested. The treadmill case this section exists to prevent was therefore
-shipping: four stationary fixes leave two post-seed render points on one
+`0.0005 · 1.3 · 111 195 ≈ 72.3 m` — above the then-current 60 m
+`MIN_ROUTE_EXTENT_M` at every latitude and aspect tested. The treadmill case this
+section exists to prevent was therefore shipping: four stationary fixes leave two post-seed render points on one
 coordinate, `simplifyPolyline` returns a copy for ≤ 2 points so the chunk survives
 the `< 2` drop, and the card renders a 72 m window on the runner's front door with
 a pin in it. The same route measures 0 m of drawn extent. Both the measure and that
@@ -880,7 +953,13 @@ detail screen; it needs a new home, presumably the summary.
   `save-run`'s own `__DEV__` invariant warning make load-bearing rather than
   defensive.
 
-**Maestro** — extend `.maestro/tests/run-distance.yaml`. The steps go **between
+**Maestro** — *superseded 2026-07-31: `run-distance.yaml` was removed, because
+Maestro cannot drive simulated GPS motion into this app (ADR 0001 amendment), so
+none of the coverage below exists as a flow. The route-card checks moved to the
+device checklist as G3–G4. The reasoning is kept because it still applies to
+verifying the card by hand, and to any future harness that can produce movement.*
+
+Extend `.maestro/tests/run-distance.yaml`. The steps go **between
 `assertVisible: "Avg Pace"` (line 43) and the `"Interval Pace"`
 `scrollUntilVisible` (line 44)** — not after the `"Fastest"` assertion, by which
 point the flow has already scrolled past the card and `scrollUntilVisible`

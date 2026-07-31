@@ -24,7 +24,7 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
   const router = useRouter();
   const colors = useTheme();
   // why: the caller (runs/[runId]/index) only mounts this card once its own live query has loaded.
-  const route = useRunRoute(run.id, segments, true, CARD_ASPECT_RATIO);
+  const route = useRunRoute(run.id, segments, true);
   // why: null until the first read resolves, and an unresolved answer must not offer a way out.
   const permission = useLocationPermission();
 
@@ -38,15 +38,22 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
 
   const distance = run.distanceM ? formatDistanceKm(run.distanceM) : null;
 
+  const openViewer = () =>
+    router.push({ pathname: '/runs/[runId]/route', params: { runId: run.id } });
+
+  // why min-h: an ExpoSwiftUI host that mounts at height 0 renders blank and never re-measures, and
+  // `aspect-[3/2]` was the sole height source — the narrowed cause of the card missing on a fresh
+  // iOS 17.5 process's first views. A floor removes the whole zero-height class.
   return (
-    <Card surface="card" className="aspect-[3/2] overflow-hidden p-0">
+    <Card surface="card" className="aspect-[3/2] min-h-[100px] overflow-hidden p-0">
       <RouteMap
         route={route.route}
         endpoints={route.endpoints}
-        camera={route.camera}
+        bbox={route.bbox}
+        aspectRatio={CARD_ASPECT_RATIO}
         interactive={false}
         accessibilityLabel={distance ? `Map of your ${distance} route` : 'Map of your route'}
-        onPress={() => router.push({ pathname: '/runs/[runId]/route', params: { runId: run.id } })}
+        onPress={openViewer}
         style={{ flex: 1 }}
       />
       {/* why: the map is inert by construction, which reads as a static image — the chip is the only

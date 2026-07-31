@@ -10,37 +10,25 @@ import {
 } from './run-stats';
 
 describe('runStats', () => {
-  test('sums running time, counts run intervals, finds the longest', () => {
+  test('sums run segments only, across varying lengths', () => {
     expect(
       runStats([
         { kind: 'warmup', actualDurationS: 300 },
         { kind: 'run', actualDurationS: 60 },
         { kind: 'walk', actualDurationS: 90 },
-        { kind: 'run', actualDurationS: 60 },
-        { kind: 'walk', actualDurationS: 90 },
-        { kind: 'run', actualDurationS: 60 },
+        { kind: 'run', actualDurationS: 480 },
         { kind: 'cooldown', actualDurationS: 300 },
       ]),
-    ).toEqual({ timeRunningS: 180, runIntervals: 3, longestRunS: 60 });
+    ).toEqual({ timeRunningS: 540 });
   });
 
-  test('longest reflects varying run lengths', () => {
-    expect(
-      runStats([
-        { kind: 'run', actualDurationS: 300 },
-        { kind: 'walk', actualDurationS: 180 },
-        { kind: 'run', actualDurationS: 480 },
-      ]),
-    ).toEqual({ timeRunningS: 780, runIntervals: 2, longestRunS: 480 });
-  });
-
-  test('no run segments yields zeroes', () => {
+  test('no run segments yields zero', () => {
     expect(
       runStats([
         { kind: 'warmup', actualDurationS: 300 },
         { kind: 'cooldown', actualDurationS: 120 },
       ]),
-    ).toEqual({ timeRunningS: 0, runIntervals: 0, longestRunS: 0 });
+    ).toEqual({ timeRunningS: 0 });
   });
 });
 

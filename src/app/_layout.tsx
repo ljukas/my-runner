@@ -109,7 +109,18 @@ export default function RootLayout() {
           </Stack.Toolbar>
         </Stack.Screen>
 
-        <Stack.Screen name="runs/[runId]/route" options={{ presentation: 'modal', title: 'Route' }}>
+        <Stack.Screen
+          name="runs/[runId]/route"
+          options={{
+            presentation: 'modal',
+            title: 'Route',
+            headerTransparent: true,
+            // why empty: the map runs full-bleed under the bar, and a title over it would only
+            // restate the view. Costs the a11y screen name, which the map's own label carries
+            // instead (spec §7.1 amendment).
+            headerTitle: '',
+          }}
+        >
           <Stack.Toolbar placement="right">
             <Stack.Toolbar.Button
               icon="xmark"

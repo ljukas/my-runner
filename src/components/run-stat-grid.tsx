@@ -24,23 +24,10 @@ export function RunStatGrid({ run, segments }: { run: Run; segments: RunSegment[
         {...clockParts(stats.timeRunningS)}
       />
       <StatGrid.Tile
-        icon="repeat"
-        color={stat.intervals}
-        label="Intervals"
-        value={String(stats.runIntervals)}
-        unit="runs"
-      />
-      <StatGrid.Tile
         icon="stopwatch.fill"
         color={stat.activeTime}
         label="Active Time"
         {...clockParts(run.activeDurationS)}
-      />
-      <StatGrid.Tile
-        icon="trophy.fill"
-        color={stat.longestRun}
-        label="Longest Run"
-        {...clockParts(stats.longestRunS)}
       />
       {distanceM !== null ? (
         <>

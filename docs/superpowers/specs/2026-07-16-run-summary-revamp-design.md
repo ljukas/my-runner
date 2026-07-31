@@ -11,6 +11,15 @@ removed. The toolbar `xmark` ("Close") — which already called the same
 Everything else here shipped as written; the screen has since moved to
 `src/app/runs/[runId]/index.tsx`.
 
+**Superseded in part (2026-07-31):** the grid is **four tiles**, not six — "Run
+intervals" and "Longest run" were removed, and `runStats` now returns
+`{ timeRunningS }` alone. Both were plan restatements dressed as achievements:
+the interval count is fixed by the session the user tapped, and on a walk/run
+plan the longest run equals the plan's run length on all but an abandoned
+session. What remains varies with how the run actually went — Running and Active
+Time always, Distance and Avg pace when GPS recorded a track. See §3 and the
+`run-stats.ts` bullet below.
+
 ## Problem
 
 `run-summary.tsx` has two problems:
@@ -133,13 +142,15 @@ Top → bottom:
    | Tile | Value (W1D1 example) | Source |
    |------|----------------------|--------|
    | Time running | `8:00` | Σ `actualDurationS` of `run` segments |
-   | Run intervals | `8` | count of `run` segments present |
+   | ~~Run intervals~~ | ~~`8`~~ | *removed 2026-07-31 — see header* |
    | Active time | `30:00` | `runs.activeDurationS` |
-   | Longest run | `1:00` | max `actualDurationS` of `run` segments |
+   | ~~Longest run~~ | ~~`1:00`~~ | *removed 2026-07-31 — see header* |
 
    Total *elapsed* time is deliberately **not** a tile — for fixed-plan runs it's
    near-predetermined and uninformative. When GPS lands, **Distance** + **Avg
-   pace** are appended, growing the grid to 3×2.
+   pace** are appended. *Amended 2026-07-31:* with the two tiles above removed,
+   the grid is a 1×2 row without GPS and 2×2 with it — never the 3×2 this
+   originally grew to.
 4. **Segment card.** A rounded `bg-background-element` card containing the reused
    `SegmentBar` + `SegmentLegend`. Each `run_segments` row maps to the
    `PlannedSegment` shape those components take (`{ kind, seconds: actualDurationS }`),
@@ -174,6 +185,9 @@ Screens compose primitives only — no file-local components, no raw RN
   `{ timeRunningS, runIntervals, longestRunS }`, covered by
   `run-stats.test.ts` (cases: completed, partial/ended-early, a skipped
   interval, single continuous-run week). Formatting reuses `formatClock`.
+  *Amended 2026-07-31:* the return is `{ timeRunningS }` — the other two fields
+  were removed with their tiles. The module has since also grown
+  `hasMeasuredDistance` and `paceSecPerKm` for the GPS tiles (ADR 0021).
 - **`src/domain/format.ts`** — add `formatRunDate(iso)` (weekday-short, month-short,
   day). Mirrors the existing `toLocaleDateString` use in Log; note locale
   dependence in its test.

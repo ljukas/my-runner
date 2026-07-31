@@ -66,10 +66,6 @@ export default function RunRouteScreen() {
         pointerEvents="none"
       />
 
-      {/* why the full frame height: it under-estimates the aspect ratio, because the map sits below
-          the nav bar — and under-estimating it only ever asks for MORE span (spec §7.4), so no inset
-          subscription or header constant is needed. Conditional on the padding, not absolute: for a
-          latitude-dominated route the aspect term drops out of the fit entirely. */}
       <RouteMap
         route={route.route}
         endpoints={route.endpoints}

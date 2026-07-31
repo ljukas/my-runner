@@ -109,7 +109,15 @@ export default function RootLayout() {
           </Stack.Toolbar>
         </Stack.Screen>
 
-        <Stack.Screen name="runs/[runId]/route" options={{ presentation: 'modal', title: 'Route' }}>
+        <Stack.Screen
+          name="runs/[runId]/route"
+          options={{
+            presentation: 'modal',
+            title: 'Route',
+            headerTransparent: true,
+            headerTitle: '',
+          }}
+        >
           <Stack.Toolbar placement="right">
             <Stack.Toolbar.Button
               icon="xmark"

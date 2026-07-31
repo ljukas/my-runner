@@ -606,7 +606,14 @@ inverting the emotional hierarchy for a beginner, whose route *is* the reward.
 (Until 2026-07-30 a fresh-finish "Done" footer sharpened this by inviting the
 user to leave before scrolling that far; the toolbar "Close" that replaced it
 makes the same invitation more quietly, so the placement argument stands on the
-fold alone.) The colour
+fold alone. *Amended 2026-07-31:* the grid is now **four tiles in two rows**
+with GPS — Intervals and Longest Run were removed — which genuinely weakens the
+fold pressure this paragraph leans on, since a map placed after two rows might
+still clear the fold on a larger phone. The placement holds anyway on the
+hierarchy argument alone: the route is the reward and belongs above the
+numbers, and on an SE-class screen two rows plus a headline and large title
+still crowd it. Recorded rather than patched, because the *reason* changed
+weight even though the conclusion did not.) The colour
 legend consequently sits a scroll below rather than directly beneath, which the
 width double-encoding (§7.3) is what makes tolerable.
 

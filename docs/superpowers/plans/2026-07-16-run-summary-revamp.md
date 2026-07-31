@@ -1,5 +1,14 @@
 # Run Summary Revamp Implementation Plan
 
+> **DELIVERED (PR #39) — this is a historical record, not work to execute.** Read
+> it for the reasoning behind the shipped screen; do **not** treat its code blocks
+> as the current target. The screen has since moved to
+> `src/app/runs/[runId]/index.tsx`, the "Done" footer was removed (2026-07-30),
+> and the **stat grid lost its Intervals and Longest Run tiles (2026-07-31), so
+> `RunStats` is `{ timeRunningS }` alone** — Tasks 1 and 5 below still show the
+> three-field shape. `docs/superpowers/specs/2026-07-16-run-summary-revamp-design.md`
+> carries the amended design; the code is the source of truth over both.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the run-summary screen addressable by run id (openable from both the post-run flow and any Log row) and redesign it as a card dashboard.
@@ -48,6 +57,10 @@
 ---
 
 ### Task 1: `runStats` domain helper
+
+> *Superseded 2026-07-31:* `RunStats` is `{ timeRunningS }` — `runIntervals` and
+> `longestRunS` were removed with their tiles. The shape below is what shipped in
+> PR #39, not what is in the tree.
 
 **Files:**
 - Create: `src/domain/run-stats.ts`
@@ -491,6 +504,8 @@ export default function RunSummaryScreen() {
             label={completed ? 'Completed' : 'Partial'}
           />
         </View>
+        {/* Superseded 2026-07-31: the Intervals and Longest Run tiles were removed,
+            and the grid now lives in the RunStatGrid domain component. */}
         <StatGrid>
           <StatGrid.Tile label="Time running" value={formatClock(stats.timeRunningS)} />
           <StatGrid.Tile label="Run intervals" value={String(stats.runIntervals)} />

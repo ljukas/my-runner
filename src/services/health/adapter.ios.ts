@@ -53,12 +53,10 @@ export const healthAdapter: HealthAdapter = {
   async saveRun(input: HealthWorkoutInput): Promise<void> {
     // why: the run id doubles as HealthKit's sync identifier so a retry after a partial failure
     // (store.save(workout) commits before saveWorkoutRoute/store.add run) replaces rather than
-    // duplicates the workout. UNVERIFIED against real HealthKit: WorkoutsModule.swift applies this
-    // same map to the workout AND every per-segment sample (:133), ignoring each sample's own
-    // metadata, so every segment below carries the identical identifier — whether HealthKit's
-    // replace-by-identifier behaviour then collapses them, rejects the batch, or is fine needs a real
-    // run (simulator verification task). Fallback if it breaks: drop the per-segment samples — spec
-    // §3.1 already calls them a weak consolation prize.
+    // duplicates the workout. WorkoutsModule.swift applies this same map to the workout AND every
+    // per-segment sample (:133), so every segment below carries the identical identifier too.
+    // Verified on-device (2026-08-01): this does not collapse the samples — all 17 survived
+    // individually in Health's "Show All Data" list (design spec §3.1).
     const metadata: AnyMap = {
       [SYNC_IDENTIFIER_KEY]: input.syncIdentifier,
       [SYNC_VERSION_KEY]: SYNC_VERSION,

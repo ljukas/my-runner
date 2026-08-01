@@ -110,6 +110,16 @@ lines and give Health *something* to chart), but the honest framing is that
 **Apple Health shows one continuous running workout**, and the app's own history
 stays the richer record — precisely ADR 0011's stated consequence.
 
+**Verified present, not collapsed (2026-08-01).** §11 Risk 1's fix tags the
+workout and every per-segment sample with the *same* `HKSyncIdentifier` for
+retry-idempotency, which raised the question of whether HealthKit would then
+treat the samples as duplicates of each other or of the workout and merge
+them. It does not: a real multi-segment run produced all 17 of its per-segment
+samples individually in Health's own "Show All Data" list, and the workout's
+own total distance matched the app's summary. The consolation-prize framing
+above still holds — the samples remain unlabelled and un-tagged — but they do
+reliably appear, one per segment.
+
 **Samples are attached, not duplicated.** `store.add(initializedSamples, to:
 workout)` (`ios/WorkoutsModule.swift:201`) runs after `store.save(workout)`, so
 the per-segment samples belong to the workout and are not double-counted
@@ -358,13 +368,14 @@ Status is read through `useHealthAuthorization()`, mirroring
 `useLocationPermission`: re-read on `AppState → 'active'`, because the user
 changes this in another app and returns rather than remounting the screen.
 
-**Open verification item.** There is no public deep link to Health's per-app
-data-access page. `Linking.openSettings()` reaches the app's own Settings pane,
-which likely does *not* list HealthKit; the undocumented `x-apple-health://`
-opens the Health app at its root. Both will be tried on the simulator once the
-plugin is installed, preferring the public API, and whichever actually lands is
-what ships. If neither is acceptable the row falls back to plain instructions —
-never a button that goes nowhere.
+**Resolved (2026-08-01).** There is still no public deep link to Health's
+per-app data-access page, so both candidates were tried on the simulator as
+planned. `Linking.openSettings()` reaches only this app's own Settings pane,
+which does not list HealthKit, confirming the doubt. The undocumented
+`x-apple-health://` **works**: it opens Health.app at its root. That is what
+ships, with `openSettings()` kept as the safety-net fallback if the
+undocumented scheme is ever rejected by `Linking.openURL` — a working link to
+the app's root beats none, so the plain-instructions fallback is unneeded.
 
 Two rows now share the label "Access". That is safe for ADR 0016 selectors
 because `LabeledContent` merges to a single element (`"Access, Never"`), so
@@ -448,12 +459,29 @@ correct route, and the deny → later-enable path.
 
 ## 11. Risks
 
-1. **A retry after a partial failure can duplicate a workout.** If
-   `saveWorkoutSample` succeeds and `saveWorkoutRoute` fails, the flag stays
-   false and a retry writes a second workout. Accepted for this slice: the
-   window is small, the user controls the retry, and Health duplicates are
-   user-deletable. A sync-identifier metadata key
-   (`HKMetadataKeySyncIdentifier`) is the known fix if it ever bites.
+1. **A retry after a partial failure duplicating a workout — fixed, one half
+   unverified.** If `saveWorkoutSample` succeeds and `saveWorkoutRoute` fails,
+   the flag stays false and the run is retryable. This is **no longer an
+   accepted risk**: `saveRun` tags the workout and every per-segment sample
+   with `HKSyncIdentifier` / `HKSyncVersion` metadata keyed on the run id, so
+   a retry replaces the workout instead of duplicating it — HealthKit's
+   documented behaviour for a repeated sync identifier. (The keys are the
+   library's actual serialized string names, not the `HKMetadataKeySyncIdentifier`
+   Swift constant this risk originally named — see AGENTS.md's Context7
+   warning.)
+
+   **Verified on the simulator (2026-08-01):** tagging every per-segment
+   sample with the same identifier as the workout does not collapse them —
+   all 17 samples from a real multi-segment run survived individually in
+   Health's "Show All Data" list (§3.1).
+
+   **Not yet verified:** that a genuine retry actually replaces the workout
+   rather than duplicating it. The summary's button hides once
+   `healthkit_saved` is set, so there is currently no UI path to a second
+   save attempt on the same run — confirming this needs either a debug
+   affordance to force a retry, or a direct DB flip plus a device-side Health
+   comparison before/after. Recorded honestly as open, not assumed to work
+   because the identifier mechanism is standard.
 2. **The deep-link destination is unresolved** (§7.2) — mitigated by a
    pre-decided fallback.
 3. **Library staleness in the write path.** Pinned, boxed behind one adapter

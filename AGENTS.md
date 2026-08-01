@@ -38,6 +38,7 @@ Load the matching skill (Skill tool) BEFORE starting the work it covers. MCP ser
 - **`react-native-best-practices`** — load before writing or editing any `.tsx` / React Native component code (re-renders, lists, animations, JS-thread work). Applies to all UI implementation, not only perf-labelled tasks.
 - **Expo plugin skills** (from `expo@claude-plugins-official`, enabled in `.claude/settings.json`): `expo-app-design:building-native-ui` when building screens/navigation/UI with expo-router; `expo-app-design:expo-dev-client` when producing dev-client builds; `upgrading-expo` for SDK upgrades; `expo-deployment:expo-cicd-workflows` when writing `.eas/workflows/` YAML (the release-deploy pipeline — ADR 0012; the E2E CI gate is GitHub Actions per ADR 0001). Do NOT use `expo-app-design:expo-tailwind-setup` — styling here is Uniwind (ADR 0002), not NativeWind.
 - **Docs lookup:** use the Context7 MCP (`resolve-library-id` → `query-docs`) for Expo SDK 57 / React Native / library APIs — see "Expo HAS CHANGED" above. Prefer it over memory and over web search.
+- **Exception — `@kingstinct/react-native-healthkit`:** do not use Context7 for it. Its pages are generated `_autodocs` that describe an API present in neither the release nor `master`. Verify against the tarball (`npm pack`) and see ADR 0011's 2026-08-01 amendment.
 - **Maestro MCP** — scripted E2E regression flows only; see "E2E tests (Maestro)" for the Maestro-vs-argent split.
 - **`e2e-refresh`** — load before running any Maestro flow. It fingerprint-gates the rebuild (repack ≈ 1 min against a full build's 15–20) and proves the install actually landed. Targeted flows only; see "E2E tests (Maestro)" for what stays with CI. Two traps worth knowing before you rely on the gate: **only `bun run e2e:build` may record a fingerprint** — it stamps `build/.e2e-fingerprint` after a successful build, and the refresh script deliberately does *not* stamp when it merely extracts a tarball, because stamping the current tree's hash onto an older binary made the gate report a match and then repack onto a shell missing a native module (it crashed at import with `Cannot find native module …`, not as a test failure). An unstamped `.app` now fails closed. And **editing any `package.json` script changes the native fingerprint** — `fingerprint.config.js` only skips the `android`/`ios` script entries — so a one-line script edit invalidates a cached `e2e-simulator` build and costs the next run a full rebuild.
 - **Review subagents** in `.claude/agents/`, worth running before opening a PR: `adr-compliance-reviewer` checks a diff against the ADRs governing the files it touches, `comment-density-auditor` enforces the Comments convention below.
@@ -153,7 +154,10 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   `.maestro/`. **Caveat:** that split holds for *driving* the app, not for *finding*
   elements — argent's discovery tools are blind to this app's SwiftUI islands, so even
   interactive dev-time QA has to locate and tap through Maestro. See the Argent bullet
-  under "Skills & MCP" above.
+  under "Skills & MCP" above. **Second caveat, HealthKit's own authorization sheet:**
+  it inverts even that — Maestro's `inspect_screen` sees `HealthPrivacyService`'s system
+  sheet in full, but its `tapOn` is a no-op there (a remote view controller, not this
+  app's process); Argent's `gesture-tap` is what actually drives it.
 - **Device gate:** what E2E cannot reach (locked-phone GPS continuity, cue audibility, ducking, silent switch, Bluetooth, call interruption) is covered by [docs/milestone-0-device-checklist.md](docs/milestone-0-device-checklist.md).
 
 # Comments & documentation

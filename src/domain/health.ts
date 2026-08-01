@@ -41,7 +41,7 @@ export function toHealthRoute(fixes: readonly SegmentedFix[]): HealthRoutePoint[
   );
 }
 
-/** One interval's distance over its true wall-clock window. */
+/** The run's total distance over its own wall-clock window — one sample per session, not per segment. */
 export interface HealthDistanceSample {
   startedAt: number;
   endedAt: number;
@@ -56,51 +56,15 @@ export interface HealthRunInput {
   distanceM: number | null;
 }
 
-export interface HealthSegmentInput {
-  seq: number;
-  distanceM: number | null;
-}
-
 /** The platform-neutral payload crossing the HealthAdapter port (ADR 0011 §1). */
 export interface HealthWorkoutInput {
   startedAt: number;
   endedAt: number;
   totalDistanceM: number | null;
-  segmentSamples: HealthDistanceSample[];
+  distanceSample: HealthDistanceSample | null;
   route: HealthRoutePoint[];
   /** The run's own id, reused as HealthKit's sync identifier so a retry replaces rather than duplicates. */
   syncIdentifier: string;
-}
-
-/**
- * why windows come from the fixes and not from `actual_duration_s`: segment durations exclude
- * paused time, so prefix-summing them would date every sample after a pause wrongly. A segment's
- * own points carry the true wall clock (spec §5.2).
- */
-export function toHealthSegmentSamples(
-  segments: readonly HealthSegmentInput[],
-  fixes: readonly SegmentedFix[],
-): HealthDistanceSample[] {
-  const windows = new Map<number, { first: number; last: number }>();
-  for (const fix of fixes) {
-    // A single corrupt timestamp must not poison the whole window: Math.min/max propagate NaN permanently.
-    if (!Number.isFinite(fix.timestamp)) continue;
-    const window = windows.get(fix.segmentSeq);
-    if (window) {
-      window.first = Math.min(window.first, fix.timestamp);
-      window.last = Math.max(window.last, fix.timestamp);
-    } else {
-      windows.set(fix.segmentSeq, { first: fix.timestamp, last: fix.timestamp });
-    }
-  }
-
-  const samples: HealthDistanceSample[] = [];
-  for (const segment of segments) {
-    const window = windows.get(segment.seq);
-    if (!window || !hasMeasurableDistance(segment.distanceM)) continue;
-    samples.push({ startedAt: window.first, endedAt: window.last, meters: segment.distanceM });
-  }
-  return samples;
 }
 
 // null covers GPS off; a negative or Infinity value is equally unusable and would serialize to null
@@ -109,16 +73,25 @@ function hasMeasurableDistance(distanceM: number | null): distanceM is number {
   return distanceM !== null && Number.isFinite(distanceM) && distanceM > 0;
 }
 
+// per ADR 0011 amendment (item 7): one sample per run, not per segment.
+export function toHealthDistanceSample(run: HealthRunInput): HealthDistanceSample | null {
+  if (!hasMeasurableDistance(run.distanceM)) return null;
+  return {
+    startedAt: Date.parse(run.startedAt),
+    endedAt: Date.parse(run.endedAt),
+    meters: run.distanceM,
+  };
+}
+
 export function toHealthWorkout(
   run: HealthRunInput,
-  segments: readonly HealthSegmentInput[],
   fixes: readonly SegmentedFix[],
 ): HealthWorkoutInput {
   return {
     startedAt: Date.parse(run.startedAt),
     endedAt: Date.parse(run.endedAt),
     totalDistanceM: run.distanceM,
-    segmentSamples: toHealthSegmentSamples(segments, fixes),
+    distanceSample: toHealthDistanceSample(run),
     route: toHealthRoute(fixes),
     syncIdentifier: run.id,
   };

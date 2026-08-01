@@ -49,10 +49,8 @@ export const healthAdapter: HealthAdapter = {
   async saveRun(input: HealthWorkoutInput): Promise<void> {
     // why: the run id doubles as HealthKit's sync identifier so a retry after a partial failure
     // (store.save(workout) commits before saveWorkoutRoute/store.add run) replaces rather than
-    // duplicates the workout. WorkoutsModule.swift applies this same map to the workout AND every
-    // per-segment sample (:133), so every segment below carries the identical identifier too.
-    // Verified on-device (2026-08-01): this does not collapse the samples — all 17 survived
-    // individually in Health's "Show All Data" list (design spec §3.1).
+    // duplicates the workout. WorkoutsModule.swift applies this same map to the workout and its
+    // one distance sample alike (:133).
     // why Date.now(): HealthKit only replaces a stored object under a repeated sync identifier
     // when the new save's HKSyncVersion is strictly GREATER than what's stored (HKMetadata.h) — it's
     // a per-save revision counter, not a payload-schema tag, so a version fixed across releases can
@@ -64,18 +62,23 @@ export const healthAdapter: HealthAdapter = {
 
     const workout = await saveWorkoutSample(
       WorkoutActivityType.running,
-      input.segmentSamples.map((sample) => ({
-        startDate: new Date(sample.startedAt),
-        endDate: new Date(sample.endedAt),
-        quantityType: DISTANCE_TYPE,
-        quantity: sample.meters,
-        unit: 'm',
-      })),
+      input.distanceSample
+        ? [
+            {
+              startDate: new Date(input.distanceSample.startedAt),
+              endDate: new Date(input.distanceSample.endedAt),
+              quantityType: DISTANCE_TYPE,
+              quantity: input.distanceSample.meters,
+              unit: 'm',
+            },
+          ]
+        : [],
       new Date(input.startedAt),
       new Date(input.endedAt),
-      // why totals is never dropped while samples are passed: the library assigns totalDistance from
-      // every metre-compatible sample in turn (WorkoutsModule.swift:116-117), so without this the
-      // workout total silently becomes the LAST segment's distance. totals overrides it (:137-141).
+      // why totals is passed regardless of the sample above: the library assigns totalDistance from
+      // whatever metre-compatible sample it was given (WorkoutsModule.swift:116-117) — with a single
+      // whole-session sample that already matches, but totals stays the explicit source of truth
+      // rather than relying on that incidentally lining up. totals overrides it (:137-141).
       input.totalDistanceM != null ? { distance: input.totalDistanceM } : undefined,
       metadata,
     );

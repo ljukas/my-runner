@@ -9,7 +9,11 @@ Date: 2026-07-11
 Accepted, **amended 2026-08-01** on shipping the Stage 5 Health slice — see
 [Amendment (2026-08-01)](#amendment-2026-08-01). `activeEnergyBurned` is dropped
 from the write set, the Settings toggle is a reporting row, and the retry lives
-on `runs/[runId]` — corrected in place below. Research findings under Context
+on `runs/[runId]` — corrected in place below. Decision item 5's per-segment
+distance samples were also corrected in place, on a second look at the same
+Health slice the same day: they fragmented the user's distance history rather
+than conveying structure, and the workout now writes a single whole-session
+sample instead — see amendment item 7. Research findings under Context
 are left as the dated 2026-07-11 record of what was believed then, and the
 amendment says where they were wrong or incomplete.
 
@@ -57,10 +61,12 @@ port.**
 
 1. **Port contract (ADR 0003):** `getAuthorization()`, `requestWriteAccess()`,
    `saveRun(input)` — one pre-built `HealthWorkoutInput` payload assembled by
-   `domain/health.ts`'s `toHealthWorkout(run, segments, fixes)`, not three
-   positional arguments; callers never see HealthKit types. The iOS adapter
+   `domain/health.ts`'s `toHealthWorkout(run, fixes)`, not positional
+   arguments; callers never see HealthKit types. The iOS adapter
    is the only file importing the library. (Corrected 2026-08-01 — an
-   `isAvailable()` member was dropped; see the amendment.)
+   `isAvailable()` member was dropped; see the amendment. `toHealthWorkout`
+   originally also took a `segments` argument, dropped along with the
+   per-segment samples in amendment item 7.)
 2. **Write-only authorization:** `toShare: [workout, workoutRoute,
    distanceWalkingRunning]`, no read permissions ever. (Corrected 2026-08-01 —
    `activeEnergyBurned` was dropped; see the amendment.) The privacy story
@@ -77,11 +83,15 @@ port.**
    detail screen this originally named was never built; see the amendment.)
    Denial is respected silently — the Settings row simply reports the
    current status, since iOS never lets an app revoke its own grant.
-5. **Interval-structure workaround:** since `workoutEvents` is not writable,
-   per-interval `DistanceWalkingRunning` quantity samples are attached to
-   approximate the structure; the app's own DB remains the source of truth
-   for intervals. If the library ever exposes workout events, enriching the
-   save is an adapter-only change.
+5. **Interval-structure workaround — corrected 2026-08-01, see the
+   amendment.** Since `workoutEvents` is not writable, the original decision
+   attached one `DistanceWalkingRunning` quantity sample per segment to
+   approximate the structure. In practice this did not convey structure —
+   HealthKit has no way to label a sample walk-vs-run, so the samples just
+   fragmented the user's distance history — and the workout now carries a
+   single whole-session distance sample instead. The app's own DB remains
+   the source of truth for intervals. If the library ever exposes workout
+   events, enriching the save is an adapter-only change.
 6. **App Review 5.1.3 compliance:** only real measured values are written;
    a privacy policy URL ships with Stage 5; HealthKit-derived data is never
    mirrored into any future export or sync payload (trivially satisfied —
@@ -211,3 +221,23 @@ are corrected in place; this section explains where and why.
    because the summary's button hides once a run is saved, leaving no UI path
    to a second save attempt on the same run. See the design spec's §11 Risk 1
    for the honest status.
+
+7. **Decision item 5 reversed: per-segment samples fragment the user's
+   distance history rather than convey structure.** Item 6's verification
+   that all 17 per-segment samples survive individually — rather than
+   collapsing under the shared sync identifier — was read at the time as
+   reassurance that the mechanism worked. Inspecting the *result* in the
+   Health app on 2026-08-01 showed what that verification actually cost:
+   those 17 samples appear as 17 separate rows in Walking + Running Distance
+   → All Recorded Data, each a one-second, ~5.6 m entry (confirmed in
+   Health's sample detail: start 12:47:08, end 12:47:09, 5,6 m) — permanent,
+   user-visible clutter in a system data list, not interval structure.
+   HealthKit has no way to label a `DistanceWalkingRunning` sample
+   walk-vs-run, so the samples never conveyed the structure item 5 hoped for;
+   they only fragmented it. `saveRun` now writes a single distance sample
+   spanning the whole run — its window is the run's own start/end, aligned
+   with the workout, and its value the run's total distance — kept, rather
+   than dropped entirely, because a sample (not just the workout's own
+   `totalDistance`) is what makes a run appear in the user's distance history
+   and count toward their totals. Item 6's sync-identifier mechanics are
+   unaffected: one sample tagged with the run id behaves exactly as N did.

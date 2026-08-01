@@ -9,8 +9,8 @@
 
 *Your runs appear in Apple Health, with their route.* A finished run is written
 to HealthKit as a running workout carrying its duration, distance, GPS route,
-and per-segment distance samples. Saving is automatic when the user has
-authorized it, never blocks completion, and never loses data — the run is
+and a single whole-session distance sample. Saving is automatic when the user
+has authorized it, never blocks completion, and never loses data — the run is
 already in SQLite before any Health call happens.
 
 This slice is **write-only** and adds **no schema change**: `runs.healthkit_saved`
@@ -21,7 +21,7 @@ has existed since `0000_init.sql` and has been unused until now.
 | Topic | Decision |
 |---|---|
 | Energy burned | **Not written.** Amends ADR 0011 §2, which listed `activeEnergyBurned` in the write set. The app has no heart rate and, being write-only, cannot read body mass — any kcal figure would be fabricated, which App Review 5.1.3 forbids. Duration + distance + route only. |
-| Interval structure | **Per-segment `DistanceWalkingRunning` samples** (ADR 0011 §5), *not* Apple's recommended `HKWorkoutActivity`/`HKWorkoutEvent(.segment)` — the library supports neither, on the released version or on `master` (§3). |
+| Interval structure | **Corrected 2026-08-01 (ADR 0011 amendment item 7): a single whole-session `DistanceWalkingRunning` sample, not one per segment.** The design originally attached one sample per segment (ADR 0011 §5) to approximate Apple's recommended `HKWorkoutActivity`/`HKWorkoutEvent(.segment)`, which the library supports on neither the released version nor `master` (§3). In the Health app those samples did not read as structure — HealthKit has no way to label a sample walk-vs-run — they only fragmented the user's distance history into N permanent rows. One sample, spanning the run's own start→end with the run's total distance, is kept so the run still counts toward the user's Health distance totals; the app's own DB remains the source of truth for intervals. |
 | Which runs | **`completed` and `partial` alike** — both are real measured activity. Includes runs finalized by crash recovery. |
 | Backfill | **None.** Auto-save fires on *finish*, never on revisit. A pre-opt-in run is pushed to Health only when the user taps the button on its summary. |
 | Save trigger | A **persistence decorator at the composition root** (§4.4). The run engine is not modified. |
@@ -104,26 +104,40 @@ Apple Health, exactly as ADR 0011 claimed.
    overrides it afterwards (`:137-141`). See §5.3 — this is the one failure in
    this design that would be both silent and wrong.
 
-Together, (1)–(3) mean the per-segment samples are a weak consolation prize, not
-a representation of intervals. They are still worth writing (they cost a few
-lines and give Health *something* to chart), but the honest framing is that
-**Apple Health shows one continuous running workout**, and the app's own history
-stays the richer record — precisely ADR 0011's stated consequence.
+Together, (1)–(3) meant the original per-segment samples were a weak
+consolation prize, not a representation of intervals: (2) in particular means
+a sample can never be *labelled* walk-vs-run, so it conveys no interval
+information on its own — writing N of them multiplied row count without
+adding structure. **Corrected 2026-08-01 (ADR 0011 amendment item 7): one
+whole-session sample replaces the per-segment ones.** The workout now carries
+a single `DistanceWalkingRunning` sample spanning the run's own start→end
+with the run's total distance — real measured data, kept because it is what
+makes the run appear in the user's distance history and count toward their
+totals, just not fragmented across N rows. Apple Health shows one continuous
+running workout with one distance entry, and the app's own history stays the
+richer record — precisely ADR 0011's stated consequence.
 
-**Verified present, not collapsed (2026-08-01).** §11 Risk 1's fix tags the
-workout and every per-segment sample with the *same* `HKSyncIdentifier` for
-retry-idempotency, which raised the question of whether HealthKit would then
-treat the samples as duplicates of each other or of the workout and merge
-them. It does not: a real multi-segment run produced all 17 of its per-segment
-samples individually in Health's own "Show All Data" list, and the workout's
-own total distance matched the app's summary. The consolation-prize framing
-above still holds — the samples remain unlabelled and un-tagged — but they do
-reliably appear, one per segment.
+**What the per-segment verification actually showed (2026-08-01).** §11 Risk
+1's fix tags the workout and every quantity sample with the *same*
+`HKSyncIdentifier` for retry-idempotency, which raised the question of
+whether HealthKit would then treat same-identifier samples as duplicates and
+merge them. It does not: a real multi-segment run under the *original*
+per-segment design produced all 17 of its samples individually in Health's
+own "Show All Data" list, and the workout's own total distance matched the
+app's summary. That was read at the time as confirmation the mechanism
+worked. Inspecting the *result* in the Health app showed what it actually
+cost: those 17 samples appeared as 17 separate rows in Walking + Running
+Distance → All Recorded Data, each a one-second, ~5.6 m entry (confirmed in
+Health's sample detail: start 12:47:08, end 12:47:09, 5,6 m) — permanent,
+user-visible clutter, not structure. That observation is what drove the
+correction above; the sync-identifier mechanics themselves are unaffected by
+moving to one sample — a single sample tagged with the run id behaves exactly
+as N did.
 
 **Samples are attached, not duplicated.** `store.add(initializedSamples, to:
 workout)` (`ios/WorkoutsModule.swift:201`) runs after `store.save(workout)`, so
-the per-segment samples belong to the workout and are not double-counted
-against daily totals.
+the distance sample belongs to the workout and is not double-counted against
+daily totals.
 
 ### 3.2 Payload shapes
 
@@ -135,7 +149,7 @@ nullable `altitude`/`accuracy`/`speed` and has **no** `course` or
 
 `QuantitySampleForSaving` (`src/types/QuantitySample.ts:28-36`) is
 `{ startDate, endDate, quantityType, quantity, unit }` — hence §5.2's need for
-real per-segment *time windows*.
+a real *time window* for the sample.
 
 ### 3.3 Config plugin
 
@@ -166,7 +180,7 @@ Read from `app.plugin.ts`:
 ## 4. Architecture
 
 ```
-src/domain/health.ts                  # PURE mapping: run + segments + fixes → HealthWorkoutInput
+src/domain/health.ts                  # PURE mapping: run + fixes → HealthWorkoutInput
 src/services/health/
 ├── port.ts                           # HealthAdapter + neutral payload types
 ├── adapter.ios.ts                    # the ONLY file importing @kingstinct/react-native-healthkit
@@ -211,7 +225,7 @@ export interface HealthWorkoutInput {
   startedAt: number;                                // epoch ms, as everywhere else in domain/
   endedAt: number;
   totalDistanceM: number | null;
-  segmentSamples: readonly HealthDistanceSample[];  // { startedAt, endedAt, meters }
+  distanceSample: HealthDistanceSample | null;      // { startedAt, endedAt, meters } spanning the whole run — corrected 2026-08-01, was one per segment
   route: readonly HealthRoutePoint[];               // all eight fields populated
   syncIdentifier: string;                           // the run's own id — HealthKit's retry-idempotency key (§11)
 }
@@ -236,8 +250,8 @@ so `domain/` keeps its independence from `db/`.
    already folds device unavailability into `'unavailable'`, so no separate
    check is needed. A denial is respected silently — no prompt, no error,
    flag untouched (ADR 0011 §4).
-2. Read the run row, its segments, and its fixes (`loadRunFixes`, imperative —
-   never `useLiveQuery` on `run_points`, ADR 0004 §3).
+2. Read the run row and its fixes (`loadRunFixes`, imperative — never
+   `useLiveQuery` on `run_points`, ADR 0004 §3).
 3. Map via `domain/health.ts`, call `adapter.saveRun`, then set
    `healthkit_saved = true` and re-stamp `updated_at`.
 4. Never throws. Resolves a `HealthSyncResult`: `'saved'` on a real write;
@@ -305,37 +319,40 @@ before simplification — but sorted chronologically by each fix's own
 own clock. Smoothing is presentation and distance math (ADR 0021); the route
 handed to Health is the recorded track.
 
-### 5.2 Per-segment samples: windows come from points, not durations
+### 5.2 The distance sample: one whole-session window, now — not per-segment
 
-`run_segments` stores `actual_duration_s` but **no timestamps**, and those
-durations exclude paused time. Prefix-summing them from `started_at` would place
-every sample after a pause at the wrong wall-clock time.
-
-Instead each segment's window is derived from its own points: the first and last
-`timestamp` among fixes carrying that `segment_seq`. Segments with no points or
-zero distance are skipped entirely. This is accurate under pauses by
-construction, and it degrades correctly — a GPS-denied run simply produces no
-samples.
+**Corrected 2026-08-01 (ADR 0011 amendment item 7).** The original design
+derived each segment's window from its own points — the first and last
+`timestamp` among fixes carrying that `segment_seq` — because `run_segments`
+stores `actual_duration_s` but **no timestamps**, and those durations exclude
+paused time, so prefix-summing them from `started_at` would have placed every
+sample after a pause at the wrong wall-clock time. That derivation, and the
+`Math.min`/`Math.max` window-tracking it needed, is gone along with the
+per-segment samples themselves: the workout now carries a single sample whose
+window is just the run's own `started_at`/`ended_at` — the same window the
+workout itself uses — so it is exact by construction, with no pause problem
+to solve. It degrades correctly too: a GPS-denied (or otherwise
+unmeasured-distance) run produces no sample at all, reusing the same
+`hasMeasurableDistance` predicate as before.
 
 ### 5.3 The `totals` invariant
 
-Per §3.1(4), the adapter **must always** pass
-`totals: { distance: totalDistanceM }` whenever it passes segment samples,
-or the workout's total silently becomes the last segment's distance. The
-adapter's own code is a plain conditional —
+Per §3.1(4), the library assigns the workout's `totalDistance` from whatever
+metre-compatible quantity sample it is given. With a single whole-session
+sample built directly from `totalDistanceM` (`toHealthDistanceSample` in
+`domain/health.ts`), that assignment already agrees with the total — the
+overwrite this invariant originally guarded against is harmless now that
+there is only one sample, and it can never diverge from the total it was
+built from. `totals: { distance: totalDistanceM }` is still passed
+regardless, as the explicit source of truth rather than relying on that
+agreement incidentally holding — documented with a `// why:` at the call
+site. The adapter's own code remains a plain conditional —
 `input.totalDistanceM != null ? { distance: input.totalDistanceM } : undefined`
-— so by itself it only guarantees `totals` travels alongside whatever
-`totalDistanceM` it was handed, documented with a `// why:` at the call site.
-The invariant that a run *always has* a total whenever it has segment
-distances is guaranteed upstream of the port, not inside it:
-`smoothTrackBySegment` (`domain/geo.ts`) and the single rollup in
-`finalizeRun` (`db/save-run.ts`) derive the run total and every per-segment
-distance from the same `hasPoints` gate, so the two can never diverge before
-`toHealthWorkout` builds the payload. The only automated coverage is a unit
-test on the pure mapper `toHealthWorkout` asserting a multi-segment input
-yields a total equal to the run distance rather than the final segment's —
-the adapter itself has no test, since it imports the native HealthKit module
-and cannot load under `bun test`.
+— which only guarantees `totals` travels alongside whatever `totalDistanceM`
+it was handed. Automated coverage is a unit test on the pure mapper
+`toHealthWorkout` asserting the sample and the total agree; the adapter
+itself has no test, since it imports the native HealthKit module and cannot
+load under `bun test`.
 
 ### 5.4 Duration and pauses — an accepted discrepancy
 
@@ -351,7 +368,7 @@ so honest timestamps win. Documented, not hidden.
 
 ### 5.5 Runs without GPS
 
-A location-denied run has no points: no route, no segment samples, `distanceM`
+A location-denied run has no points: no route, no distance sample, `distanceM`
 null, no `totals`. It is still written as a real running workout with its
 duration. This matters — timer-only sessions are a supported first-class path
 (ADR 0008 §5), and they belong in Health too.
@@ -448,9 +465,10 @@ the same failure mode `expo-maps` produced (AGENTS.md).
 ## 9. Testing
 
 **Unit (`bun test`)** — `domain/health.ts` carries the risk and takes the
-coverage: null-filling per §5.1; segment windows derived from points including
-a paused run and a segment with no points; zero-distance and empty-route runs;
-and the §5.3 invariant that a multi-segment input still reports the run total.
+coverage: null-filling per §5.1; the §5.2 whole-session distance sample,
+including a GPS-less run and a zero/negative/non-finite distance producing
+none; empty-route runs; and the §5.3 invariant that the sample and the run
+total always agree.
 
 **E2E (Maestro).** Bounded by §3.4: the Health grant cannot be pre-seeded by
 `simctl`, and the authorization sheet belongs to another process. Flows
@@ -488,7 +506,8 @@ correct route, and the deny → later-enable path.
 1. **A retry after a partial failure duplicating a workout — fixed, one half
    unverified.** If `saveWorkoutSample` succeeds and `saveWorkoutRoute` fails,
    the flag stays false and the run is retryable. This is **no longer an
-   accepted risk**: `saveRun` tags the workout and every per-segment sample
+   accepted risk**: `saveRun` tags the workout and its quantity sample (one
+   whole-session sample as of the §2 correction, originally one per segment)
    with `HKSyncIdentifier` / `HKSyncVersion` metadata keyed on the run id —
    the version stamped fresh via `Date.now()` on every call, since
    `HKMetadata.h` only replaces a stored object under a repeated sync
@@ -502,7 +521,10 @@ correct route, and the deny → later-enable path.
    **Verified on the simulator (2026-08-01):** tagging every per-segment
    sample with the same identifier as the workout does not collapse them —
    all 17 samples from a real multi-segment run survived individually in
-   Health's "Show All Data" list (§3.1).
+   Health's "Show All Data" list (§3.1). That observation, read at the time as
+   confirming the mechanism, is also what exposed the §2 defect: 17 surviving
+   rows is 17 rows of clutter, not structure. The mechanism itself is
+   unaffected by moving to a single sample.
 
    **Not yet verified:** that a genuine retry actually replaces the workout
    rather than duplicating it. The summary's button hides once

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { CL_UNKNOWN, toHealthRoute, toHealthSegmentSamples, toHealthWorkout } from './health';
+import { CL_UNKNOWN, toHealthDistanceSample, toHealthRoute, toHealthWorkout } from './health';
 import type { SegmentedFix } from './geo';
 
 function makeFix(overrides: Partial<SegmentedFix> = {}): SegmentedFix {
@@ -67,67 +67,32 @@ describe('toHealthRoute', () => {
   });
 });
 
-describe('toHealthSegmentSamples', () => {
-  const fixes = [
-    makeFix({ segmentSeq: 0, timestamp: 1_000 }),
-    makeFix({ segmentSeq: 0, timestamp: 4_000 }),
-    makeFix({ segmentSeq: 1, timestamp: 9_000 }),
-    makeFix({ segmentSeq: 1, timestamp: 6_000 }), // out of order on purpose
-  ];
+describe('toHealthDistanceSample', () => {
+  const run = {
+    id: 'run-4200',
+    startedAt: '2026-08-01T06:00:00.000Z',
+    endedAt: '2026-08-01T06:30:00.000Z',
+    distanceM: 4_200,
+  };
 
-  test('windows a segment by the first and last timestamp of its own points', () => {
-    const samples = toHealthSegmentSamples(
-      [
-        { seq: 0, distanceM: 120 },
-        { seq: 1, distanceM: 300 },
-      ],
-      fixes,
-    );
-    expect(samples).toEqual([
-      { startedAt: 1_000, endedAt: 4_000, meters: 120 },
-      { startedAt: 6_000, endedAt: 9_000, meters: 300 },
-    ]);
-  });
-
-  test('skips segments with no points, no distance, or zero distance', () => {
-    const samples = toHealthSegmentSamples(
-      [
-        { seq: 0, distanceM: 120 },
-        { seq: 1, distanceM: null },
-        { seq: 2, distanceM: 50 }, // no fixes carry seq 2
-        { seq: 3, distanceM: 0 },
-      ],
-      fixes,
-    );
-    expect(samples).toEqual([{ startedAt: 1_000, endedAt: 4_000, meters: 120 }]);
+  test('spans the whole run and carries its total distance, not a per-interval one', () => {
+    expect(toHealthDistanceSample(run)).toEqual({
+      startedAt: Date.parse('2026-08-01T06:00:00.000Z'),
+      endedAt: Date.parse('2026-08-01T06:30:00.000Z'),
+      meters: 4_200,
+    });
   });
 
   test('produces nothing for a run recorded without GPS', () => {
-    expect(toHealthSegmentSamples([{ seq: 0, distanceM: null }], [])).toEqual([]);
+    expect(toHealthDistanceSample({ ...run, distanceM: null })).toBeNull();
   });
 
-  test('a NaN timestamp among good fixes does not poison the rest of the segment window', () => {
-    const samples = toHealthSegmentSamples(
-      [{ seq: 0, distanceM: 120 }],
-      [
-        makeFix({ segmentSeq: 0, timestamp: 1_000 }),
-        makeFix({ segmentSeq: 0, timestamp: Number.NaN }),
-        makeFix({ segmentSeq: 0, timestamp: 4_000 }),
-      ],
-    );
-    expect(samples).toEqual([{ startedAt: 1_000, endedAt: 4_000, meters: 120 }]);
-  });
-
-  test('skips a segment whose distance is negative or infinite', () => {
-    const samples = toHealthSegmentSamples(
-      [
-        { seq: 0, distanceM: -5 },
-        { seq: 1, distanceM: Number.POSITIVE_INFINITY },
-      ],
-      [makeFix({ segmentSeq: 0, timestamp: 1_000 }), makeFix({ segmentSeq: 1, timestamp: 2_000 })],
-    );
-    expect(samples).toEqual([]);
-  });
+  test.each([0, -5, Number.POSITIVE_INFINITY, Number.NaN])(
+    'produces nothing for a non-measurable distance (%p)',
+    (distanceM) => {
+      expect(toHealthDistanceSample({ ...run, distanceM })).toBeNull();
+    },
+  );
 });
 
 describe('toHealthWorkout', () => {
@@ -138,34 +103,34 @@ describe('toHealthWorkout', () => {
     distanceM: 4_200,
   };
 
-  test('reports the run total, never the last segment (spec §5.3)', () => {
-    const workout = toHealthWorkout(
-      run,
-      [
-        { seq: 0, distanceM: 400 },
-        { seq: 1, distanceM: 3_800 },
-      ],
-      [makeFix({ segmentSeq: 0, timestamp: 1_000 }), makeFix({ segmentSeq: 1, timestamp: 2_000 })],
-    );
+  test('reports the run total and a single sample spanning the whole run', () => {
+    const workout = toHealthWorkout(run, [
+      makeFix({ segmentSeq: 0, timestamp: 1_000 }),
+      makeFix({ segmentSeq: 1, timestamp: 2_000 }),
+    ]);
     expect(workout.totalDistanceM).toBe(4_200);
-    expect(workout.segmentSamples).toHaveLength(2);
+    expect(workout.distanceSample).toEqual({
+      startedAt: Date.parse('2026-08-01T06:00:00.000Z'),
+      endedAt: Date.parse('2026-08-01T06:30:00.000Z'),
+      meters: 4_200,
+    });
   });
 
   test('converts the stored ISO timestamps to epoch ms', () => {
-    const workout = toHealthWorkout(run, [], []);
+    const workout = toHealthWorkout(run, []);
     expect(workout.startedAt).toBe(Date.parse('2026-08-01T06:00:00.000Z'));
     expect(workout.endedAt).toBe(Date.parse('2026-08-01T06:30:00.000Z'));
   });
 
-  test('a GPS-less run still yields a workout, with no route and no distance', () => {
-    const workout = toHealthWorkout({ ...run, distanceM: null }, [{ seq: 0, distanceM: null }], []);
+  test('a GPS-less run still yields a workout, with no route and no distance sample', () => {
+    const workout = toHealthWorkout({ ...run, distanceM: null }, []);
     expect(workout.totalDistanceM).toBeNull();
     expect(workout.route).toEqual([]);
-    expect(workout.segmentSamples).toEqual([]);
+    expect(workout.distanceSample).toBeNull();
   });
 
   test('carries the run id through as the sync identifier (finding 1: idempotent retries)', () => {
-    const workout = toHealthWorkout(run, [], []);
+    const workout = toHealthWorkout(run, []);
     expect(workout.syncIdentifier).toBe('run-4200');
   });
 });

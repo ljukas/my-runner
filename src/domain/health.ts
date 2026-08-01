@@ -50,6 +50,7 @@ export interface HealthDistanceSample {
 
 /** The stored run fields Health needs; `startedAt`/`endedAt` are ISO-8601 UTC as persisted. */
 export interface HealthRunInput {
+  id: string;
   startedAt: string;
   endedAt: string;
   distanceM: number | null;
@@ -67,6 +68,8 @@ export interface HealthWorkoutInput {
   totalDistanceM: number | null;
   segmentSamples: HealthDistanceSample[];
   route: HealthRoutePoint[];
+  /** The run's own id, reused as HealthKit's sync identifier so a retry replaces rather than duplicates. */
+  syncIdentifier: string;
 }
 
 /**
@@ -117,5 +120,6 @@ export function toHealthWorkout(
     totalDistanceM: run.distanceM,
     segmentSamples: toHealthSegmentSamples(segments, fixes),
     route: toHealthRoute(fixes),
+    syncIdentifier: run.id,
   };
 }

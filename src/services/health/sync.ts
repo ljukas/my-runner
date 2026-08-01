@@ -17,10 +17,13 @@ const inFlight = new Set<string>();
  */
 export async function syncRunToHealth(runId: string): Promise<boolean> {
   if (inFlight.has(runId)) return false;
-  if (healthAdapter.getAuthorization() !== 'authorized') return false;
 
   inFlight.add(runId);
   try {
+    // why inside the try: getAuthorization() is a native call and this function's docstring
+    // promises it never throws — a throw here must land in the catch below, not reject the caller.
+    if (healthAdapter.getAuthorization() !== 'authorized') return false;
+
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
     if (!run || run.status === 'active' || run.healthkitSaved) return false;
 

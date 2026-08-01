@@ -6,6 +6,7 @@ import {
   saveWorkoutSample,
   WorkoutActivityType,
 } from '@kingstinct/react-native-healthkit';
+import type { AnyMap } from 'react-native-nitro-modules';
 
 import type { HealthWorkoutInput } from '@/domain/health';
 import type { HealthAdapter, HealthAuthorization } from './port';
@@ -13,6 +14,17 @@ import type { HealthAdapter, HealthAuthorization } from './port';
 const WORKOUT_TYPE = 'HKWorkoutTypeIdentifier';
 const ROUTE_TYPE = 'HKWorkoutRouteTypeIdentifier';
 const DISTANCE_TYPE = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
+
+// Bump only if the shape of what gets synced under a given syncIdentifier changes meaningfully.
+const SYNC_VERSION = 1;
+
+// why: these are the library's *serialized* metadata keys, not the Apple constant names
+// (HKMetadataKeySyncIdentifier/HKMetadataKeySyncVersion) — per its README, HealthKit metadata key
+// constants and their raw string values differ, and the raw value is what has to go in this map.
+// Confirmed against KnownObjectMetadata in
+// @kingstinct/react-native-healthkit/src/generated/healthkit.generated.ts.
+const SYNC_IDENTIFIER_KEY = 'HKSyncIdentifier';
+const SYNC_VERSION_KEY = 'HKSyncVersion';
 
 function currentAuthorization(): HealthAuthorization {
   if (!isHealthDataAvailable()) return 'unavailable';
@@ -39,6 +51,19 @@ export const healthAdapter: HealthAdapter = {
   },
 
   async saveRun(input: HealthWorkoutInput): Promise<void> {
+    // why: the run id doubles as HealthKit's sync identifier so a retry after a partial failure
+    // (store.save(workout) commits before saveWorkoutRoute/store.add run) replaces rather than
+    // duplicates the workout. UNVERIFIED against real HealthKit: WorkoutsModule.swift applies this
+    // same map to the workout AND every per-segment sample (:133), ignoring each sample's own
+    // metadata, so every segment below carries the identical identifier — whether HealthKit's
+    // replace-by-identifier behaviour then collapses them, rejects the batch, or is fine needs a real
+    // run (simulator verification task). Fallback if it breaks: drop the per-segment samples — spec
+    // §3.1 already calls them a weak consolation prize.
+    const metadata: AnyMap = {
+      [SYNC_IDENTIFIER_KEY]: input.syncIdentifier,
+      [SYNC_VERSION_KEY]: SYNC_VERSION,
+    };
+
     const workout = await saveWorkoutSample(
       WorkoutActivityType.running,
       input.segmentSamples.map((sample) => ({
@@ -54,6 +79,7 @@ export const healthAdapter: HealthAdapter = {
       // every metre-compatible sample in turn (WorkoutsModule.swift:116-117), so without this the
       // workout total silently becomes the LAST segment's distance. totals overrides it (:137-141).
       input.totalDistanceM != null ? { distance: input.totalDistanceM } : undefined,
+      metadata,
     );
 
     if (input.route.length > 0) {

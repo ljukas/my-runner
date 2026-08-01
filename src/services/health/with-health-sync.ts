@@ -7,7 +7,9 @@ import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run
  */
 export function withHealthSync(
   base: RunLifecyclePersistence,
-  sync: (runId: string) => void | Promise<void>,
+  // why Promise<unknown>, not Promise<void>: it has to accept syncRunToHealth's Promise<boolean>
+  // directly — fireSync only ever awaits the promise to catch a rejection, never its resolved value.
+  sync: (runId: string) => void | Promise<unknown>,
 ): RunLifecyclePersistence {
   // why: a `sync` failure must never read back as the local write failing (ADR 0011 §4) — a run that
   // already committed locally has to stay a success regardless of whether `sync` throws synchronously

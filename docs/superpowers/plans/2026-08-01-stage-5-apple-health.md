@@ -552,15 +552,22 @@ module.exports = function withHealthKitWriteOnly(config) {
 Add to the `plugins` array, after `"expo-status-bar"`, in this order:
 
 ```jsonc
+"./plugins/with-healthkit-write-only",
 [
   "@kingstinct/react-native-healthkit",
   {
     "NSHealthUpdateUsageDescription": "Save your completed runs (duration, distance, route) to Apple Health.",
     "background": false
   }
-],
-"./plugins/with-healthkit-write-only"
+]
 ```
+
+The local plugin must come **first**: `@expo/config-plugins` mods chain so each
+plugin's own mutation runs before it delegates to the mod registered before it
+in the array, which means the earlier-registered plugin's effect is the one
+that survives last. The local plugin deletes `NSHealthShareUsageDescription`
+*after* the library's own `withInfoPlist` mod has written it, so it has to be
+the earlier-registered (first-listed) plugin to win.
 
 `background: false` is load-bearing: it suppresses both the background-delivery entitlement and an AppDelegate modification (spec §3.3).
 
@@ -574,14 +581,16 @@ bun run prebuild:dev
 - [ ] **Step 5: Verify the generated native config**
 
 ```bash
-grep -c NSHealthUpdateUsageDescription ios/RunBro/Info.plist       # expect 1
-grep -c NSHealthShareUsageDescription ios/RunBro/Info.plist        # expect 0
-grep -c 'com.apple.developer.healthkit<' ios/RunBro/RunBro.entitlements   # expect 1
-grep -c 'background-delivery' ios/RunBro/RunBro.entitlements       # expect 0
-grep -ci healthkit ios/RunBro/AppDelegate.swift                    # expect 0
+grep -c NSHealthUpdateUsageDescription ios/RunBrodev/Info.plist       # expect 1
+grep -c NSHealthShareUsageDescription ios/RunBrodev/Info.plist        # expect 0
+grep -c 'com.apple.developer.healthkit<' ios/RunBrodev/RunBrodev.entitlements   # expect 1
+grep -c 'background-delivery' ios/RunBrodev/RunBrodev.entitlements       # expect 0
+grep -ci healthkit ios/RunBrodev/AppDelegate.swift                    # expect 0
 ```
 
-All five must match. If the Share description is still present, the local plugin is listed before the library's instead of after.
+(Paths use the dev-variant target name, `RunBrodev` — ADR 0019.)
+
+All five must match. If the Share description is still present, the local plugin is listed after the library's instead of before.
 
 - [ ] **Step 6: Build and confirm the app still launches**
 

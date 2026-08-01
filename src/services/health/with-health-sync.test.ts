@@ -130,4 +130,28 @@ describe('withHealthSync', () => {
     expect(warnings.length).toBe(1);
     expect(unhandled).toEqual([]);
   });
+
+  // Regression for finding 2: the composition root used to wrap the real sync call in `(runId) =>
+  // void syncRunToHealth(runId)`, which discarded the Promise<boolean> before it reached fireSync —
+  // any rejection became an unhandled rejection instead of a logged warning. Passing a
+  // `(runId: string) => Promise<boolean>` straight through, exactly as `syncRunToHealth`'s own
+  // signature is, must both type-check and behave like the `Promise<void>` cases above.
+  test('accepts and correctly observes a sync callback shaped like syncRunToHealth (Promise<boolean>)', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => void unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandledRejection);
+
+    const rejectingBooleanSync = (_runId: string): Promise<boolean> =>
+      Promise.reject(new Error('health down'));
+    const wrapped = withHealthSync(fakeBase(), rejectingBooleanSync);
+
+    const warnings = await withCapturedWarnings(async () => {
+      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    process.off('unhandledRejection', onUnhandledRejection);
+    expect(warnings.length).toBe(1);
+    expect(unhandled).toEqual([]);
+  });
 });

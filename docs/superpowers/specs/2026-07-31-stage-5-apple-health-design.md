@@ -382,16 +382,21 @@ advance unchanged. A denial advances identically to a skip; Health is optional.
 ## 8. Build config
 
 ```jsonc
+"./plugins/with-healthkit-write-only",
 ["@kingstinct/react-native-healthkit", {
   "NSHealthUpdateUsageDescription": "Save your completed runs (duration, distance, route) to Apple Health.",
   "background": false          // load-bearing: no background-delivery entitlement, no AppDelegate mod
 }]
 ```
 
-Plus a small **local config plugin** that runs after it and deletes
-`NSHealthShareUsageDescription` from Info.plist (§3.3) — the library writes a
-read-access purpose string unconditionally, and this app never reads. Ten lines
-of `withInfoPlist`, and it keeps the binary's claims true and the App Privacy
+Plus a small **local config plugin**, registered *before* the library plugin
+above, that deletes `NSHealthShareUsageDescription` from Info.plist (§3.3) —
+the library writes a read-access purpose string unconditionally, and this app
+never reads. `@expo/config-plugins` mods chain so each plugin's own mutation
+runs before it delegates to the mod registered before it in the array — the
+earlier-registered plugin's effect is therefore the one that lands last, which
+is why the local plugin has to be listed *first* to win. Ten lines of
+`withInfoPlist`, and it keeps the binary's claims true and the App Privacy
 label at "data not collected".
 
 New dependencies: `@kingstinct/react-native-healthkit` (pinned `14.0.2`) and

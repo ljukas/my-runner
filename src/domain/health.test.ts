@@ -132,6 +132,7 @@ describe('toHealthSegmentSamples', () => {
 
 describe('toHealthWorkout', () => {
   const run = {
+    id: 'run-4200',
     startedAt: '2026-08-01T06:00:00.000Z',
     endedAt: '2026-08-01T06:30:00.000Z',
     distanceM: 4_200,
@@ -161,5 +162,10 @@ describe('toHealthWorkout', () => {
     expect(workout.totalDistanceM).toBeNull();
     expect(workout.route).toEqual([]);
     expect(workout.segmentSamples).toEqual([]);
+  });
+
+  test('carries the run id through as the sync identifier (finding 1: idempotent retries)', () => {
+    const workout = toHealthWorkout(run, [], []);
+    expect(workout.syncIdentifier).toBe('run-4200');
   });
 });

@@ -16,7 +16,11 @@ import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resum
 export { endCountsAsCompleted } from './engine';
 
 export const runEngine = new RunEngine({
-  persistence: withHealthSync(dbRunPersistence, (runId) => void syncRunToHealth(runId)),
+  // why not `(runId) => void syncRunToHealth(runId)`: that discards the real promise, so fireSync's
+  // own `Promise.resolve(sync(runId)).catch(...)` would await `undefined` and any rejection from
+  // syncRunToHealth would become an unhandled rejection instead of a logged warning. Pass the
+  // function straight through so its promise reaches fireSync.
+  persistence: withHealthSync(dbRunPersistence, syncRunToHealth),
   cue: cueService,
   runStore: dbRunStore,
   tracker: locationTracker,

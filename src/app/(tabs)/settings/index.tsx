@@ -6,6 +6,12 @@ import { useRouter } from 'expo-router';
 import { Island } from '@/components/island';
 import { SettingsToggle } from '@/components/settings-toggle';
 import {
+  healthAdapter,
+  openHealthApp,
+  useHealthAuthorization,
+  type HealthAuthorization,
+} from '@/services/health';
+import {
   useLocationPermission,
   locationTracker,
   type LocationPermissionStatus,
@@ -18,9 +24,19 @@ const LOCATION_ACCESS: Record<LocationPermissionStatus, string> = {
   undetermined: 'Ask Next Time Or When I Share',
 };
 
+// Values deliberately share no suffix with LOCATION_ACCESS: both rows are labelled "Access", and
+// ADR 0016 flows match the merged LabeledContent element by its value suffix.
+const HEALTH_ACCESS: Record<HealthAuthorization, string> = {
+  authorized: 'Saving Workouts',
+  denied: 'Off',
+  notDetermined: 'Not Set Up',
+  unavailable: 'Not Available',
+};
+
 export default function SettingsScreen() {
   const router = useRouter();
   const location = useLocationPermission();
+  const health = useHealthAuthorization();
 
   return (
     <Island useViewportSizeMeasurement>
@@ -60,6 +76,31 @@ export default function SettingsScreen() {
               label="Enable Location"
               onPress={() => void locationTracker.requestPermission()}
             />
+          ) : null}
+        </Section>
+        {/* No toggle: iOS never lets an app revoke its own HealthKit grant, so a switch that
+            can be turned off but not back on would be a lie (spec §2). */}
+        <Section
+          title="Apple Health"
+          footer={
+            <Text>
+              {health === 'authorized'
+                ? 'Finished runs are saved to Apple Health with their route. Older runs can be saved one at a time from their summary.'
+                : 'Save your finished runs to Apple Health, with distance and route. Nothing is ever read from Health.'}
+            </Text>
+          }
+        >
+          <LabeledContent label="Access">
+            <Text>{HEALTH_ACCESS[health]}</Text>
+          </LabeledContent>
+          {health === 'notDetermined' ? (
+            <Button
+              label="Set Up Apple Health"
+              onPress={() => void healthAdapter.requestWriteAccess()}
+            />
+          ) : null}
+          {health === 'denied' ? (
+            <Button label="Open Health" onPress={() => void openHealthApp()} />
           ) : null}
         </Section>
         <Section

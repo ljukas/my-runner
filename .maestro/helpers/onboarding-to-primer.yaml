@@ -1,6 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Steps 1-2 of the three versioned onboarding steps (welcome, audio-cues). Lands on the
+# Steps 1-2 of the four versioned onboarding steps (welcome, audio-cues). Lands on the
 # location primer with both of its CTAs untouched, so each caller picks the answer it needs.
 - assertVisible: "Welcome to"
 # Retry the tap + its landing assertion together: the E2E build's larger binary

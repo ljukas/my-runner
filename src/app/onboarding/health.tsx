@@ -5,7 +5,7 @@ import { FeatureRow } from '@/components/feature-row';
 import { OnboardingStepScreen } from '@/components/onboarding-step-screen';
 import { Text } from '@/components/ui/text';
 import { useTheme } from '@/hooks/use-theme';
-import { healthAdapter } from '@/services/health';
+import { requestWriteAccess } from '@/services/health';
 
 export default function HealthPrimerScreen() {
   const colors = useTheme();
@@ -16,7 +16,7 @@ export default function HealthPrimerScreen() {
       secondaryLabel="Not Now"
       onPrimaryPress={async (advance) => {
         try {
-          await healthAdapter.requestWriteAccess();
+          await requestWriteAccess();
         } catch (error) {
           console.warn('[onboarding] health prompt failed', error);
         }
@@ -48,8 +48,8 @@ export default function HealthPrimerScreen() {
           title="Every run counts"
           template="primer"
         >
-          Finished runs appear in Apple Health as workouts, with their distance and the route you
-          ran.
+          Finished runs appear in Apple Health as workouts, with your distance &mdash; and your
+          route too, if location is on.
         </FeatureRow>
         <FeatureRow
           symbol={{ ios: 'square.and.arrow.up', android: 'ios_share' }}

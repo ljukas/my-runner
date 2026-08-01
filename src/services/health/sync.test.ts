@@ -14,12 +14,26 @@ function mockAdapter(getAuthorization: () => HealthAuthorization) {
 }
 
 describe('syncRunToHealth', () => {
-  test('resolves false rather than rejecting when getAuthorization throws (finding 2)', async () => {
+  test('resolves "failed" rather than rejecting when getAuthorization throws (finding 2)', async () => {
     mockAdapter(() => {
       throw new Error('native bridge unavailable');
     });
 
     const { syncRunToHealth } = await import('./sync');
-    await expect(syncRunToHealth('run-1')).resolves.toBe(false);
+    await expect(syncRunToHealth('run-1')).resolves.toBe('failed');
+  });
+});
+
+describe('isHealthSyncFailure', () => {
+  // Regression for the row painting "Couldn't save" while a collapsed in-flight save is still
+  // succeeding (finding 1): only 'failed' should ever surface as a failure to the user.
+  test('is true only for "failed", not for "busy", "skipped", or "saved"', async () => {
+    mockAdapter(() => 'authorized');
+    const { isHealthSyncFailure } = await import('./sync');
+
+    expect(isHealthSyncFailure('failed')).toBe(true);
+    expect(isHealthSyncFailure('busy')).toBe(false);
+    expect(isHealthSyncFailure('skipped')).toBe(false);
+    expect(isHealthSyncFailure('saved')).toBe(false);
   });
 });

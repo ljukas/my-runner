@@ -1,11 +1,16 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
-import { healthAdapter, syncRunToHealth, useHealthAuthorization } from '@/services/health';
+import {
+  isHealthSyncFailure,
+  requestWriteAccess,
+  syncRunToHealth,
+  useHealthAuthorization,
+} from '@/services/health';
 
 /**
  * The run summary's Apple Health row (ADR 0013 domain component). One button serves both the
@@ -16,6 +21,9 @@ export function HealthStatusRow({ run }: { run: Run }) {
   const authorization = useHealthAuthorization();
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  // why a ref, not just `saving`: guards the tap synchronously, before React has re-rendered the
+  // button with `disabled` set — same idiom as onboarding-step-screen's async-CTA guard.
+  const busy = useRef(false);
 
   if (run.healthkitSaved) {
     return (
@@ -28,14 +36,24 @@ export function HealthStatusRow({ run }: { run: Run }) {
   // Denied and unavailable offer no action here; Settings owns the route to change that.
   if (authorization === 'denied' || authorization === 'unavailable') return null;
 
-  const save = async () => {
-    setSaving(true);
-    setFailed(false);
-    const granted =
-      authorization === 'notDetermined' ? await healthAdapter.requestWriteAccess() : authorization;
-    // A denial at the prompt is an answer, not a failure — leave the row quiet.
-    if (granted === 'authorized') setFailed(!(await syncRunToHealth(run.id)));
-    setSaving(false);
+  const save = () => {
+    if (busy.current) return;
+    busy.current = true;
+    void (async () => {
+      setSaving(true);
+      setFailed(false);
+      try {
+        const granted =
+          authorization === 'notDetermined' ? await requestWriteAccess() : authorization;
+        // A denial at the prompt is an answer, not a failure — leave the row quiet. 'busy' and
+        // 'skipped' are no-ops too (finding 1): only 'failed' names an actual write failure, and
+        // 'saved' flips the row via the summary's live query rather than this local state.
+        if (granted === 'authorized') setFailed(isHealthSyncFailure(await syncRunToHealth(run.id)));
+      } finally {
+        setSaving(false);
+        busy.current = false;
+      }
+    })();
   };
 
   return (
@@ -44,8 +62,9 @@ export function HealthStatusRow({ run }: { run: Run }) {
         {failed ? <Text tone="secondary">Couldn&rsquo;t save to Apple Health.</Text> : null}
         <Island.Button
           fill
+          disabled={saving}
           label={saving ? 'Saving…' : 'Save to Apple Health'}
-          onPress={() => void save()}
+          onPress={save}
         />
       </View>
     </Card>

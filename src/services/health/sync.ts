@@ -11,21 +11,33 @@ import { healthAdapter } from './adapter';
 const inFlight = new Set<string>();
 
 /**
- * Writes a finalized run to Apple Health and records it locally. Never throws and never blocks a
- * run: the local save has already committed by the time this runs (ADR 0011 §4). `false` means
- * nothing was written — not authorized, already saved, or the save failed.
+ * Names why a sync attempt didn't end in a write, so a caller can react only to a genuine failure:
+ * `busy` (another call for this run is already in flight) and `skipped` (not authorized, already
+ * saved, or not a finalized run) are both no-ops the UI should stay quiet about; only `failed` is
+ * worth surfacing.
  */
-export async function syncRunToHealth(runId: string): Promise<boolean> {
-  if (inFlight.has(runId)) return false;
+export type HealthSyncResult = 'saved' | 'skipped' | 'busy' | 'failed';
+
+/** Whether a result is worth telling the user about — the only outcome that names an actual failure. */
+export function isHealthSyncFailure(result: HealthSyncResult): boolean {
+  return result === 'failed';
+}
+
+/**
+ * Writes a finalized run to Apple Health and records it locally. Never throws and never blocks a
+ * run: the local save has already committed by the time this runs (ADR 0011 §4).
+ */
+export async function syncRunToHealth(runId: string): Promise<HealthSyncResult> {
+  if (inFlight.has(runId)) return 'busy';
 
   inFlight.add(runId);
   try {
     // why inside the try: getAuthorization() is a native call and this function's docstring
     // promises it never throws — a throw here must land in the catch below, not reject the caller.
-    if (healthAdapter.getAuthorization() !== 'authorized') return false;
+    if (healthAdapter.getAuthorization() !== 'authorized') return 'skipped';
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
-    if (!run || run.status === 'active' || run.healthkitSaved) return false;
+    if (!run || run.status === 'active' || run.healthkitSaved) return 'skipped';
 
     const segments = db
       .select()
@@ -40,10 +52,10 @@ export async function syncRunToHealth(runId: string): Promise<boolean> {
       .set({ healthkitSaved: true, updatedAt: new Date().toISOString() })
       .where(eq(runs.id, runId))
       .run();
-    return true;
+    return 'saved';
   } catch (error) {
     console.warn('[health] save failed', error);
-    return false;
+    return 'failed';
   } finally {
     inFlight.delete(runId);
   }

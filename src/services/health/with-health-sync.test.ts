@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run-engine/types';
+import type { HealthSyncResult } from './sync';
 import { withHealthSync } from './with-health-sync';
 
 const record: CompletedRunRecord = {
@@ -132,18 +133,18 @@ describe('withHealthSync', () => {
   });
 
   // Regression for finding 2: the composition root used to wrap the real sync call in `(runId) =>
-  // void syncRunToHealth(runId)`, which discarded the Promise<boolean> before it reached fireSync —
-  // any rejection became an unhandled rejection instead of a logged warning. Passing a
-  // `(runId: string) => Promise<boolean>` straight through, exactly as `syncRunToHealth`'s own
-  // signature is, must both type-check and behave like the `Promise<void>` cases above.
-  test('accepts and correctly observes a sync callback shaped like syncRunToHealth (Promise<boolean>)', async () => {
+  // void syncRunToHealth(runId)`, which discarded the Promise<HealthSyncResult> before it reached
+  // fireSync — any rejection became an unhandled rejection instead of a logged warning. Passing a
+  // `(runId: string) => Promise<HealthSyncResult>` straight through, exactly as `syncRunToHealth`'s
+  // own signature is, must both type-check and behave like the `Promise<void>` cases above.
+  test('accepts and correctly observes a sync callback shaped like syncRunToHealth (Promise<HealthSyncResult>)', async () => {
     const unhandled: unknown[] = [];
     const onUnhandledRejection = (reason: unknown): void => void unhandled.push(reason);
     process.on('unhandledRejection', onUnhandledRejection);
 
-    const rejectingBooleanSync = (_runId: string): Promise<boolean> =>
+    const rejectingSync = (_runId: string): Promise<HealthSyncResult> =>
       Promise.reject(new Error('health down'));
-    const wrapped = withHealthSync(fakeBase(), rejectingBooleanSync);
+    const wrapped = withHealthSync(fakeBase(), rejectingSync);
 
     const warnings = await withCapturedWarnings(async () => {
       await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();

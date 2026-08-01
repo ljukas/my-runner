@@ -6,8 +6,8 @@ import { useRouter } from 'expo-router';
 import { Island } from '@/components/island';
 import { SettingsToggle } from '@/components/settings-toggle';
 import {
-  healthAdapter,
   openHealthApp,
+  requestWriteAccess,
   useHealthAuthorization,
   type HealthAuthorization,
 } from '@/services/health';
@@ -85,8 +85,10 @@ export default function SettingsScreen() {
           footer={
             <Text>
               {health === 'authorized'
-                ? 'Finished runs are saved to Apple Health with their route. Older runs can be saved one at a time from their summary.'
-                : 'Save your finished runs to Apple Health, with distance and route. Nothing is ever read from Health.'}
+                ? 'Finished runs are saved to Apple Health, with a route if location is on. Older runs can be saved one at a time from their summary.'
+                : health === 'unavailable'
+                  ? "Apple Health isn't available on this device."
+                  : 'Save your finished runs to Apple Health, with distance and route. Nothing is ever read from Health.'}
             </Text>
           }
         >
@@ -94,10 +96,7 @@ export default function SettingsScreen() {
             <Text>{HEALTH_ACCESS[health]}</Text>
           </LabeledContent>
           {health === 'notDetermined' ? (
-            <Button
-              label="Set Up Apple Health"
-              onPress={() => void healthAdapter.requestWriteAccess()}
-            />
+            <Button label="Set Up Apple Health" onPress={() => void requestWriteAccess()} />
           ) : null}
           {health === 'denied' ? (
             <Button label="Open Health" onPress={() => void openHealthApp()} />

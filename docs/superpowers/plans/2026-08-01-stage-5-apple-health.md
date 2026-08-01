@@ -178,11 +178,17 @@ The subtle one. `run_segments` stores `actual_duration_s` but **no timestamps**,
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `src/domain/health.test.ts` (`makeFix` is already defined at the top of the file — reuse it):
+Append to `src/domain/health.test.ts` (`makeFix` is already defined at the top of the file — reuse it).
+
+First **extend the existing `./health` import** rather than adding a second one — a duplicate import from the same module fails `bun run lint`:
 
 ```ts
-import { toHealthSegmentSamples, toHealthWorkout } from './health';
+import { CL_UNKNOWN, toHealthRoute, toHealthSegmentSamples, toHealthWorkout } from './health';
+```
 
+Then append the new suites:
+
+```ts
 describe('toHealthSegmentSamples', () => {
   const fixes = [
     makeFix({ segmentSeq: 0, timestamp: 1_000 }),

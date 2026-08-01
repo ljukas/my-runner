@@ -3,6 +3,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { ScrollView, View } from 'react-native';
 
+import { HealthStatusRow } from '@/components/health-status-row';
 import { RouteMapCard } from '@/components/route-map-card';
 import { RunStatGrid } from '@/components/run-stat-grid';
 import { RunSummaryHeadline } from '@/components/run-summary-headline';
@@ -76,6 +77,7 @@ export default function RunSummaryScreen() {
             <RunStatGrid run={run} segments={segments} />
             <SegmentBreakdown segments={segments} />
             <SegmentSplits segments={segments} />
+            <HealthStatusRow run={run} />
           </>
         ) : null}
       </ScrollView>

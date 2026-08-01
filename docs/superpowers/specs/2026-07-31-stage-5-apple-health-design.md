@@ -272,9 +272,12 @@ convention so Health reads missing data as unknown rather than as a real zero:
 | `speed` | `speed` | `-1` |
 | `course` | *not stored* | `-1` |
 
-Raw persisted fixes are used, in `seq` order — the same stream the route map
-draws from, before simplification. Smoothing is presentation and distance math
-(ADR 0021); the route handed to Health is the recorded track.
+Raw persisted fixes are used — the same stream the route map draws from,
+before simplification — but sorted chronologically by each fix's own
+`timestamp` rather than `seq`: HealthKit consumes the route as a path, and
+`seq` is only arrival order at the engine, which can disagree with the fix's
+own clock. Smoothing is presentation and distance math (ADR 0021); the route
+handed to Health is the recorded track.
 
 ### 5.2 Per-segment samples: windows come from points, not durations
 

@@ -22,17 +22,23 @@ export interface HealthRoutePoint {
 }
 
 export function toHealthRoute(fixes: readonly SegmentedFix[]): HealthRoutePoint[] {
-  return fixes.map((fix) => ({
-    latitude: fix.lat,
-    longitude: fix.lng,
-    timestamp: fix.timestamp,
-    altitude: fix.altitude ?? 0,
-    horizontalAccuracy: fix.accuracy ?? CL_UNKNOWN,
-    speed: fix.speed ?? CL_UNKNOWN,
-    // Never recorded: run_points has no course or vertical-accuracy column (spec §5.1).
-    course: CL_UNKNOWN,
-    verticalAccuracy: CL_UNKNOWN,
-  }));
+  return (
+    fixes
+      .filter((fix) => Number.isFinite(fix.timestamp))
+      // HealthKit walks this as a path; `seq` is arrival order and can disagree with the fix's own clock (spec §5.1).
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((fix) => ({
+        latitude: fix.lat,
+        longitude: fix.lng,
+        timestamp: fix.timestamp,
+        altitude: fix.altitude ?? 0,
+        horizontalAccuracy: fix.accuracy ?? CL_UNKNOWN,
+        speed: fix.speed ?? CL_UNKNOWN,
+        // Never recorded: run_points has no course or vertical-accuracy column (spec §5.1).
+        course: CL_UNKNOWN,
+        verticalAccuracy: CL_UNKNOWN,
+      }))
+  );
 }
 
 /** One interval's distance over its true wall-clock window. */
@@ -74,6 +80,8 @@ export function toHealthSegmentSamples(
 ): HealthDistanceSample[] {
   const windows = new Map<number, { first: number; last: number }>();
   for (const fix of fixes) {
+    // A single corrupt timestamp must not poison the whole window: Math.min/max propagate NaN permanently.
+    if (!Number.isFinite(fix.timestamp)) continue;
     const window = windows.get(fix.segmentSeq);
     if (window) {
       window.first = Math.min(window.first, fix.timestamp);
@@ -86,11 +94,16 @@ export function toHealthSegmentSamples(
   const samples: HealthDistanceSample[] = [];
   for (const segment of segments) {
     const window = windows.get(segment.seq);
-    // Falsy covers both null (GPS off) and 0 (measured nothing) — neither is worth a sample.
-    if (!window || !segment.distanceM) continue;
+    if (!window || !hasMeasurableDistance(segment.distanceM)) continue;
     samples.push({ startedAt: window.first, endedAt: window.last, meters: segment.distanceM });
   }
   return samples;
+}
+
+// null covers GPS off; a negative or Infinity value is equally unusable and would serialize to null
+// across the bridge boundary anyway, so require a real, finite, positive distance.
+function hasMeasurableDistance(distanceM: number | null): distanceM is number {
+  return distanceM !== null && Number.isFinite(distanceM) && distanceM > 0;
 }
 
 export function toHealthWorkout(

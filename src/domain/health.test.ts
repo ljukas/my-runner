@@ -47,6 +47,24 @@ describe('toHealthRoute', () => {
     expect(points.map((p) => p.timestamp)).toEqual([1, 2]);
     expect(toHealthRoute([])).toEqual([]);
   });
+
+  test('sorts chronologically by timestamp, not by arrival (seq) order', () => {
+    const points = toHealthRoute([
+      makeFix({ timestamp: 9_000 }),
+      makeFix({ timestamp: 1_000 }),
+      makeFix({ timestamp: 6_000 }),
+    ]);
+    expect(points.map((p) => p.timestamp)).toEqual([1_000, 6_000, 9_000]);
+  });
+
+  test('drops a fix with a NaN timestamp rather than derailing the route', () => {
+    const points = toHealthRoute([
+      makeFix({ timestamp: 1_000 }),
+      makeFix({ timestamp: Number.NaN }),
+      makeFix({ timestamp: 2_000 }),
+    ]);
+    expect(points.map((p) => p.timestamp)).toEqual([1_000, 2_000]);
+  });
 });
 
 describe('toHealthSegmentSamples', () => {
@@ -86,6 +104,29 @@ describe('toHealthSegmentSamples', () => {
 
   test('produces nothing for a run recorded without GPS', () => {
     expect(toHealthSegmentSamples([{ seq: 0, distanceM: null }], [])).toEqual([]);
+  });
+
+  test('a NaN timestamp among good fixes does not poison the rest of the segment window', () => {
+    const samples = toHealthSegmentSamples(
+      [{ seq: 0, distanceM: 120 }],
+      [
+        makeFix({ segmentSeq: 0, timestamp: 1_000 }),
+        makeFix({ segmentSeq: 0, timestamp: Number.NaN }),
+        makeFix({ segmentSeq: 0, timestamp: 4_000 }),
+      ],
+    );
+    expect(samples).toEqual([{ startedAt: 1_000, endedAt: 4_000, meters: 120 }]);
+  });
+
+  test('skips a segment whose distance is negative or infinite', () => {
+    const samples = toHealthSegmentSamples(
+      [
+        { seq: 0, distanceM: -5 },
+        { seq: 1, distanceM: Number.POSITIVE_INFINITY },
+      ],
+      [makeFix({ segmentSeq: 0, timestamp: 1_000 }), makeFix({ segmentSeq: 1, timestamp: 2_000 })],
+    );
+    expect(samples).toEqual([]);
   });
 });
 

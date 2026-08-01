@@ -7,20 +7,32 @@ import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run
  */
 export function withHealthSync(
   base: RunLifecyclePersistence,
-  sync: (runId: string) => void,
+  sync: (runId: string) => void | Promise<void>,
 ): RunLifecyclePersistence {
-  return {
-    startRun: (sessionKey, startedAtIso) => base.startRun(sessionKey, startedAtIso),
+  // why: a `sync` failure must never read back as the local write failing (ADR 0011 §4) — a run that
+  // already committed locally has to stay a success regardless of whether `sync` throws synchronously
+  // or returns a rejected promise. Both are caught and logged here, never left to the caller.
+  function fireSync(runId: string): void {
+    try {
+      void Promise.resolve(sync(runId)).catch((error: unknown) => {
+        console.warn('[health] sync failed', error);
+      });
+    } catch (error) {
+      console.warn('[health] sync failed', error);
+    }
+  }
 
+  return {
+    ...base,
     async saveRun(record: CompletedRunRecord): Promise<string> {
       const runId = await base.saveRun(record);
-      sync(runId);
+      fireSync(runId);
       return runId;
     },
 
     async finalizeRun(runId: string, record: CompletedRunRecord): Promise<void> {
       await base.finalizeRun(runId, record);
-      sync(runId);
+      fireSync(runId);
     },
   };
 }

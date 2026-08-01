@@ -10,6 +10,7 @@ export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },
   { id: 'audio-cues-v1', route: '/onboarding/audio-cues' },
   { id: 'location-primer-v1', route: '/onboarding/location-primer' },
+  { id: 'health-primer-v1', route: '/onboarding/health' },
 ] as const satisfies readonly { id: string; route: Href }[];
 
 export type OnboardingStepId = (typeof ONBOARDING_STEPS)[number]['id'];

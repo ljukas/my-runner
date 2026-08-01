@@ -10,6 +10,7 @@ describe('createOnboarding', () => {
       'welcome-v1',
       'audio-cues-v1',
       'location-primer-v1',
+      'health-primer-v1',
     ]);
   });
 
@@ -19,14 +20,16 @@ describe('createOnboarding', () => {
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
       'audio-cues-v1',
       'location-primer-v1',
+      'health-primer-v1',
     ]);
   });
 
-  test('an upgrading user sees only the appended location primer', () => {
+  test('an upgrading user sees only the appended health primer', () => {
     const onboarding = createOnboarding(fakeStorage());
     onboarding.completeStep('welcome-v1');
     onboarding.completeStep('audio-cues-v1');
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['location-primer-v1']);
+    onboarding.completeStep('location-primer-v1');
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['health-primer-v1']);
   });
 
   test('completing every step empties pending idempotently and persists', () => {

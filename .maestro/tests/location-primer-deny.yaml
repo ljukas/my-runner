@@ -13,7 +13,12 @@ tags:
     maxRetries: 3
     commands:
       - tapOn: "Enable Location"
-      - assertVisible: "Week 1 ·.*" # a denial advances exactly like "Not Now" (ADR 0008 §5)
+      - assertVisible: "Your runs, in Apple Health" # the location answer advances to the next step
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Not Now"
+      - assertVisible: "Week 1 ·.*"
 - tapOn: "Settings"
 - scrollUntilVisible:
     element:

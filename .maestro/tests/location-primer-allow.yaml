@@ -13,7 +13,12 @@ tags:
     maxRetries: 3
     commands:
       - tapOn: "Enable Location"
-      - assertVisible: "Week 1 ·.*" # granted → primer complete → plan list
+      - assertVisible: "Your runs, in Apple Health" # the location answer advances to the next step
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Not Now"
+      - assertVisible: "Week 1 ·.*"
 - tapOn: "Settings"
 # The Form scrolls; LabeledContent may merge its label and value into one element, so match
 # the value as a suffix rather than as the whole string.

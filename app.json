@@ -54,7 +54,15 @@
       ],
       "expo-asset",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      "./plugins/with-healthkit-write-only",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthUpdateUsageDescription": "Save your completed runs (duration, distance, route) to Apple Health.",
+          "background": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

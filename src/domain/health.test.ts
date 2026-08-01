@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { CL_UNKNOWN, toHealthRoute } from './health';
+import { CL_UNKNOWN, toHealthRoute, toHealthSegmentSamples, toHealthWorkout } from './health';
 import type { SegmentedFix } from './geo';
 
 function makeFix(overrides: Partial<SegmentedFix> = {}): SegmentedFix {
@@ -46,5 +46,79 @@ describe('toHealthRoute', () => {
     const points = toHealthRoute([makeFix({ timestamp: 1 }), makeFix({ timestamp: 2 })]);
     expect(points.map((p) => p.timestamp)).toEqual([1, 2]);
     expect(toHealthRoute([])).toEqual([]);
+  });
+});
+
+describe('toHealthSegmentSamples', () => {
+  const fixes = [
+    makeFix({ segmentSeq: 0, timestamp: 1_000 }),
+    makeFix({ segmentSeq: 0, timestamp: 4_000 }),
+    makeFix({ segmentSeq: 1, timestamp: 9_000 }),
+    makeFix({ segmentSeq: 1, timestamp: 6_000 }), // out of order on purpose
+  ];
+
+  test('windows a segment by the first and last timestamp of its own points', () => {
+    const samples = toHealthSegmentSamples(
+      [
+        { seq: 0, distanceM: 120 },
+        { seq: 1, distanceM: 300 },
+      ],
+      fixes,
+    );
+    expect(samples).toEqual([
+      { startedAt: 1_000, endedAt: 4_000, meters: 120 },
+      { startedAt: 6_000, endedAt: 9_000, meters: 300 },
+    ]);
+  });
+
+  test('skips segments with no points, no distance, or zero distance', () => {
+    const samples = toHealthSegmentSamples(
+      [
+        { seq: 0, distanceM: 120 },
+        { seq: 1, distanceM: null },
+        { seq: 2, distanceM: 50 }, // no fixes carry seq 2
+        { seq: 3, distanceM: 0 },
+      ],
+      fixes,
+    );
+    expect(samples).toEqual([{ startedAt: 1_000, endedAt: 4_000, meters: 120 }]);
+  });
+
+  test('produces nothing for a run recorded without GPS', () => {
+    expect(toHealthSegmentSamples([{ seq: 0, distanceM: null }], [])).toEqual([]);
+  });
+});
+
+describe('toHealthWorkout', () => {
+  const run = {
+    startedAt: '2026-08-01T06:00:00.000Z',
+    endedAt: '2026-08-01T06:30:00.000Z',
+    distanceM: 4_200,
+  };
+
+  test('reports the run total, never the last segment (spec §5.3)', () => {
+    const workout = toHealthWorkout(
+      run,
+      [
+        { seq: 0, distanceM: 400 },
+        { seq: 1, distanceM: 3_800 },
+      ],
+      [makeFix({ segmentSeq: 0, timestamp: 1_000 }), makeFix({ segmentSeq: 1, timestamp: 2_000 })],
+    );
+    expect(workout.totalDistanceM).toBe(4_200);
+    expect(workout.segmentSamples).toHaveLength(2);
+  });
+
+  test('converts the stored ISO timestamps to epoch ms', () => {
+    const workout = toHealthWorkout(run, [], []);
+    expect(workout.startedAt).toBe(Date.parse('2026-08-01T06:00:00.000Z'));
+    expect(workout.endedAt).toBe(Date.parse('2026-08-01T06:30:00.000Z'));
+  });
+
+  test('a GPS-less run still yields a workout, with no route and no distance', () => {
+    const workout = toHealthWorkout({ ...run, distanceM: null }, [{ seq: 0, distanceM: null }], []);
+    expect(workout.totalDistanceM).toBeNull();
+    expect(workout.route).toEqual([]);
+    expect(workout.segmentSamples).toEqual([]);
   });
 });

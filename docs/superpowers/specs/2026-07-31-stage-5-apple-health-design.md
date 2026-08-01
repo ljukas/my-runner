@@ -195,13 +195,17 @@ types (ADR 0011 §1):
 
 ```ts
 export interface HealthWorkoutInput {
-  startedAt: Date;
-  endedAt: Date;
+  startedAt: number;                                // epoch ms, as everywhere else in domain/
+  endedAt: number;
   totalDistanceM: number | null;
   segmentSamples: readonly HealthDistanceSample[];  // { startedAt, endedAt, meters }
   route: readonly HealthRoutePoint[];               // all eight fields populated
 }
 ```
+
+Times cross the port as epoch milliseconds, matching `LocationFix.timestamp` and
+`BufferedRunPoint.timestamp`; the adapter is the only place that constructs the
+`Date` objects the library wants.
 
 ### 4.2 The pure mapper
 
@@ -221,8 +225,9 @@ so `domain/` keeps its independence from `db/`.
    never `useLiveQuery` on `run_points`, ADR 0004 §3).
 3. Map via `domain/health.ts`, call `adapter.saveRun`, then set
    `healthkit_saved = true` and re-stamp `updated_at`.
-4. Never throw. Failure logs and leaves the flag false, which is exactly what
-   the summary renders as its retry state.
+4. Never throw. It resolves `true` only when a workout was actually written;
+   failure logs and leaves the flag false, which is exactly what the summary
+   renders as its retry state.
 
 A module-level in-flight set keyed by `runId` makes concurrent calls (auto-save
 racing a button tap) idempotent.

@@ -34,6 +34,14 @@ tags:
 # Granted but stationary → zero distance: the derived tiles and the splits card stay out.
 - assertNotVisible: "Distance"
 - assertNotVisible: "Interval Pace"
+# The Health row (Task 8) is the summary's last card, below the legend just scrolled to. Every
+# onboarding path in this suite dismisses the health primer with "Not Now", so authorization stays
+# notDetermined and the row renders its save button. Assert-only, never tapped: tapping it would
+# raise the system HealthKit sheet, which simctl has no `health` service to pre-answer and which
+# Maestro's driver cannot reliably drive (task 10 brief; mirrors health-primer-skip.yaml).
+- scrollUntilVisible:
+    element:
+      text: "Save to Apple Health"
 - tapOn: "Close"
 - tapOn: "Log"
 - scrollUntilVisible:

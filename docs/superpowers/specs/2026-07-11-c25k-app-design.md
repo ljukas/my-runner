@@ -82,7 +82,7 @@ src/
     ├── run-engine/         #   timestamp state machine (the heart)
     ├── location-tracker/   #   expo-location wrapper + module-scope TaskManager task
     ├── cue-service/        #   audio session + TTS behind swappable interface
-    └── health/             #   HealthAdapter port + healthkit.ios.ts adapter
+    └── health/             #   HealthAdapter port + adapter.ios.ts adapter
 ```
 
 **Data flow during a run:** background location task fires ~1/s → `RunEngine.heartbeat(now, fix)` → derives current segment from wall-clock → on derived-segment change fires `CueService.announce()` → persists snapshot + batches GPS points → notifies UI via `useSyncExternalStore`. Plan/History screens never touch the engine; they read SQLite through `useLiveQuery`, so a finished run refreshes them automatically.
@@ -198,7 +198,7 @@ Every platform-touching capability sits behind a small TS interface owned by `se
 
 | Port | iOS adapter (v1) | Android adapter (later) |
 |---|---|---|
-| `HealthAdapter` — `isAvailable()`, `requestWriteAccess()`, `saveRun(run, segments, points)` | HealthKit via `@kingstinct/react-native-healthkit` | Health Connect via `react-native-health-connect` |
+| `HealthAdapter` — `isAvailable()`, `getAuthorization()`, `requestWriteAccess()`, `saveRun(input)` | HealthKit via `@kingstinct/react-native-healthkit` | Health Connect via `react-native-health-connect` |
 | `CueService` — `prepare()`, `announce(cue)`, `release()` | expo-speech over expo-audio session | same libs; Android audio-focus config isolated here |
 | `LocationTracker` — `start()`, `stop()`, `onFix(cb)` | expo-location, When-In-Use + background indicator | same lib; foreground-service notification config isolated here |
 | `RouteMap` (component port) | `AppleMaps.View` (expo-maps) | `GoogleMaps.View` (expo-maps; API key needed then) |

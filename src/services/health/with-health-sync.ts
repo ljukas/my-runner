@@ -7,7 +7,7 @@ import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run
  */
 export function withHealthSync(
   base: RunLifecyclePersistence,
-  // why Promise<unknown>, not Promise<void>: it has to accept syncRunToHealth's Promise<boolean>
+  // why Promise<unknown>, not Promise<void>: it has to accept syncRunToHealth's Promise<HealthSyncResult>
   // directly — fireSync only ever awaits the promise to catch a rejection, never its resolved value.
   sync: (runId: string) => void | Promise<unknown>,
 ): RunLifecyclePersistence {

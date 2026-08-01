@@ -55,9 +55,12 @@ and npm):
 v14 (+ react-native-nitro-modules), fully boxed behind the `HealthAdapter`
 port.**
 
-1. **Port contract (ADR 0003):** `isAvailable()`, `requestWriteAccess()`,
-   `saveRun(run, segments, points)` — callers never see HealthKit types.
-   The iOS adapter is the only file importing the library.
+1. **Port contract (ADR 0003):** `isAvailable()`, `getAuthorization()`,
+   `requestWriteAccess()`, `saveRun(input)` — one pre-built
+   `HealthWorkoutInput` payload assembled by `domain/health.ts`'s
+   `toHealthWorkout(run, segments, fixes)`, not three positional arguments;
+   callers never see HealthKit types. The iOS adapter is the only file
+   importing the library.
 2. **Write-only authorization:** `toShare: [workout, workoutRoute,
    distanceWalkingRunning]`, no read permissions ever. (Corrected 2026-08-01 —
    `activeEnergyBurned` was dropped; see the amendment.) The privacy story

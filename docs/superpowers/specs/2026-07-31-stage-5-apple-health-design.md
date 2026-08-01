@@ -26,7 +26,7 @@ has existed since `0000_init.sql` and has been unused until now.
 | Backfill | **None.** Auto-save fires on *finish*, never on revisit. A pre-opt-in run is pushed to Health only when the user taps the button on its summary. |
 | Save trigger | A **persistence decorator at the composition root** (§4.4). The run engine is not modified. |
 | Control model | **A reporting row, not a toggle.** Supersedes master spec §8's "Apple Health toggle (triggers authorization)": iOS never lets an app revoke its own HealthKit grant, so a switch the user can turn off but not back on would be a lie. HealthKit's own authorization status is the single source of truth. |
-| Deep link | Each permission row carries a button that takes the user *to* the relevant settings surface rather than asking them to navigate. The Health destination is a verification item (§7.2). |
+| Deep link | Each permission row carries a button that takes the user *to* the relevant settings surface rather than asking them to navigate. **Resolved (2026-08-01):** the Health destination is `x-apple-health://`, with `openSettings()` kept as fallback (§7.2). |
 | Onboarding | One appended step, `health-primer-v1`. **No just-in-time prompt** — the summary's own button is the second chance, and it is user-initiated rather than a system prompt interrupting a celebration. |
 | Workout time range | **True wall clock**, so a paused run reads longer in Health than in the app (§5.4). The alternative puts route points outside the workout's own window. |
 | Privacy policy | **Placeholder only.** HealthKit obliges one for App Review; the app is not being submitted in this slice. |
@@ -172,6 +172,8 @@ src/services/health/
 ├── adapter.ios.ts                    # the ONLY file importing @kingstinct/react-native-healthkit
 ├── index.ts                          # composition seam: syncRunToHealth policy
 ├── sync.ts                           # DB read → map → save → flip healthkit_saved
+├── with-health-sync.ts               # persistence decorator: fires sync after the local write commits
+├── open-health-app.ts                # Settings deep link: x-apple-health://, openSettings() fallback
 └── use-health-authorization.ts       # AppState-refreshing status hook
 src/components/health-status-row.tsx  # summary surface
 src/app/onboarding/health.tsx         # primer step
@@ -210,6 +212,7 @@ export interface HealthWorkoutInput {
   totalDistanceM: number | null;
   segmentSamples: readonly HealthDistanceSample[];  // { startedAt, endedAt, meters }
   route: readonly HealthRoutePoint[];               // all eight fields populated
+  syncIdentifier: string;                           // the run's own id — HealthKit's retry-idempotency key (§11)
 }
 ```
 
@@ -235,12 +238,17 @@ so `domain/` keeps its independence from `db/`.
    never `useLiveQuery` on `run_points`, ADR 0004 §3).
 3. Map via `domain/health.ts`, call `adapter.saveRun`, then set
    `healthkit_saved = true` and re-stamp `updated_at`.
-4. Never throw. It resolves `true` only when a workout was actually written;
-   failure logs and leaves the flag false, which is exactly what the summary
-   renders as its retry state.
+4. Never throws. Resolves a `HealthSyncResult`: `'saved'` on a real write;
+   `'skipped'` when not authorized, already saved, or the run isn't a
+   finalized row yet; `'busy'` when another call for this run is already
+   in flight; `'failed'` only when the write itself threw and left the flag
+   false. Only `'failed'` names an actual problem — a caller must not treat a
+   collapsed concurrent call or a deliberate no-op as a failure, which is
+   exactly why the summary's retry state reacts to `'failed'` alone.
 
 A module-level in-flight set keyed by `runId` makes concurrent calls (auto-save
-racing a button tap) idempotent.
+racing a button tap) idempotent: the losing call resolves `'busy'` rather than
+retrying, erroring, or writing a second workout.
 
 ### 4.4 The trigger: a persistence decorator
 
@@ -249,13 +257,19 @@ composes the engine's ports; the Health save is layered there:
 
 ```ts
 export const runEngine = new RunEngine({
-  persistence: withHealthSync(dbRunPersistence),
+  persistence: withHealthSync(dbRunPersistence, syncRunToHealth),
   …
 });
 ```
 
-`withHealthSync` wraps `saveRun` and `finalizeRun`, firing
-`void syncRunToHealth(runId)` after the local write resolves. Consequences:
+`withHealthSync` wraps `saveRun` and `finalizeRun`, calling `syncRunToHealth`
+after the local write resolves. `syncRunToHealth` is passed as a bare function
+reference, not wrapped as `(runId) => void syncRunToHealth(runId)`: that
+wrapping form discards the promise before it reaches `withHealthSync`'s own
+`fireSync`, so a rejection becomes an unhandled rejection instead of the
+logged warning `fireSync`'s `.catch` is there to produce — a regression this
+slice found and fixed, with a test in `with-health-sync.test.ts` guarding it.
+Consequences:
 
 - The local save always precedes the Health call, structurally rather than by
   convention (ADR 0011 §4).
@@ -305,11 +319,21 @@ samples.
 
 Per §3.1(4), the adapter **must always** pass
 `totals: { distance: totalDistanceM }` whenever it passes segment samples,
-or the workout's total silently becomes the last segment's distance. This is
-enforced by construction (the adapter builds both from the same input),
-documented with a `// why:` at the call site, and covered by a unit test
-asserting that a multi-segment input yields a total equal to the run distance
-rather than the final segment's.
+or the workout's total silently becomes the last segment's distance. The
+adapter's own code is a plain conditional —
+`input.totalDistanceM != null ? { distance: input.totalDistanceM } : undefined`
+— so by itself it only guarantees `totals` travels alongside whatever
+`totalDistanceM` it was handed, documented with a `// why:` at the call site.
+The invariant that a run *always has* a total whenever it has segment
+distances is guaranteed upstream of the port, not inside it:
+`smoothTrackBySegment` (`domain/geo.ts`) and the single rollup in
+`finalizeRun` (`db/save-run.ts`) derive the run total and every per-segment
+distance from the same `hasPoints` gate, so the two can never diverge before
+`toHealthWorkout` builds the payload. The only automated coverage is a unit
+test on the pure mapper `toHealthWorkout` asserting a multi-segment input
+yields a total equal to the run distance rather than the final segment's —
+the adapter itself has no test, since it imports the native HealthKit module
+and cannot load under `bun test`.
 
 ### 5.4 Duration and pauses — an accepted discrepancy
 
@@ -444,7 +468,7 @@ correct route, and the deny → later-enable path.
 
 ## 10. Documentation impact
 
-- **ADR 0011** — amended 2026-07-31: drop `activeEnergyBurned` with its
+- **ADR 0011** — amended 2026-08-01: drop `activeEnergyBurned` with its
   rationale; record that Apple's segmentation is blocked on `master` too, so
   "own a small native module" stays the documented escape hatch rather than a
   rejected option; add the `totals` overwrite, dropped per-sample metadata, and
@@ -482,13 +506,11 @@ correct route, and the deny → later-enable path.
    affordance to force a retry, or a direct DB flip plus a device-side Health
    comparison before/after. Recorded honestly as open, not assumed to work
    because the identifier mechanism is standard.
-2. **The deep-link destination is unresolved** (§7.2) — mitigated by a
-   pre-decided fallback.
-3. **Library staleness in the write path.** Pinned, boxed behind one adapter
+2. **Library staleness in the write path.** Pinned, boxed behind one adapter
    file, and non-blocking; ADR 0011 already prices this. The confirmed
    `master`-level stagnation of workout events is a mild negative signal worth
    revisiting at the next SDK bump.
-4. **Nitro modules enter the tree.** First use in this app; the `e2e-simulator`
+3. **Nitro modules enter the tree.** First use in this app; the `e2e-simulator`
    build must be rebuilt from scratch to prove it links.
 
 ## 12. Out of scope

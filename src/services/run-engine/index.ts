@@ -6,6 +6,7 @@ import { dbRunPersistence } from '@/db/save-run';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
+import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
@@ -15,7 +16,7 @@ import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resum
 export { endCountsAsCompleted } from './engine';
 
 export const runEngine = new RunEngine({
-  persistence: dbRunPersistence,
+  persistence: withHealthSync(dbRunPersistence, (runId) => void syncRunToHealth(runId)),
   cue: cueService,
   runStore: dbRunStore,
   tracker: locationTracker,

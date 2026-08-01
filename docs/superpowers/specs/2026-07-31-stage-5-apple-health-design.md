@@ -185,9 +185,10 @@ src/app/onboarding/health.tsx         # primer step
 export type HealthAuthorization = 'authorized' | 'denied' | 'notDetermined' | 'unavailable';
 
 export interface HealthAdapter {
-  /** False on a device without HealthKit; every other member is then a no-op. */
-  isAvailable(): boolean;
-  /** Share status for the workout type. Synchronous — the underlying API is. */
+  /** Share status for the workout type; `'unavailable'` on a device without HealthKit — device
+   *  availability folds into this return rather than a separate isAvailable() (dropped
+   *  2026-08-01: no caller ever needed it apart from what this already reports). Synchronous —
+   *  the underlying API is. */
   getAuthorization(): HealthAuthorization;
   /** Prompts if still undetermined, then re-reads the real status. */
   requestWriteAccess(): Promise<HealthAuthorization>;
@@ -231,9 +232,10 @@ so `domain/` keeps its independence from `db/`.
 
 `syncRunToHealth(runId)` in `src/services/health/sync.ts`:
 
-1. Return immediately unless `isAvailable()` **and**
-   `getAuthorization() === 'authorized'`. A denial is respected silently — no
-   prompt, no error, flag untouched (ADR 0011 §4).
+1. Return immediately unless `getAuthorization() === 'authorized'` — which
+   already folds device unavailability into `'unavailable'`, so no separate
+   check is needed. A denial is respected silently — no prompt, no error,
+   flag untouched (ADR 0011 §4).
 2. Read the run row, its segments, and its fixes (`loadRunFixes`, imperative —
    never `useLiveQuery` on `run_points`, ADR 0004 §3).
 3. Map via `domain/health.ts`, call `adapter.saveRun`, then set
@@ -487,12 +489,15 @@ correct route, and the deny → later-enable path.
    unverified.** If `saveWorkoutSample` succeeds and `saveWorkoutRoute` fails,
    the flag stays false and the run is retryable. This is **no longer an
    accepted risk**: `saveRun` tags the workout and every per-segment sample
-   with `HKSyncIdentifier` / `HKSyncVersion` metadata keyed on the run id, so
-   a retry replaces the workout instead of duplicating it — HealthKit's
-   documented behaviour for a repeated sync identifier. (The keys are the
-   library's actual serialized string names, not the `HKMetadataKeySyncIdentifier`
-   Swift constant this risk originally named — see AGENTS.md's Context7
-   warning.)
+   with `HKSyncIdentifier` / `HKSyncVersion` metadata keyed on the run id —
+   the version stamped fresh via `Date.now()` on every call, since
+   `HKMetadata.h` only replaces a stored object under a repeated sync
+   identifier when the new save's version is strictly *greater* than what's
+   stored (a fixed version, as this originally shipped, can never clear that
+   bar on a same-release retry) — so a retry replaces the workout instead of
+   duplicating it. (The keys are the library's actual serialized string
+   names, not the `HKMetadataKeySyncIdentifier` Swift constant this risk
+   originally named — see AGENTS.md's Context7 warning.)
 
    **Verified on the simulator (2026-08-01):** tagging every per-segment
    sample with the same identifier as the workout does not collapse them —

@@ -14,14 +14,24 @@ export function withHealthSync(
   // why: a `sync` failure must never read back as the local write failing (ADR 0011 §4) — a run that
   // already committed locally has to stay a success regardless of whether `sync` throws synchronously
   // or returns a rejected promise. Both are caught and logged here, never left to the caller.
+  //
+  // why setTimeout, not called inline: `sync`'s synchronous prefix (DB reads across the whole run,
+  // before its own first await) would otherwise run on the JS thread inside this call, delaying
+  // whatever the caller does right after `saveRun`/`finalizeRun` resolves — here, the engine's
+  // markSaved()/emit() and the navigation to the summary screen. A microtask defer (e.g. a bare
+  // `Promise.resolve().then(...)`) isn't enough: it would still run before those continuations,
+  // since it gets queued ahead of them. Only yielding to the next macrotask actually lets this
+  // "never blocking" decorator keep its promise.
   function fireSync(runId: string): void {
-    try {
-      void Promise.resolve(sync(runId)).catch((error: unknown) => {
+    setTimeout(() => {
+      try {
+        void Promise.resolve(sync(runId)).catch((error: unknown) => {
+          console.warn('[health] sync failed', error);
+        });
+      } catch (error) {
         console.warn('[health] sync failed', error);
-      });
-    } catch (error) {
-      console.warn('[health] sync failed', error);
-    }
+      }
+    }, 0);
   }
 
   return {

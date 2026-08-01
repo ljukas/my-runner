@@ -20,7 +20,6 @@ function mockDeps(requestWriteAccess: () => Promise<HealthAuthorization>) {
     healthAdapter: {
       getAuthorization: () => 'notDetermined',
       requestWriteAccess,
-      isAvailable: () => true,
       saveRun: async () => {},
     },
   }));
@@ -57,5 +56,32 @@ describe('requestWriteAccess (composition seam, finding 2)', () => {
 
     await requestWriteAccess();
     expect(calls).toBe(0);
+  });
+
+  // Finding 2: this seam is the one place every caller goes through (settings' two onPress
+  // handlers, the onboarding primer) — none of them catch, so a native rejection has to be
+  // swallowed and logged here, not left to become an unhandled rejection at each call site.
+  test('catches and logs a rejection instead of throwing, and does not notify', async () => {
+    mockDeps(() => Promise.reject(new Error('native bridge unavailable')));
+
+    const { requestWriteAccess } = await import('./index');
+    const { subscribeAuthorizationChange } = await import('./use-health-authorization');
+
+    let notified = false;
+    subscribeAuthorizationChange(() => (notified = true));
+
+    const original = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => void warnings.push(args);
+    let status: HealthAuthorization;
+    try {
+      status = await requestWriteAccess();
+    } finally {
+      console.warn = original;
+    }
+
+    expect(status).toBe('notDetermined');
+    expect(warnings.length).toBe(1);
+    expect(notified).toBe(false);
   });
 });

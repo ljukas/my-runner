@@ -55,12 +55,12 @@ and npm):
 v14 (+ react-native-nitro-modules), fully boxed behind the `HealthAdapter`
 port.**
 
-1. **Port contract (ADR 0003):** `isAvailable()`, `getAuthorization()`,
-   `requestWriteAccess()`, `saveRun(input)` — one pre-built
-   `HealthWorkoutInput` payload assembled by `domain/health.ts`'s
-   `toHealthWorkout(run, segments, fixes)`, not three positional arguments;
-   callers never see HealthKit types. The iOS adapter is the only file
-   importing the library.
+1. **Port contract (ADR 0003):** `getAuthorization()`, `requestWriteAccess()`,
+   `saveRun(input)` — one pre-built `HealthWorkoutInput` payload assembled by
+   `domain/health.ts`'s `toHealthWorkout(run, segments, fixes)`, not three
+   positional arguments; callers never see HealthKit types. The iOS adapter
+   is the only file importing the library. (Corrected 2026-08-01 — an
+   `isAvailable()` member was dropped; see the amendment.)
 2. **Write-only authorization:** `toShare: [workout, workoutRoute,
    distanceWalkingRunning]`, no read permissions ever. (Corrected 2026-08-01 —
    `activeEnergyBurned` was dropped; see the amendment.) The privacy story
@@ -164,7 +164,7 @@ are corrected in place; this section explains where and why.
    maintenance tax.
 
 3. **Two traps in the save path, load-bearing for anyone touching
-   `adapter.ios.tsx` again.** `totalDistance` is overwritten by *every*
+   `adapter.ios.ts` again.** `totalDistance` is overwritten by *every*
    metre-compatible sample passed to `saveWorkoutSample`
    (`WorkoutsModule.swift:116-117`), so `totals.distance` is not optional
    whenever segment samples are passed — omit it and the workout's total
@@ -192,10 +192,16 @@ are corrected in place; this section explains where and why.
 6. **The duplicate-workout risk this ADR left open is now closed by
    construction, with one half still unverified.** `saveRun` tags the workout
    and every per-segment sample with `HKSyncIdentifier` / `HKSyncVersion`
-   metadata keyed on the run id, so a retry after a partial failure replaces
-   the workout instead of duplicating it — HealthKit's documented behaviour
-   for a repeated sync identifier. That raised a question the implementation
-   first flagged as unverified: since every per-segment sample now carries
+   metadata keyed on the run id, the version stamped fresh via `Date.now()`
+   on every call. That last part is load-bearing, not incidental: `HKMetadata.h`
+   only replaces a stored object under a repeated sync identifier when the new
+   save's version is strictly *greater* than what's stored — a version fixed
+   across releases (as this originally shipped, tagged `1` unconditionally)
+   can never satisfy that on a retry within the same release, so the replace
+   path would never fire. With a version that increases on every save, a
+   retry after a partial failure replaces the workout instead of duplicating
+   it, as HealthKit documents for a repeated sync identifier. That raised a
+   question the implementation first flagged as unverified: since every per-segment sample now carries
    the *same* identifier as the workout and each other, would HealthKit
    collapse them into one? **Verified on the simulator (2026-08-01): no** —
    all 17 samples from a real multi-segment run survived individually,

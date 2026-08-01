@@ -8,7 +8,6 @@ export type HealthAuthorization = 'authorized' | 'denied' | 'notDetermined' | 'u
  * callers never see HealthKit types. Denial degrades silently — nothing is written, nothing throws.
  */
 export interface HealthAdapter {
-  isAvailable(): boolean;
   /** Synchronous, because the underlying HealthKit call is. */
   getAuthorization(): HealthAuthorization;
   /** Prompts when still undetermined, then reports the status iOS actually recorded. */

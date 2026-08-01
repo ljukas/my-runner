@@ -35,6 +35,11 @@ async function withCapturedWarnings(body: () => Promise<void>): Promise<unknown[
   return warnings;
 }
 
+/** Lets fireSync's deferred setTimeout(0) fire before asserting on its effects (finding 4). */
+function flushMacrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('withHealthSync', () => {
   test('syncs the id saveRun returned, and still returns it', async () => {
     const synced: string[] = [];
@@ -42,6 +47,7 @@ describe('withHealthSync', () => {
       synced.push(runId);
     }).saveRun(record);
     expect(id).toBe('saved-id');
+    await flushMacrotasks();
     expect(synced).toEqual(['saved-id']);
   });
 
@@ -50,6 +56,7 @@ describe('withHealthSync', () => {
     await withHealthSync(fakeBase(), (runId) => {
       synced.push(runId);
     }).finalizeRun('run-7', record);
+    await flushMacrotasks();
     expect(synced).toEqual(['run-7']);
   });
 
@@ -64,7 +71,22 @@ describe('withHealthSync', () => {
     await withHealthSync(base, () => {
       order.push('health');
     }).finalizeRun('run-7', record);
+    await flushMacrotasks();
     expect(order).toEqual(['local', 'health']);
+  });
+
+  // Regression for finding 4: fireSync used to run sync's synchronous prefix inline, so it — and
+  // whatever real work `sync` does before its own first await (DB reads across the whole run) —
+  // blocked the caller's own next steps (the engine's markSaved()/emit() and the summary
+  // navigation) in the same tick. It must not have fired by the time finalizeRun/saveRun resolve.
+  test('defers the sync call past the current turn, so it never blocks the caller', async () => {
+    const synced: string[] = [];
+    await withHealthSync(fakeBase(), (runId) => {
+      synced.push(runId);
+    }).finalizeRun('run-7', record);
+    expect(synced).toEqual([]);
+    await flushMacrotasks();
+    expect(synced).toEqual(['run-7']);
   });
 
   test('does not sync when the local write fails', async () => {
@@ -101,6 +123,8 @@ describe('withHealthSync', () => {
     });
     const warnings = await withCapturedWarnings(async () => {
       await expect(wrapped.saveRun(record)).resolves.toBe('saved-id');
+      // the throw now happens inside fireSync's deferred setTimeout, so it hasn't run yet.
+      await flushMacrotasks();
     });
     expect(warnings.length).toBe(1);
   });
@@ -111,6 +135,7 @@ describe('withHealthSync', () => {
     });
     const warnings = await withCapturedWarnings(async () => {
       await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
+      await flushMacrotasks();
     });
     expect(warnings.length).toBe(1);
   });
@@ -123,8 +148,8 @@ describe('withHealthSync', () => {
     const wrapped = withHealthSync(fakeBase(), () => Promise.reject(new Error('health down')));
     const warnings = await withCapturedWarnings(async () => {
       await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
-      // let the rejected sync promise's own microtask/catch settle before asserting nothing escaped.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      // let fireSync's deferred call run, then its rejected promise's own catch settle.
+      await flushMacrotasks();
     });
 
     process.off('unhandledRejection', onUnhandledRejection);
@@ -148,7 +173,7 @@ describe('withHealthSync', () => {
 
     const warnings = await withCapturedWarnings(async () => {
       await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await flushMacrotasks();
     });
 
     process.off('unhandledRejection', onUnhandledRejection);

@@ -15,9 +15,6 @@ const WORKOUT_TYPE = 'HKWorkoutTypeIdentifier';
 const ROUTE_TYPE = 'HKWorkoutRouteTypeIdentifier';
 const DISTANCE_TYPE = 'HKQuantityTypeIdentifierDistanceWalkingRunning';
 
-// Bump only if the shape of what gets synced under a given syncIdentifier changes meaningfully.
-const SYNC_VERSION = 1;
-
 // why: these are the library's *serialized* metadata keys, not the Apple constant names
 // (HKMetadataKeySyncIdentifier/HKMetadataKeySyncVersion) — per its README, HealthKit metadata key
 // constants and their raw string values differ, and the raw value is what has to go in this map.
@@ -39,7 +36,6 @@ function currentAuthorization(): HealthAuthorization {
 }
 
 export const healthAdapter: HealthAdapter = {
-  isAvailable: () => isHealthDataAvailable(),
   getAuthorization: currentAuthorization,
 
   async requestWriteAccess(): Promise<HealthAuthorization> {
@@ -57,9 +53,13 @@ export const healthAdapter: HealthAdapter = {
     // per-segment sample (:133), so every segment below carries the identical identifier too.
     // Verified on-device (2026-08-01): this does not collapse the samples — all 17 survived
     // individually in Health's "Show All Data" list (design spec §3.1).
+    // why Date.now(): HealthKit only replaces a stored object under a repeated sync identifier
+    // when the new save's HKSyncVersion is strictly GREATER than what's stored (HKMetadata.h) — it's
+    // a per-save revision counter, not a payload-schema tag, so a version fixed across releases can
+    // never satisfy a same-release retry. Date.now() always exceeds any previously written value.
     const metadata: AnyMap = {
       [SYNC_IDENTIFIER_KEY]: input.syncIdentifier,
-      [SYNC_VERSION_KEY]: SYNC_VERSION,
+      [SYNC_VERSION_KEY]: Date.now(),
     };
 
     const workout = await saveWorkoutSample(

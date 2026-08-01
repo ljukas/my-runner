@@ -15,11 +15,8 @@ export default function HealthPrimerScreen() {
       buttonLabel="Connect Apple Health"
       secondaryLabel="Not Now"
       onPrimaryPress={async (advance) => {
-        try {
-          await requestWriteAccess();
-        } catch (error) {
-          console.warn('[onboarding] health prompt failed', error);
-        }
+        // requestWriteAccess catches and logs its own failures (the composition seam, ADR 0011).
+        await requestWriteAccess();
         // A denial advances exactly like "Not Now" — Health is optional (ADR 0011 §4).
         advance();
       }}

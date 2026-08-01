@@ -25,12 +25,15 @@ Deleting the app deletes this data.
 
 RunBro uses your location only while a run is in progress, to measure distance
 and record your route, and only with "While Using the App" permission. Your
-location never leaves your device.
+location stays on your device, except where you ask it to be written to Apple
+Health — see below.
 
 ## Apple Health
 
 If you allow it, RunBro writes finished runs to Apple Health as workouts, with
-their duration, distance, and route.
+their duration, distance, and route. From there, Health governs the data like
+any other workout you've saved to it — including syncing it via iCloud and
+sharing it with any other app you've separately given access to.
 
 RunBro only ever **writes** to Apple Health. It requests no read access and
 never reads your health data — not your steps, not your heart rate, nothing.

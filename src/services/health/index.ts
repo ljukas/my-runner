@@ -2,9 +2,8 @@ import { healthAdapter } from './adapter';
 import type { HealthAuthorization } from './port';
 import { notifyAuthorizationChanged } from './use-health-authorization';
 
-export type { HealthAdapter, HealthAuthorization } from './port';
+export type { HealthAuthorization } from './port';
 
-export { healthAdapter } from './adapter';
 export { openHealthApp } from './open-health-app';
 export { isHealthSyncFailure, syncRunToHealth, type HealthSyncResult } from './sync';
 export { useHealthAuthorization } from './use-health-authorization';
@@ -17,7 +16,15 @@ export { withHealthSync } from './with-health-sync';
  * `useHealthAuthorization` finds out too (finding 2).
  */
 export async function requestWriteAccess(): Promise<HealthAuthorization> {
-  const status = await healthAdapter.requestWriteAccess();
-  notifyAuthorizationChanged();
-  return status;
+  try {
+    const status = await healthAdapter.requestWriteAccess();
+    notifyAuthorizationChanged();
+    return status;
+  } catch (error) {
+    // why caught here, not left to callers: this is the one seam every caller goes through (see
+    // above) — catching here instead of at each call site is what makes every caller safe by
+    // construction, including ones with no catch of their own.
+    console.warn('[health] requestWriteAccess failed', error);
+    return 'notDetermined';
+  }
 }

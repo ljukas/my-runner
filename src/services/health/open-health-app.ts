@@ -11,6 +11,10 @@ export async function openHealthApp(): Promise<void> {
   try {
     await Linking.openURL('x-apple-health://');
   } catch {
-    await Linking.openSettings();
+    try {
+      await Linking.openSettings();
+    } catch (error) {
+      console.warn('[health] openHealthApp fallback failed', error);
+    }
   }
 }

@@ -1,14 +1,20 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Completes all three onboarding steps, dismissing the location primer with "Not Now".
-# Callers that need location pre-grant it via launchApp (see launch-and-onboard.yaml); the primer's
-# own two CTAs are owned by tests/location-primer-allow.yaml and tests/location-primer-deny.yaml.
+# Completes all four onboarding steps, dismissing the location and health primers with "Not Now".
+# Callers that need location pre-grant it via launchApp (see launch-and-onboard.yaml); the location
+# primer's own two CTAs are owned by tests/location-primer-allow.yaml and
+# tests/location-primer-deny.yaml.
 - runFlow: onboarding-to-primer.yaml
 # Skip the primer: every caller stubs the location answer on its own launchApp, so tapping
 # "Enable Location" here would only re-read an answer iOS has already recorded.
 # tests/location-permission.yaml owns the primer's own CTA. "Not Now" is an exact element
 # text — the footnote that repeats the words is one long string, and Maestro matches text as
 # an anchored full match (ADR 0016).
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Not Now"
+      - assertVisible: "Your runs, in Apple Health" # health primer follows the location primer
 - retry:
     maxRetries: 3
     commands:

@@ -1,0 +1,32 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - onboarding
+---
+# The health primer's "Not Now" path, and the Settings row that reports it. The "Connect Apple
+# Health" CTA is deliberately never tapped: simctl has no `health` privacy service to pre-seed a
+# grant, and the authorization sheet belongs to HealthPrivacyService.app, a different process
+# Maestro's driver cannot reliably drive — tapping it would hang the flow (mirrors ADR 0001's
+# GPS-motion amendment: no flow for what the harness cannot reach).
+- launchApp:
+    clearState: true
+    permissions:
+      location: inuse
+- runFlow: ../helpers/onboarding-to-primer.yaml
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Enable Location"
+      - assertVisible: "Your runs, in Apple Health" # the location answer advances to the health primer
+- assertVisible: "Connect Apple Health" # asserted, never tapped — see header comment
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Not Now"
+      - assertVisible: "Week 1 ·.*" # skipping advances into the app
+- tapOn: "Settings"
+# LabeledContent merges label and value into one element ("Access, <value>"), so match the value
+# as a suffix — Maestro anchors text as a full match (ADR 0016).
+- scrollUntilVisible:
+    element:
+      text: ".*Not Set Up"
+- assertVisible: "Set Up Apple Health" # asserted, never tapped — see header comment

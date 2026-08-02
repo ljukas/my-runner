@@ -57,7 +57,7 @@ artifacts users actually notice are removed.**
    passes the **accuracy gate only** (`accuracy > 0 && ≤ 50 m`, the existing
    `accuracyFilter`) — points-as-spine (ADR 0004). Smoothing is layered on top
    at derivation time, never stored destructively. So Apple Health (ADR 0011,
-   `saveRun(run, segments, points)`) and the map both receive real GPS; the app's
+   via `saveRun`) and the map both receive real GPS; the app's
    own rendered line is the DP-simplified smoothed track (§6), so it will look
    marginally cleaner than a raw Health-app route — accepted.
 2. **Smoothing pipeline (pure, in `domain/geo.ts`):** (a) accuracy gate (above);

@@ -82,7 +82,7 @@ src/
     ├── run-engine/         #   timestamp state machine (the heart)
     ├── location-tracker/   #   expo-location wrapper + module-scope TaskManager task
     ├── cue-service/        #   audio session + TTS behind swappable interface
-    └── health/             #   HealthAdapter port + healthkit.ios.ts adapter
+    └── health/             #   HealthAdapter port + adapter.ios.ts adapter
 ```
 
 **Data flow during a run:** background location task fires ~1/s → `RunEngine.heartbeat(now, fix)` → derives current segment from wall-clock → on derived-segment change fires `CueService.announce()` → persists snapshot + batches GPS points → notifies UI via `useSyncExternalStore`. Plan/History screens never touch the engine; they read SQLite through `useLiveQuery`, so a finished run refreshes them automatically.
@@ -198,7 +198,7 @@ Every platform-touching capability sits behind a small TS interface owned by `se
 
 | Port | iOS adapter (v1) | Android adapter (later) |
 |---|---|---|
-| `HealthAdapter` — `isAvailable()`, `requestWriteAccess()`, `saveRun(run, segments, points)` | HealthKit via `@kingstinct/react-native-healthkit` | Health Connect via `react-native-health-connect` |
+| `HealthAdapter` — `getAuthorization()`, `requestWriteAccess()`, `saveRun(input)` | HealthKit via `@kingstinct/react-native-healthkit` | Health Connect via `react-native-health-connect` |
 | `CueService` — `prepare()`, `announce(cue)`, `release()` | expo-speech over expo-audio session | same libs; Android audio-focus config isolated here |
 | `LocationTracker` — `start()`, `stop()`, `onFix(cb)` | expo-location, When-In-Use + background indicator | same lib; foreground-service notification config isolated here |
 | `RouteMap` (component port) | `AppleMaps.View` (expo-maps) | `GoogleMaps.View` (expo-maps; API key needed then) |
@@ -235,17 +235,18 @@ Per-screen (SwiftUI = `@expo/ui` inside a `Host`; research-verified stable in SD
 - **Run summary** — congratulations header, SwiftUI `Form`/`LabeledContent` stats (duration, distance, avg pace, per-segment table), **RouteMap card** (RN island): one expo-maps polyline per segment chunk, coloured by the **4-kind palette** (`useSegmentColors()`: warmup, run, walk, cooldown) and **double-encoded with stroke width**, so phase never rests on hue alone — superseding the earlier accent/muted wording — plus start/finish markers and a camera fitted to the route with margin. **No direction arrows** (built in Stage 4, then removed: the markers carry direction on their own). Tapping the card opens the full-screen viewer at `runs/[runId]/route`; a run with no mappable route shows an explanatory card in the card's place, never a map of the user's home and never silence. Apple Health save status row, including the `healthkit_saved` retry (§9). Dismissed by the toolbar `xmark` ("Close") or the page sheet's swipe-down → Plan. **No bottom "Done" button** (built in the 2026-07-16 revamp, then removed 2026-07-30: two exits for one action, and the close button was already the one flows tap).
 - **History** — SwiftUI `List` grouped by week: session key, date, distance, duration, partial badge; swipe-to-delete (soft delete). No per-row map thumbnails in v1 (embedding RN views per SwiftUI row is the documented anti-pattern; revisit with `summary_polyline` + react-native-svg in an RN list if wanted later).
 - **Run detail** — **no second screen (superseded in Stage 4).** The summary above already serves both the fresh finish and a Log revisit, so the map card, the splits list and the "Save to Apple Health" retry all live there; a second screen would have duplicated it. The only route added is the full-screen viewer, `runs/[runId]/route`.
-- **Settings** — SwiftUI `Form`: cue toggles (all cues / milestone cues), Apple Health toggle (triggers authorization), About, Reset all data (destructive confirm via native alert).
+- **Settings** — SwiftUI `Form`: cue toggles (all cues / milestone cues), an Apple Health **reporting row** (not a toggle — iOS never lets an app revoke its own grant, so authorization status is read, never switched; shipped in Stage 5, spec §9), About, Reset all data (destructive confirm via native alert).
 
 **Theming:** the repo's styling system is Uniwind (Tailwind v4 for RN) — RN shells style with `className` tokens from `src/global.css`, via the `className`-based `ThemedText`/`ThemedView` wrappers. SwiftUI trees can't consume Tailwind classes, so they bridge through the JS palette mirror in `src/constants/theme.ts` (`Colors`) via `Host seedColor` + `foregroundColor`/`background` modifiers — one more reason that mirror must stay in sync with `global.css`. One visual system per block — never alternate RN and SwiftUI text within the same cluster.
 
 ## 9. HealthKit integration (behind `HealthAdapter`)
 
-- Library: `@kingstinct/react-native-healthkit` v14 (Nitro/New-Arch, active, config plugin). Write-only: `requestAuthorization({ toShare: [workout, workoutRoute, distanceWalkingRunning, activeEnergyBurned] })`.
+- Library: `@kingstinct/react-native-healthkit` v14 (Nitro/New-Arch, active, config plugin). Write-only: `requestAuthorization({ toShare: [workout, workoutRoute, distanceWalkingRunning] })`. (Amended, Stage 5: `activeEnergyBurned` was dropped — the app has no heart rate and, being write-only, can never read body mass, so any kcal figure would be fabricated, which App Review 5.1.3 forbids.)
 - On run completion (and via retry affordance): `saveWorkoutSample(WorkoutActivityType.running, quantities, start, end, { distance })` → `proxy.saveWorkoutRoute(locations)` (HKWorkoutRouteBuilder under the hood — full GPS route appears in Apple Health).
-- **Limitation (verified in library source):** workout pause/segment *events* are not writable (`workoutEvents: nil` hardcoded). Workaround: attach per-interval `DistanceWalkingRunning` quantity samples; our DB remains the source of truth for the interval structure.
-- Failure handling: run is already saved locally before any Health call; `healthkit_saved` flag + retry affordance; denial is respected silently (toggle stays off).
-- **Where the retry lives (amended, Stage 4).** This section originally put the retry on the run detail screen. That screen was never built — Stage 4 folded the map into the summary instead (§8) — so the affordance belongs on the summary at `runs/[runId]`, which is the surface a Log revisit already opens. Still open: it is unbuilt, and lands with the HealthKit work in Stage 5.
+- **Limitation (verified in library source, and still true on `master`):** workout pause/segment *events* are not writable (`workoutEvents: nil` hardcoded). Workaround: attach per-interval `DistanceWalkingRunning` quantity samples; our DB remains the source of truth for the interval structure.
+- Failure handling: run is already saved locally before any Health call; `healthkit_saved` flag + retry affordance; denial is respected silently (the Settings row simply reports the current status — see §8).
+- **Where the retry lives (amended, Stage 5 — shipped).** This section originally put the retry on the run detail screen. That screen was never built — Stage 4 folded the map into the summary instead (§8) — so the affordance lives on the summary at `runs/[runId]`, which is the surface a Log revisit already opens: the same "Save to Apple Health" button serves both a fresh-finish retry and a deliberate push of a pre-opt-in run.
+- **Duration includes paused time.** The workout is saved with the run's true `started_at`/`ended_at`, so a paused run's Health duration exceeds the app's own `active_duration_s`. The alternative — shrinking the window to match active duration — would place recorded route points outside the workout's own time range, which is worse and semantically false; the discrepancy is accepted and documented rather than hidden (Stage 5 design spec §5.4).
 - App Review 5.1.3: write only real measured values; do not mirror HealthKit-sourced data into any future iCloud sync payload (our data is app-generated workout logs, which is fine).
 
 ## 10. Testing & verification
@@ -333,15 +334,33 @@ V1 ships in **five incremental stages. Each stage is a working, usable app** —
 - E2E: the summary's route card renders for a recorded run, the card opens the viewer and the viewer closes back to an intact summary, and a run with no usable route renders the explanatory card instead. (Polyline pixel-correctness is a visual check.)
 - **Works when:** completed runs show correctly colored routes and splits from real recorded data; stage flows pass.
 
-### Stage 5 — Apple Health + release polish
+### Stage 5 — Apple Health (shipped) + release polish (deferred)
 
-*V1 complete: ecosystem integration and App Store readiness.*
+*Runs appear in Apple Health, with their route.* This stage split in two once
+work started: the Health integration below **shipped** (design spec
+[2026-07-31-stage-5-apple-health-design.md](2026-07-31-stage-5-apple-health-design.md)); the
+release-polish half is a separate, **deferred** slice, so this roadmap does not
+read as complete just because "Stage 5" has a checkmark next to it.
 
-- `HealthAdapter` + `@kingstinct/react-native-healthkit`: write-only auth, workout + GPS route save, `healthkit_saved` flag + retry, Settings toggle.
-- Onboarding: Apple Health opt-in step (explicitly skippable).
-- Polish: glass effects/animations where they earn it, empty states, week-9 graduation celebration, app icon/splash, purpose strings + privacy policy, App Review notes (background-modes justification).
-- E2E: Health opt-in allow/skip paths; full regression suite consolidated as the release gate. (HealthKit save verified manually in the Health app.)
-- **Works when:** a TestFlight build passes the full manual checklist; a run lands in Apple Health with its route map; regression suite green.
+**Health slice (shipped):**
+
+- `HealthAdapter` + `@kingstinct/react-native-healthkit`: write-only auth (`workout`, `workoutRoute`, `distanceWalkingRunning` — no `activeEnergyBurned`, §9), workout + GPS route + per-segment distance samples, `healthkit_saved` flag + retry on the run summary, Settings **reporting row** (§8).
+- Onboarding: `health-primer-v1` step, appended and explicitly skippable.
+- E2E: the primer renders and *Not Now* advances into the app; the Settings section reports a not-authorized state; a summary for an unsaved run shows its button. No flow drives the system authorization sheet — it belongs to another process and cannot be pre-seeded by `simctl` (§10).
+- Manual, on the simulator: grant the permission, complete a session, confirm the workout appears in Health with its route and distance; confirm a denied run stays out and its summary still offers the button.
+- **Works when:** a completed run appears in Apple Health as a running workout with its route and a distance matching the app's summary; a denied run saves locally, shows no Health row, and never prompts; stage flows pass.
+
+**Release-polish slice (deferred, not yet built):**
+
+*V1 complete: App Store readiness.* Glass effects/animations where they earn
+it, empty states, week-9 graduation celebration, app icon/splash, App Review
+notes (background-modes justification), and hosting the privacy policy at a
+reachable public URL and linking it from App Store Connect (`docs/privacy-policy.md`
+ships as an explicit placeholder in the Health slice — App Review requires the
+URL, but this app is not being submitted yet). Full regression suite
+consolidated as the release gate.
+
+- **Works when:** a TestFlight build passes the full manual checklist and the regression suite is green.
 
 ## 14. Out of scope for v1 (designed-for, not built)
 

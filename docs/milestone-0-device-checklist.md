@@ -67,6 +67,15 @@ the run early afterwards.
       system Settings, start a run — the honest banner appears ("Location is
       off"), the timer stays correct, and the banner deep-links to Settings.
       Re-grant afterwards.
+- [ ] **Apple Health deny → enable later (separate launch, optional but
+      cheap):** deny access at the Health primer (or a run summary's button) —
+      the summary shows no Health row and nothing prompts again. Later, from
+      Settings' Apple Health row, follow the link to Health.app
+      (`x-apple-health://`, confirmed working) and grant access there — iOS
+      never lets this app re-prompt directly. The Settings row reflects
+      Authorized on next foreground, and the *next* completed run appears in
+      Health automatically; the previously-denied run stays out of Health
+      (no backfill) but its own summary still offers the button to push it.
 
 ## Part 2 — The 30+ minute locked outdoor run
 
@@ -113,6 +122,10 @@ variant if you want a longer soak.
 - [ ] Battery drain for the session is acceptable (record it — BestForNavigation
       with no deferral is expected to be costly, ADR 0008 Consequences).
 - [ ] No crash, no white screen, nothing lost.
+- [ ] **Apple Health (if authorized):** open Health.app → Browse → Activity →
+      Workouts and confirm this run appears as a Running workout, with a route
+      matching what you ran and a total distance within the same ~5% tolerance
+      as the distance-sanity check above.
 
 ## Part 4 — Kill-mid-run resume (5 min, outdoors — walking is enough)
 

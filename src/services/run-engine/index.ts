@@ -6,6 +6,7 @@ import { dbRunPersistence } from '@/db/save-run';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
+import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
@@ -15,7 +16,11 @@ import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resum
 export { endCountsAsCompleted } from './engine';
 
 export const runEngine = new RunEngine({
-  persistence: dbRunPersistence,
+  // why not `(runId) => void syncRunToHealth(runId)`: that discards the real promise, so fireSync's
+  // own `Promise.resolve(sync(runId)).catch(...)` would await `undefined` and any rejection from
+  // syncRunToHealth would become an unhandled rejection instead of a logged warning. Pass the
+  // function straight through so its promise reaches fireSync.
+  persistence: withHealthSync(dbRunPersistence, syncRunToHealth),
   cue: cueService,
   runStore: dbRunStore,
   tracker: locationTracker,

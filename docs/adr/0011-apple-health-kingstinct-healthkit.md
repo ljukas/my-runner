@@ -6,7 +6,16 @@ Date: 2026-07-11
 
 ## Status
 
-Accepted
+Accepted, **amended 2026-08-01** on shipping the Stage 5 Health slice — see
+[Amendment (2026-08-01)](#amendment-2026-08-01). `activeEnergyBurned` is dropped
+from the write set, the Settings toggle is a reporting row, and the retry lives
+on `runs/[runId]` — corrected in place below. Decision item 5's per-segment
+distance samples were also corrected in place, on a second look at the same
+Health slice the same day: they fragmented the user's distance history rather
+than conveying structure, and the workout now writes a single whole-session
+sample instead — see amendment item 7. Research findings under Context
+are left as the dated 2026-07-11 record of what was believed then, and the
+amendment says where they were wrong or incomplete.
 
 ## Context
 
@@ -50,13 +59,18 @@ and npm):
 v14 (+ react-native-nitro-modules), fully boxed behind the `HealthAdapter`
 port.**
 
-1. **Port contract (ADR 0003):** `isAvailable()`, `requestWriteAccess()`,
-   `saveRun(run, segments, points)` — callers never see HealthKit types.
-   The iOS adapter is the only file importing the library.
+1. **Port contract (ADR 0003):** `getAuthorization()`, `requestWriteAccess()`,
+   `saveRun(input)` — one pre-built `HealthWorkoutInput` payload assembled by
+   `domain/health.ts`'s `toHealthWorkout(run, fixes)`, not positional
+   arguments; callers never see HealthKit types. The iOS adapter
+   is the only file importing the library. (Corrected 2026-08-01 — an
+   `isAvailable()` member was dropped; see the amendment. `toHealthWorkout`
+   originally also took a `segments` argument, dropped along with the
+   per-segment samples in amendment item 7.)
 2. **Write-only authorization:** `toShare: [workout, workoutRoute,
-   distanceWalkingRunning, activeEnergyBurned]`, no read permissions ever.
-   The privacy story stays minimal: the app writes measurements it made; it
-   collects nothing.
+   distanceWalkingRunning]`, no read permissions ever. (Corrected 2026-08-01 —
+   `activeEnergyBurned` was dropped; see the amendment.) The privacy story
+   stays minimal: the app writes measurements it made; it collects nothing.
 3. **Plugin configuration (load-bearing):** `NSHealthUpdateUsageDescription`
    with the spec's purpose string, and **`background: false`** — without it
    the plugin adds a background-delivery entitlement and AppDelegate
@@ -65,13 +79,19 @@ port.**
    SQLite *before* any Health call (ADR 0004); then, non-blocking:
    `saveWorkoutSample` → `proxy.saveWorkoutRoute(locations)`. Success sets
    `healthkit_saved`; failure leaves the flag unset with a retry affordance
-   on the run detail screen. Denial is respected silently — the Settings
-   toggle simply stays off.
-5. **Interval-structure workaround:** since `workoutEvents` is not writable,
-   per-interval `DistanceWalkingRunning` quantity samples are attached to
-   approximate the structure; the app's own DB remains the source of truth
-   for intervals. If the library ever exposes workout events, enriching the
-   save is an adapter-only change.
+   on the run summary (`runs/[runId]`). (Corrected 2026-08-01 — the run
+   detail screen this originally named was never built; see the amendment.)
+   Denial is respected silently — the Settings row simply reports the
+   current status, since iOS never lets an app revoke its own grant.
+5. **Interval-structure workaround — corrected 2026-08-01, see the
+   amendment.** Since `workoutEvents` is not writable, the original decision
+   attached one `DistanceWalkingRunning` quantity sample per segment to
+   approximate the structure. In practice this did not convey structure —
+   HealthKit has no way to label a sample walk-vs-run, so the samples just
+   fragmented the user's distance history — and the workout now carries a
+   single whole-session distance sample instead. The app's own DB remains
+   the source of truth for intervals. If the library ever exposes workout
+   events, enriching the save is an adapter-only change.
 6. **App Review 5.1.3 compliance:** only real measured values are written;
    a privacy policy URL ships with Stage 5; HealthKit-derived data is never
    mirrored into any future export or sync payload (trivially satisfied —
@@ -112,11 +132,14 @@ port.**
   the New Architecture the app runs on; adopting an unmaintained bridge for
   the health-data path is the worst place to accept staleness.
 - **A custom local Expo Module (Swift)** — the policy-pure option: a small
-  `expo-modules-core` Swift module owned in-repo, CNG-compatible. Rejected:
-  write-only workout + route saving still means owning HKWorkoutRouteBuilder
-  semantics, auth flows, and yearly iOS HealthKit churn for zero product
-  difference — a standing maintenance tax against a healthy, pinned,
-  port-boxed dependency. Revisit only if the library dies.
+  `expo-modules-core` Swift module owned in-repo, CNG-compatible. Rejected for
+  v1: write-only workout + route saving still means owning
+  HKWorkoutRouteBuilder semantics, auth flows, and yearly iOS HealthKit churn
+  for zero product difference — a standing maintenance tax against a healthy,
+  pinned, port-boxed dependency. **No longer "revisit only if the library
+  dies"** — see Amendment (2026-08-01) item 2: this is now the documented
+  escape hatch for structured intervals, since the library's stance on
+  `HKWorkoutEvent`/`HKWorkoutActivity` hasn't moved.
 - **Defer Health to v2** — rejected: it is Stage 5's core value and one of
   the cheapest paid-app-parity wins the app has, precisely because it is
   boxed behind a port and non-blocking.
@@ -124,3 +147,97 @@ port.**
   for v1 and the foreseeable future: reading multiplies the privacy surface,
   the App Review burden, and the 5.1.3 mirroring constraints, for features
   the product does not need.
+
+## Amendment (2026-08-01)
+
+Written on shipping the Stage 5 Health slice. Sources are the design spec
+[2026-07-31-stage-5-apple-health-design.md](../superpowers/specs/2026-07-31-stage-5-apple-health-design.md)
+§3, §3.1, §4, §5.3, §7.2 and §11, re-verified against the published `14.0.2`
+tarball and the library's `master` branch, plus manual verification on the
+simulator on 2026-08-01. Decision items 2 and 4 and Alternatives item 2 above
+are corrected in place; this section explains where and why.
+
+1. **`activeEnergyBurned` is dropped from the write set.** The app has no
+   heart rate and, being write-only, can never read body mass — any kcal
+   figure attached to a workout would be fabricated, which App Review 5.1.3
+   forbids. Duration, distance and route only.
+
+2. **Apple's interval representation is blocked upstream, on `master` too —
+   so owning a small native module moves from "rejected" to the documented
+   escape hatch.** `workoutEvents: nil` is hardcoded at all three
+   `HKWorkout.init` call sites (`WorkoutsModule.swift:156,169,184`), unchanged
+   on `master`; `activities` exists only as a read-only getter
+   (`WorkoutProxy.swift:368`). The library has not moved in the direction this
+   ADR hoped for when it deferred the custom-module alternative. That
+   alternative is no longer priced as "revisit only if the library dies" — it
+   is what to reach for if structured intervals in Health are ever worth the
+   maintenance tax.
+
+3. **Two traps in the save path, load-bearing for anyone touching
+   `adapter.ios.ts` again.** `totalDistance` is overwritten by *every*
+   metre-compatible sample passed to `saveWorkoutSample`
+   (`WorkoutsModule.swift:116-117`), so `totals.distance` is not optional
+   whenever segment samples are passed — omit it and the workout's total
+   silently becomes the last segment's distance, not the run's. And
+   per-sample metadata is discarded in favour of the workout-level map
+   (`:133`), so segment kinds cannot be tagged on individual samples, only on
+   the workout as a whole.
+
+4. **Two API-shape facts worth recording precisely, since Context7's
+   generated docs for this library get both wrong** (AGENTS.md carries the
+   general warning). `WorkoutActivityType` is a numeric enum, not a string
+   union — `WorkoutActivityType.running` is a number, not `"running"`. And
+   the metadata keys HealthKit actually serializes are the string literals
+   `HKSyncIdentifier` / `HKSyncVersion`, not the `HKMetadataKey…` names —
+   those are only Apple's Swift constant names; the library's own README says
+   the two differ, and only the raw string works in the metadata map the
+   adapter builds.
+
+5. **The plugin writes `NSHealthShareUsageDescription` unconditionally, with
+   no opt-out** (`app.plugin.ts:44-47`) — omit it and the plugin injects a
+   read-access purpose string into Info.plist for an app that never reads. A
+   local config plugin, registered before the library's own plugin in the
+   array (mods chain in registration order), strips it.
+
+6. **The duplicate-workout risk this ADR left open is now closed by
+   construction, with one half still unverified.** `saveRun` tags the workout
+   and every per-segment sample with `HKSyncIdentifier` / `HKSyncVersion`
+   metadata keyed on the run id, the version stamped fresh via `Date.now()`
+   on every call. That last part is load-bearing, not incidental: `HKMetadata.h`
+   only replaces a stored object under a repeated sync identifier when the new
+   save's version is strictly *greater* than what's stored — a version fixed
+   across releases (as this originally shipped, tagged `1` unconditionally)
+   can never satisfy that on a retry within the same release, so the replace
+   path would never fire. With a version that increases on every save, a
+   retry after a partial failure replaces the workout instead of duplicating
+   it, as HealthKit documents for a repeated sync identifier. That raised a
+   question the implementation first flagged as unverified: since every per-segment sample now carries
+   the *same* identifier as the workout and each other, would HealthKit
+   collapse them into one? **Verified on the simulator (2026-08-01): no** —
+   all 17 samples from a real multi-segment run survived individually,
+   visible in Health's own "Show All Data" list, and the workout total
+   matched the app's summary. What remains unverified is the other half —
+   that a genuine retry replaces rather than duplicates the *workout* —
+   because the summary's button hides once a run is saved, leaving no UI path
+   to a second save attempt on the same run. See the design spec's §11 Risk 1
+   for the honest status.
+
+7. **Decision item 5 reversed: per-segment samples fragment the user's
+   distance history rather than convey structure.** Item 6's verification
+   that all 17 per-segment samples survive individually — rather than
+   collapsing under the shared sync identifier — was read at the time as
+   reassurance that the mechanism worked. Inspecting the *result* in the
+   Health app on 2026-08-01 showed what that verification actually cost:
+   those 17 samples appear as 17 separate rows in Walking + Running Distance
+   → All Recorded Data, each a one-second, ~5.6 m entry (confirmed in
+   Health's sample detail: start 12:47:08, end 12:47:09, 5,6 m) — permanent,
+   user-visible clutter in a system data list, not interval structure.
+   HealthKit has no way to label a `DistanceWalkingRunning` sample
+   walk-vs-run, so the samples never conveyed the structure item 5 hoped for;
+   they only fragmented it. `saveRun` now writes a single distance sample
+   spanning the whole run — its window is the run's own start/end, aligned
+   with the workout, and its value the run's total distance — kept, rather
+   than dropped entirely, because a sample (not just the workout's own
+   `totalDistance`) is what makes a run appear in the user's distance history
+   and count toward their totals. Item 6's sync-identifier mechanics are
+   unaffected: one sample tagged with the run id behaves exactly as N did.

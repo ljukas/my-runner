@@ -1,5 +1,7 @@
 /** Pure geospatial math — no React/Expo/native imports (ADR 0003). */
 
+import { median } from './math';
+
 /** One GPS sample. */
 export interface LocationFix {
   /** Epoch ms (wall clock); the adapter serializes it to the ISO `run_points.timestamp` column. */
@@ -208,12 +210,6 @@ function unprojectLat(s: SmootherState, y: number): number {
 }
 function unprojectLng(s: SmootherState, x: number): number {
   return s.refLng + x / (M_PER_DEG * s.cosRefLat);
-}
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 // (Re)start the filter anchored at `fix`. A gap reset keeps the metre-plane origin (setRef=false) so

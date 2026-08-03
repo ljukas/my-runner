@@ -32,12 +32,20 @@ function flatWithNoise(amplitude: number, seed: number): AltitudeSample[] {
   return samples(Array.from({ length: 1800 }, () => 100 + (random() * 2 - 1) * amplitude));
 }
 
-function meanPhantomGain(amplitude: number): number {
+/** why 50 and not 5: the committed 5-seed version passed on seed luck — seeds 1-5 all returned
+ *  exactly 0.00 against a warm-up defect whose worst case was 22.38 m. Seed 7 was the first to
+ *  expose it, and at 50 seeds 12 of them do (spec §9.2). */
+const NOISE_SEEDS = 50;
+
+function phantomGain(amplitude: number): { mean: number; worst: number } {
   let total = 0;
-  for (let seed = 1; seed <= 5; seed += 1) {
-    total += elevationRollup(flatWithNoise(amplitude, seed)).gainM;
+  let worst = 0;
+  for (let seed = 1; seed <= NOISE_SEEDS; seed += 1) {
+    const gain = elevationRollup(flatWithNoise(amplitude, seed)).gainM;
+    total += gain;
+    worst = Math.max(worst, gain);
   }
-  return total / 5;
+  return { mean: total / NOISE_SEEDS, worst };
 }
 
 const RAMP = 300;
@@ -46,11 +54,14 @@ const rampUp = Array.from({ length: RAMP }, (_, i) => 100 + (i * 40) / RAMP);
 const rampDown = Array.from({ length: RAMP }, (_, i) => 140 - (i * 40) / RAMP);
 
 describe('elevationRollup noise rejection', () => {
-  test('realistic +-10 m noise on flat ground banks essentially nothing', () => {
+  test('realistic +-10 m noise on flat ground banks nothing at all', () => {
     // why this matters: raw per-sample summing inflates a flat run's gain into the
     // hundreds of metres (ADR 0015). This is the reason the module exists.
-    // Do NOT loosen this bound — retune GPS_ELEVATION_CONFIG instead.
-    expect(meanPhantomGain(10)).toBeLessThan(5);
+    // Do NOT loosen these bounds — retune GPS_ELEVATION_CONFIG instead.
+    // Measured 2026-08-03 over 200 seeds: 0.00 mean, 0.00 worst.
+    const { mean, worst } = phantomGain(10);
+    expect(mean).toBe(0);
+    expect(worst).toBe(0);
   });
 
   test('+-25 m noise defeats the GPS config — the reason totals are not displayed', () => {
@@ -58,7 +69,49 @@ describe('elevationRollup noise rejection', () => {
     // GPS cannot support them in poor conditions. This pins that finding so the totals
     // cannot quietly return. If this ever FAILS, that is good news — noise rejection
     // improved, and spec §3.5's conclusion should be revisited deliberately.
-    expect(meanPhantomGain(25)).toBeGreaterThan(20);
+    // Bound raised from 20 to 50 against the post-warm-up-fix measurement: 92.47 mean
+    // over these 50 seeds (91.07 over 200), down from 100.57 before the fix.
+    expect(phantomGain(25).mean).toBeGreaterThan(50);
+  });
+});
+
+describe('elevationRollup warm-up', () => {
+  // The measured defect (spec §9.2): seeding the anchor from a partially-filled median let one
+  // bad opening reading become both the hysteresis anchor and the rebase base.
+
+  test('a bad first reading banks nothing and does not tilt the series', () => {
+    const result = elevationRollup(samples([130, ...flat(600, 100)]));
+    expect(result.gainM).toBe(0);
+    expect(result.lossM).toBe(0);
+    // why this index: pre-fix it read -30, drawing a flat run as a 30 m descent.
+    expect(result.seriesM[300]).toBe(0);
+  });
+
+  test('a bad reading inside the first window banks nothing either', () => {
+    const result = elevationRollup(samples([100, 130, ...flat(600, 100)]));
+    expect(result.gainM).toBe(0);
+    expect(result.lossM).toBe(0);
+  });
+
+  test('the same spike mid-run is already harmless — the median kills it', () => {
+    // why this contrast matters: it is what proved the defect was specifically warm-up,
+    // not the reducer's spike handling.
+    const result = elevationRollup(samples([...flat(50, 100), 130, ...flat(600, 100)]));
+    expect(result.gainM).toBe(0);
+    expect(result.lossM).toBe(0);
+  });
+
+  test('nothing is reported until the median window fills', () => {
+    const window = GPS_ELEVATION_CONFIG.medianWindow;
+    const result = elevationRollup(samples(flat(window + 5, 850)));
+    expect(result.seriesM.slice(0, window - 1).every((v) => v === null)).toBe(true);
+    expect(result.seriesM[window - 1]).toBe(0);
+  });
+
+  test('a run shorter than the window reports no altitude at all', () => {
+    const result = elevationRollup(samples(flat(GPS_ELEVATION_CONFIG.medianWindow - 1, 850)));
+    expect(result.seriesM.every((v) => v === null)).toBe(true);
+    expect(result.gainM).toBe(0);
   });
 });
 
@@ -90,10 +143,17 @@ describe('elevationRollup real terrain', () => {
 });
 
 describe('elevationRollup series', () => {
-  test('is rebased so the first known altitude reads 0', () => {
+  test('is rebased so the first reported altitude reads 0', () => {
     const result = elevationRollup(samples(flat(40, 850)));
-    expect(result.seriesM[0]).toBe(0);
+    expect(result.seriesM.find((v) => v !== null)).toBe(0);
     expect(result.seriesM.at(-1)).toBe(0);
+  });
+
+  test('stays index-aligned with the input', () => {
+    const input = samples([...flat(40, 100), null, ...flat(40, 100)]);
+    const result = elevationRollup(input);
+    expect(result.seriesM).toHaveLength(input.length);
+    expect(result.seriesM[40]).toBeNull();
   });
 
   test('preserves nulls and never banks movement from them', () => {

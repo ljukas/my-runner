@@ -1,5 +1,7 @@
 /** Pure elevation math — no React/Expo/native imports (ADR 0003). */
 
+import { median } from './math';
+
 /** One altitude reading. Deliberately not a GPS fix: the barometer feeds this same reducer. */
 export interface AltitudeSample {
   timestamp: number;
@@ -17,8 +19,9 @@ export interface ElevationConfig {
   hysteresisM: number;
 }
 
-/** Measured, not guessed — spec §3.5: at these values +-10 m noise banks 0 m of phantom
- *  gain over a 30-minute flat run while a real 40 m climb still reports 40 m. */
+/** Measured, not guessed (spec §3.5): +-10 m noise banks 0.00 m of phantom gain over 200 seeds of a
+ *  flat 30-minute run, while a real 40 m climb still reports 40 m. why not narrower once warm-up was
+ *  fixed: window 25 still admits a 10 m worst case and 21 a 21 m one. */
 export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
 
 /** Plain JSON by construction: the engine snapshots this (ADR 0007) once the live readout lands. */
@@ -33,14 +36,14 @@ export interface ElevationState {
 
 export interface ElevationStep {
   state: ElevationState;
+  /** null until the median window has filled, and for a sample carrying no altitude. */
   smoothedAltitudeM: number | null;
-  trend: ElevationTrend;
 }
 
 export interface ElevationRollup {
   gainM: number;
   lossM: number;
-  /** Smoothed and rebased so the first known altitude reads 0; null where the sample had none. */
+  /** Index-aligned with the input; rebased so the first reported altitude reads 0, null wherever `elevationStep` reported none. */
   seriesM: (number | null)[];
 }
 
@@ -50,30 +53,28 @@ export function createElevationState(
   return { config, window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
 }
 
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
 export function elevationStep(state: ElevationState, sample: AltitudeSample): ElevationStep {
   const raw = sample.altitudeM;
-  if (raw === null || !Number.isFinite(raw)) {
-    return { state, smoothedAltitudeM: null, trend: state.trend };
-  }
+  if (raw === null || !Number.isFinite(raw)) return { state, smoothedAltitudeM: null };
 
   const window = [...state.window, raw].slice(-state.config.medianWindow);
+
+  // why nothing until the window fills: altitude is worst at acquisition, and a partial median lets
+  // one bad opening reading become the anchor AND the rebase base (3.56 m mean phantom gain, 22.38
+  // worst, over 200 seeds — spec §9.2).
+  if (window.length < state.config.medianWindow) {
+    return { state: { ...state, window }, smoothedAltitudeM: null };
+  }
+
   const smoothed = median(window);
 
   if (state.anchorM === null) {
-    const seeded = { ...state, window, anchorM: smoothed };
-    return { state: seeded, smoothedAltitudeM: smoothed, trend: seeded.trend };
+    return { state: { ...state, window, anchorM: smoothed }, smoothedAltitudeM: smoothed };
   }
 
   const delta = smoothed - state.anchorM;
   if (Math.abs(delta) < state.config.hysteresisM) {
-    const held = { ...state, window };
-    return { state: held, smoothedAltitudeM: smoothed, trend: held.trend };
+    return { state: { ...state, window }, smoothedAltitudeM: smoothed };
   }
 
   const banked: ElevationState = {
@@ -84,7 +85,7 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
     lossM: delta < 0 ? state.lossM - delta : state.lossM,
     trend: delta > 0 ? 'climbing' : 'descending',
   };
-  return { state: banked, smoothedAltitudeM: smoothed, trend: banked.trend };
+  return { state: banked, smoothedAltitudeM: smoothed };
 }
 
 export function elevationRollup(

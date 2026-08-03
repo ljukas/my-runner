@@ -78,7 +78,7 @@ function w1d1(gapAfterFirstRunS = 0): LocationFix[] {
 /**
  * How much of the auto-fit y-axis the genuine run/walk separation occupies. A single outlier bucket
  * widens the span without moving the bands, so this collapses exactly when the chart becomes
- * unreadable — 0.86 on a clean W1D1, 0.043 when a 240 s pause was charged to one bucket.
+ * unreadable — 0.960 on a clean W1D1, 0.038 when a 240 s pause was charged to one bucket.
  */
 function bandContrast(profile: ProfilePoint[]): number {
   const paces = profile
@@ -189,7 +189,8 @@ describe('toRunProfile resampling', () => {
 describe('toRunProfile gaps', () => {
   test('a pause does not become an outlier that flattens the rest of the chart', () => {
     // The bug this pins: bucket time was raw last − entry, so the bucket spanning a stop swallowed
-    // it whole. Measured on this fixture: 4.3% of the axis at 240 s, against 86% clean.
+    // it whole. Measured on this fixture: 3.8% of the axis at 240 s, against 96.0% clean; every
+    // gap length below now reads 96.0% (spec §5.2).
     const clean = bandContrast(toRunProfile(w1d1()));
     expect(clean).toBeGreaterThan(0.8);
 

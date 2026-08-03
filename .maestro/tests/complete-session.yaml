@@ -5,7 +5,7 @@ tags:
 # A fixed point, set before the run opens the fix stream: the location task keeps delivering
 # fixes for it (distanceInterval: 0), so this stationary run records real points that never
 # leave one spot — zero route extent. The only automated cover for the route-extent gate
-# (domain/geo.ts's MIN_ROUTE_EXTENT_M, read in use-run-route.ts): a reverted predicate there
+# (domain/geo.ts's MIN_ROUTE_EXTENT_M, read in use-run-track.ts): a reverted predicate there
 # would render a map with a single dot instead of the fallback card.
 - runFlow: ../helpers/launch-and-onboard.yaml
 - setLocation:

@@ -12,6 +12,12 @@ function samples(altitudes: (number | null)[]): AltitudeSample[] {
   return altitudes.map((altitudeM, i) => ({ timestamp: 1_000_000 + i * 1000, altitudeM }));
 }
 
+/** The tuning is required, so every fixture below names the source it is measuring — GPS here,
+ *  and the gentle barometer-precision pair only where that contrast is the point. */
+const rollupGps = (input: readonly AltitudeSample[]) =>
+  elevationRollup(input, GPS_ELEVATION_CONFIG);
+const stateGps = () => createElevationState(GPS_ELEVATION_CONFIG);
+
 /** Seeded PRNG so a failure reproduces exactly. NEVER use a sinusoid for noise here:
  *  a median filter annihilates a coherent sinusoid, so a sinusoidal fixture passes
  *  while the reducer banks hundreds of phantom metres against real noise. */
@@ -40,7 +46,7 @@ function phantomGain(amplitude: number): { mean: number; worst: number } {
   let total = 0;
   let worst = 0;
   for (let seed = 1; seed <= NOISE_SEEDS; seed += 1) {
-    const gain = elevationRollup(flatWithNoise(amplitude, seed)).gainM;
+    const gain = rollupGps(flatWithNoise(amplitude, seed)).gainM;
     total += gain;
     worst = Math.max(worst, gain);
   }
@@ -77,7 +83,7 @@ describe('elevationRollup warm-up', () => {
   // The warm-up defect these pin (spec §9.2) is described at `elevationStep`.
 
   test('a bad first reading banks nothing and does not tilt the series', () => {
-    const result = elevationRollup(samples([130, ...flat(600, 100)]));
+    const result = rollupGps(samples([130, ...flat(600, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
     // why this index: pre-fix it read -30, drawing a flat run as a 30 m descent.
@@ -85,27 +91,27 @@ describe('elevationRollup warm-up', () => {
   });
 
   test('a bad reading inside the first window banks nothing either', () => {
-    const result = elevationRollup(samples([100, 130, ...flat(600, 100)]));
+    const result = rollupGps(samples([100, 130, ...flat(600, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
 
   test('the same spike mid-run is already harmless — the median kills it', () => {
     // why keep this: it isolates the defect to warm-up, not the reducer's spike handling.
-    const result = elevationRollup(samples([...flat(50, 100), 130, ...flat(600, 100)]));
+    const result = rollupGps(samples([...flat(50, 100), 130, ...flat(600, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
 
   test('nothing is reported until the median window fills', () => {
     const window = GPS_ELEVATION_CONFIG.medianWindow;
-    const result = elevationRollup(samples(flat(window + 5, 850)));
+    const result = rollupGps(samples(flat(window + 5, 850)));
     expect(result.seriesM.slice(0, window - 1).every((v) => v === null)).toBe(true);
     expect(result.seriesM[window - 1]).toBe(0);
   });
 
   test('a run shorter than the window reports no altitude at all', () => {
-    const result = elevationRollup(samples(flat(GPS_ELEVATION_CONFIG.medianWindow - 1, 850)));
+    const result = rollupGps(samples(flat(GPS_ELEVATION_CONFIG.medianWindow - 1, 850)));
     expect(result.seriesM.every((v) => v === null)).toBe(true);
     expect(result.gainM).toBe(0);
   });
@@ -115,14 +121,14 @@ describe('elevationRollup real terrain', () => {
   test('a clean 40 m climb banks its full height and no loss', () => {
     // why padded: the trailing median warms up at the start but lags at the end, and an
     // unpadded fixture bakes that boundary artifact into the assertion (spec §3.5).
-    const result = elevationRollup(samples([...flat(40, 100), ...rampUp, ...flat(40, 140)]));
+    const result = rollupGps(samples([...flat(40, 100), ...rampUp, ...flat(40, 140)]));
     expect(result.gainM).toBeGreaterThan(35);
     expect(result.gainM).toBeLessThanOrEqual(40);
     expect(result.lossM).toBe(0);
   });
 
   test('a symmetric climb and descent banks the two equally', () => {
-    const result = elevationRollup(
+    const result = rollupGps(
       samples([...flat(40, 100), ...rampUp, ...rampDown, ...flat(40, 100)]),
     );
     // why not the full 40: a final partial move below the hysteresis threshold never banks.
@@ -132,7 +138,7 @@ describe('elevationRollup real terrain', () => {
   });
 
   test('a sub-threshold bump that reverses banks nothing', () => {
-    const result = elevationRollup(samples([...flat(40, 100), 102, 104, 102, ...flat(40, 100)]));
+    const result = rollupGps(samples([...flat(40, 100), 102, 104, 102, ...flat(40, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
@@ -140,45 +146,45 @@ describe('elevationRollup real terrain', () => {
 
 describe('elevationRollup series', () => {
   test('is rebased so the first reported altitude reads 0', () => {
-    const result = elevationRollup(samples(flat(40, 850)));
+    const result = rollupGps(samples(flat(40, 850)));
     expect(result.seriesM.find((v) => v !== null)).toBe(0);
     expect(result.seriesM.at(-1)).toBe(0);
   });
 
   test('stays index-aligned with the input', () => {
     const input = samples([...flat(40, 100), null, ...flat(40, 100)]);
-    const result = elevationRollup(input);
+    const result = rollupGps(input);
     expect(result.seriesM).toHaveLength(input.length);
     expect(result.seriesM[40]).toBeNull();
   });
 
   test('preserves nulls and never banks movement from them', () => {
-    const result = elevationRollup(samples([null, 100, null, 100, null]));
+    const result = rollupGps(samples([null, 100, null, 100, null]));
     expect(result.seriesM[0]).toBeNull();
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
 
   test('an all-null run yields an all-null series and no movement', () => {
-    const result = elevationRollup(samples([null, null, null]));
+    const result = rollupGps(samples([null, null, null]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
     expect(result.seriesM.every((value) => value === null)).toBe(true);
   });
 
   test('empty and single-sample inputs are safe', () => {
-    expect(elevationRollup([])).toEqual({ gainM: 0, lossM: 0, seriesM: [] });
-    expect(elevationRollup(samples([100])).gainM).toBe(0);
+    expect(rollupGps([])).toEqual({ gainM: 0, lossM: 0, seriesM: [] });
+    expect(rollupGps(samples([100])).gainM).toBe(0);
   });
 
   test('equals a manual fold of elevationStep', () => {
     // why: the live path and the re-derived path must agree by construction
     // (the ADR 0021 §3 property, applied to elevation).
     const input = samples([...flat(40, 100), ...rampUp]);
-    let state = createElevationState();
+    let state = stateGps();
     for (const sample of input) state = elevationStep(state, sample).state;
 
-    const result = elevationRollup(input);
+    const result = rollupGps(input);
     expect(result.gainM).toBe(state.gainM);
     expect(result.lossM).toBe(state.lossM);
   });
@@ -200,19 +206,15 @@ describe('ElevationConfig', () => {
     expect(gentle.gainM).toBeGreaterThan(gps.gainM);
     expect(gentle.gainM).toBeGreaterThan(25);
   });
-
-  test('defaults to the GPS config', () => {
-    expect(createElevationState().config).toEqual(GPS_ELEVATION_CONFIG);
-  });
 });
 
 describe('elevationStep trend', () => {
   test('starts flat', () => {
-    expect(createElevationState().trend).toBe('flat');
+    expect(stateGps().trend).toBe('flat');
   });
 
   test('becomes climbing once a rise clears the threshold, and stays climbing', () => {
-    let state = createElevationState();
+    let state = stateGps();
     for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }
@@ -225,7 +227,7 @@ describe('elevationStep trend', () => {
   });
 
   test('flips to descending only after a threshold-clearing reversal', () => {
-    let state = createElevationState();
+    let state = stateGps();
     for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }
@@ -237,7 +239,7 @@ describe('elevationStep trend', () => {
   test('state stays JSON-serialisable', () => {
     // why: the reducer folds state by spreading it, so a Map would be shared by reference
     // across steps and a class would lose its prototype.
-    let state = createElevationState();
+    let state = stateGps();
     for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }

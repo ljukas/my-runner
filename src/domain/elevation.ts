@@ -11,9 +11,10 @@ export interface AltitudeSample {
 
 export type ElevationTrend = 'climbing' | 'descending' | 'flat';
 
-/** why a parameter and not a constant: GPS needs a wide window and a ~10 m threshold to
- *  reject its own noise, while a barometer at ~1 m precision would have real terrain erased
- *  by those values. One shared pair would silently mis-tune whichever source came second. */
+/** why a required parameter and not a constant, and why nothing here defaults to the GPS pair:
+ *  GPS needs a wide window and a ~10 m threshold to reject its own noise, while a barometer at
+ *  ~1 m precision would have real terrain erased by those values. A default would hand the
+ *  barometer slice GPS tuning for the one thing it exists to do better. */
 export interface ElevationConfig {
   medianWindow: number;
   hysteresisM: number;
@@ -24,8 +25,9 @@ export interface ElevationConfig {
  *  fixed: window 25 still admits a 10 m worst case and 21 a 21 m one. */
 export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
 
-/** Derived filter state: a resume re-folds it from `run_points.altitude` rather than restoring it,
- *  because the crash snapshot never serializes filter state (ADR 0021 §3). */
+/** Derived filter state, never snapshotted (ADR 0007 §5). Nor can a resume rebuild it: the
+ *  barometer this is for has no backfill API, so altitude gained while suspended is gone for good
+ *  and a total spanning that gap must be declined rather than re-folded (ADR 0015, 2026-08-03). */
 export interface ElevationState {
   config: ElevationConfig;
   window: number[];
@@ -48,9 +50,7 @@ export interface ElevationRollup {
   seriesM: (number | null)[];
 }
 
-export function createElevationState(
-  config: ElevationConfig = GPS_ELEVATION_CONFIG,
-): ElevationState {
+export function createElevationState(config: ElevationConfig): ElevationState {
   return { config, window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
 }
 
@@ -91,7 +91,7 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
 
 export function elevationRollup(
   samples: readonly AltitudeSample[],
-  config: ElevationConfig = GPS_ELEVATION_CONFIG,
+  config: ElevationConfig,
 ): ElevationRollup {
   let state = createElevationState(config);
   const smoothed: (number | null)[] = [];

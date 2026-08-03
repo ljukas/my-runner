@@ -253,8 +253,14 @@ today:
    knows the direction and magnitude of the move in progress. "Am I climbing?" is
    a read of state the noise filter has to keep anyway.
 3. **`ElevationState` is plain JSON** — numbers only, no `Map`s, no classes — so
-   the engine can carry it in the crash-recovery snapshot (ADR 0007) when the
-   live readout arrives, without reshaping it.
+   it can be serialised without reshaping if it ever needs to be.
+   **Corrected 2026-08-03:** this originally said the engine would carry it in the
+   crash-recovery snapshot. That contradicts the established design — ADR 0007 §5
+   keeps the snapshot to the event log plus watermarks and anchors, never derived
+   filter state, and ADR 0021 §3 re-derives smoothed values from the persisted
+   fixes precisely so live and replayed results cannot diverge. Elevation follows
+   the same rule: re-derive from `run_points`, do not snapshot. Plain JSON remains
+   worth keeping as a cheap constraint, not as a snapshot plan.
 
 ### 4.3 Why `domain/elevation.ts` stays despite shipping unconsumed
 

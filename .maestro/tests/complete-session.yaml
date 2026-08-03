@@ -20,6 +20,12 @@ tags:
 # to both no-route reasons (no fixes at all vs. fixes with no extent) — asserted generically,
 # since which copy renders is a separate, open question (see AGENTS.md's e2e notes).
 - assertVisible: "No route for this run"
+# Shares use-run-track's single readiness check with the route card above, so a motionless run
+# that hides the route also hides this card. Absence is the only assertion this harness can
+# make — Maestro cannot produce GPS motion (ADR 0001's 2026-07-31 amendment; spec §9.3) — but
+# "Pace" is an anchored full match (ADR 0016) so it cannot be satisfied by "Avg Pace" or
+# "Interval Pace" rendering instead.
+- assertNotVisible: "Pace"
 - assertNotVisible: "Map of your .* route.*"
 # Every session is bracketed by a warm-up — the finished run's segment key names
 # it in the summary's colour legend. Asserted here, on the settled summary, not

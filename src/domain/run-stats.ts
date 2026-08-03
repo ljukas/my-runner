@@ -28,7 +28,10 @@ export interface PaceSegment extends RunStatsSegment {
  * Whether a recorded distance represents movement worth presenting, rather than drift that cleared
  * the deadband — see `MIN_MEASURED_SPEED_MPS`. Callers hide distance, pace and splits when false.
  */
-export function hasMeasuredDistance(distanceM: number | null, durationS: number): boolean {
+export function hasMeasuredDistance(
+  distanceM: number | null,
+  durationS: number,
+): distanceM is number {
   if (distanceM === null || durationS <= 0) return false;
   return distanceM / durationS >= MIN_MEASURED_SPEED_MPS;
 }

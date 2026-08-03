@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { boundingBox, boundingBoxDiagonalM, MIN_ROUTE_EXTENT_M } from './geo';
 import {
   bestRunSegment,
   hasMeasuredDistance,
@@ -152,5 +153,17 @@ describe('hasMeasuredDistance', () => {
   test('rejects a zero or negative duration rather than dividing by it', () => {
     expect(hasMeasuredDistance(100, 0)).toBe(false);
     expect(hasMeasuredDistance(100, -1)).toBe(false);
+  });
+
+  test('rejects a slow shuffle that the route-extent gate accepts', () => {
+    // why both gates matter: the pace card renders only when the route is mappable AND the
+    // distance is measured. This wander spans well over MIN_ROUTE_EXTENT_M yet averages 0.4 m/s,
+    // so the extent gate alone charted a min/km line on a summary showing no pace anywhere else.
+    const wander = boundingBox([
+      { lat: 59.3293, lng: 18.0686 },
+      { lat: 59.3293 + 240 / 111_320, lng: 18.0686 },
+    ]);
+    expect(boundingBoxDiagonalM(wander!)).toBeGreaterThan(MIN_ROUTE_EXTENT_M);
+    expect(hasMeasuredDistance(240, 600)).toBe(false);
   });
 });

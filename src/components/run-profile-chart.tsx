@@ -4,7 +4,7 @@ import { View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
 import type { ProfilePoint } from '@/domain/run-profile';
-import { useStatColors } from '@/hooks/use-theme';
+import { useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
 const CHART_HEIGHT = 200;
@@ -15,6 +15,8 @@ const CHART_HEIGHT = 200;
  */
 export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   const stat = useStatColors();
+  // why: victory-native's axis defaults are hardcoded black — invisible on the dark-mode card.
+  const colors = useTheme();
   const font = useMemo(() => matchFont({ fontSize: AXIS_FONT_SIZE }), []);
 
   // why inverted: pace is seconds per km, so a LOWER value is faster and belongs higher.
@@ -37,7 +39,16 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
         data={points as (ProfilePoint & Record<string, unknown>)[]}
         xKey="distanceM"
         yKeys={['paceSecPerKm']}
-        yAxis={[{ yKeys: ['paceSecPerKm'], axisSide: 'left', font, domain: paceDomain }]}
+        yAxis={[
+          {
+            yKeys: ['paceSecPerKm'],
+            axisSide: 'left',
+            font,
+            domain: paceDomain,
+            labelColor: colors.textSecondary,
+            lineColor: colors.textSecondary,
+          },
+        ]}
       >
         {({ points: rendered }) => (
           <Line points={rendered.paceSecPerKm} color={stat.pace} strokeWidth={2} />

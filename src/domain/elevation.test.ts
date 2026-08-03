@@ -128,9 +128,7 @@ describe('elevationRollup real terrain', () => {
   });
 
   test('a symmetric climb and descent banks the two equally', () => {
-    const result = rollupGps(
-      samples([...flat(40, 100), ...rampUp, ...rampDown, ...flat(40, 100)]),
-    );
+    const result = rollupGps(samples([...flat(40, 100), ...rampUp, ...rampDown, ...flat(40, 100)]));
     // why not the full 40: a final partial move below the hysteresis threshold never banks.
     expect(result.gainM).toBeGreaterThan(25);
     expect(result.lossM).toBeGreaterThan(25);

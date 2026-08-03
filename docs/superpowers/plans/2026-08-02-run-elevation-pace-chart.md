@@ -4,7 +4,7 @@
 
 **Goal:** Add a run-summary card charting pace against distance. (Elevation was deferred whole after Gate B — spec §3.6.)
 
-**Architecture:** Elevation comes from `run_points.altitude`, which the app already persists for every accepted GPS fix — no new sensor, permission, native module, or schema change. A pure streaming reducer (`domain/elevation.ts`) smooths altitude and banks gain/loss with hysteresis; it mirrors `smoothFix`/`smoothTrack` (ADR 0021) so the barometer slice that follows plugs in as a second *source*, not a second implementation. The chart series is derived at display time from `run_points`, and nothing is stored — gain/loss totals are computed and tested but deliberately not displayed in this slice (spec §3.5).
+**Architecture:** Elevation comes from `run_points.altitude`, which the app already persists for every accepted GPS fix — no new sensor, permission, native module, or schema change. A pure streaming reducer (`domain/elevation.ts`) smooths altitude and banks gain/loss with hysteresis; it mirrors `smoothFix`/`smoothTrack` (ADR 0021) so the barometer slice that follows plugs in as a second *source*, not a second implementation. The chart series is derived at display time from `run_points`, and nothing is stored. **Elevation is deferred whole** (spec §3.6): the reducer ships correct and tested but with no production caller at all, because measurement showed GPS altitude fabricates ~9.5 m of relief on flat ground — neither the line nor the totals are displayed.
 
 **Tech Stack:** TypeScript ~6.0 (strict), Expo SDK 57, React Native 0.86, Drizzle + expo-sqlite, `victory-native` 41 (Skia/Reanimated/Gesture-Handler — all three already installed), `bun test`.
 
@@ -40,7 +40,7 @@
 | `src/domain/elevation.test.ts` | **Create.** Property tests — the noise-rejection guard is the important one. |
 | `src/domain/run-profile.ts` | **Create.** Pure: fixes → resampled `{ distanceM, paceSecPerKm }[]`. |
 | `src/domain/run-profile.test.ts` | **Create.** Bucketing, pace, distance preservation. |
-| `src/hooks/use-run-profile.ts` | **Create.** One imperative read, memoised fold. Modelled on `use-run-route.ts`. |
+| `src/hooks/use-run-track.ts` | **Rename + extend** `use-run-route.ts`. ONE imperative read of `run_points` feeding both the route geometry and the pace series, behind one `ready` (spec §4.4). Not a second hook — see Task 5. |
 | `src/components/run-profile-chart.tsx` | **Create.** The ONLY file importing `victory-native`. One line, one axis. |
 | `src/components/run-profile-card.tsx` | **Create.** Gating and accessibility. No totals — spec §3.5. |
 | `src/app/runs/[runId]/index.tsx` | **Modify.** Compose the card between `RunStatGrid` and `SegmentBreakdown`. |
@@ -183,210 +183,22 @@ State explicitly: spike passed or failed, the before/after fingerprint hashes, a
   - `interface ElevationConfig { medianWindow: number; hysteresisM: number }`
   - `const GPS_ELEVATION_CONFIG: ElevationConfig` — `{ medianWindow: 31, hysteresisM: 10 }`
   - `interface ElevationState { config: ElevationConfig; window: number[]; anchorM: number | null; gainM: number; lossM: number; trend: ElevationTrend }`
-  - `interface ElevationStep { state: ElevationState; smoothedAltitudeM: number | null; trend: ElevationTrend }`
+  - `interface ElevationStep { state: ElevationState; smoothedAltitudeM: number | null }` — the shipped shape; the duplicated `trend` field this once listed was dropped as it already rides on `state`
   - `interface ElevationRollup { gainM: number; lossM: number; seriesM: (number | null)[] }`
-  - `createElevationState(config?: ElevationConfig): ElevationState`
+  - `createElevationState(config: ElevationConfig): ElevationState` — **required**, never defaulted
   - `elevationStep(state: ElevationState, sample: AltitudeSample): ElevationStep`
-  - `elevationRollup(samples: readonly AltitudeSample[], config?: ElevationConfig): ElevationRollup`
+  - `elevationRollup(samples: readonly AltitudeSample[], config: ElevationConfig): ElevationRollup` — **required**
 
 **Every bound below was measured against this exact implementation before the plan was written — they are observations, not guesses. If one fails, the implementation diverged from the brief; re-read it before touching a number.**
 
 - [ ] **Step 1: Write the failing tests**
 
-```ts
-// src/domain/elevation.test.ts
-import { describe, expect, test } from 'bun:test';
-
-import {
-  createElevationState,
-  elevationRollup,
-  elevationStep,
-  GPS_ELEVATION_CONFIG,
-  type AltitudeSample,
-} from './elevation';
-
-function samples(altitudes: (number | null)[]): AltitudeSample[] {
-  return altitudes.map((altitudeM, i) => ({ timestamp: 1_000_000 + i * 1000, altitudeM }));
-}
-
-/** Seeded PRNG so a failure reproduces exactly. NEVER use a sinusoid for noise here:
- *  a median filter annihilates a coherent sinusoid, so a sinusoidal fixture passes
- *  while the reducer banks hundreds of phantom metres against real noise. */
-function mulberry32(seed: number) {
-  let a = seed;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/** 30 minutes at 1 Hz on flat ground with +-`amplitude` m of vertical noise. */
-function flatWithNoise(amplitude: number, seed: number): AltitudeSample[] {
-  const random = mulberry32(seed);
-  return samples(Array.from({ length: 1800 }, () => 100 + (random() * 2 - 1) * amplitude));
-}
-
-function meanPhantomGain(amplitude: number): number {
-  let total = 0;
-  for (let seed = 1; seed <= 5; seed += 1) {
-    total += elevationRollup(flatWithNoise(amplitude, seed)).gainM;
-  }
-  return total / 5;
-}
-
-const RAMP = 300;
-const flat = (count: number, value: number) => Array.from({ length: count }, () => value);
-const rampUp = Array.from({ length: RAMP }, (_, i) => 100 + (i * 40) / RAMP);
-const rampDown = Array.from({ length: RAMP }, (_, i) => 140 - (i * 40) / RAMP);
-
-describe('elevationRollup noise rejection', () => {
-  test('realistic +-10 m noise on flat ground banks essentially nothing', () => {
-    // why this matters: raw per-sample summing inflates a flat run's gain into the
-    // hundreds of metres (ADR 0015). This is the reason the module exists.
-    // Do NOT loosen this bound — retune GPS_ELEVATION_CONFIG instead.
-    expect(meanPhantomGain(10)).toBeLessThan(5);
-  });
-
-  test('+-25 m noise defeats the GPS config — the reason totals are not displayed', () => {
-    // why assert the bad outcome: spec §3.5 cut the displayed gain/loss totals because
-    // GPS cannot support them in poor conditions. This pins that finding so the totals
-    // cannot quietly return. If this ever FAILS, that is good news — noise rejection
-    // improved, and spec §3.5's conclusion should be revisited deliberately.
-    expect(meanPhantomGain(25)).toBeGreaterThan(20);
-  });
-});
-
-describe('elevationRollup real terrain', () => {
-  test('a clean 40 m climb banks its full height and no loss', () => {
-    // why padded: the trailing median warms up at the start but lags at the end, and an
-    // unpadded fixture bakes that boundary artifact into the assertion (spec §3.5).
-    const result = elevationRollup(samples([...flat(40, 100), ...rampUp, ...flat(40, 140)]));
-    expect(result.gainM).toBeGreaterThan(35);
-    expect(result.gainM).toBeLessThanOrEqual(40);
-    expect(result.lossM).toBe(0);
-  });
-
-  test('a symmetric climb and descent banks the two equally', () => {
-    const result = elevationRollup(
-      samples([...flat(40, 100), ...rampUp, ...rampDown, ...flat(40, 100)]),
-    );
-    // why not the full 40: a final partial move below the hysteresis threshold never banks.
-    expect(result.gainM).toBeGreaterThan(25);
-    expect(result.lossM).toBeGreaterThan(25);
-    expect(Math.abs(result.gainM - result.lossM)).toBeLessThan(2);
-  });
-
-  test('a sub-threshold bump that reverses banks nothing', () => {
-    const result = elevationRollup(samples([...flat(40, 100), 102, 104, 102, ...flat(40, 100)]));
-    expect(result.gainM).toBe(0);
-    expect(result.lossM).toBe(0);
-  });
-});
-
-describe('elevationRollup series', () => {
-  test('is rebased so the first known altitude reads 0', () => {
-    const result = elevationRollup(samples(flat(40, 850)));
-    expect(result.seriesM[0]).toBe(0);
-    expect(result.seriesM.at(-1)).toBe(0);
-  });
-
-  test('preserves nulls and never banks movement from them', () => {
-    const result = elevationRollup(samples([null, 100, null, 100, null]));
-    expect(result.seriesM[0]).toBeNull();
-    expect(result.gainM).toBe(0);
-    expect(result.lossM).toBe(0);
-  });
-
-  test('an all-null run yields an all-null series and no movement', () => {
-    const result = elevationRollup(samples([null, null, null]));
-    expect(result.gainM).toBe(0);
-    expect(result.lossM).toBe(0);
-    expect(result.seriesM.every((value) => value === null)).toBe(true);
-  });
-
-  test('empty and single-sample inputs are safe', () => {
-    expect(elevationRollup([])).toEqual({ gainM: 0, lossM: 0, seriesM: [] });
-    expect(elevationRollup(samples([100])).gainM).toBe(0);
-  });
-
-  test('equals a manual fold of elevationStep', () => {
-    // why: the live path and the re-derived path must agree by construction
-    // (the ADR 0021 §3 property, applied to elevation).
-    const input = samples([...flat(40, 100), ...rampUp]);
-    let state = createElevationState();
-    for (const sample of input) state = elevationStep(state, sample).state;
-
-    const result = elevationRollup(input);
-    expect(result.gainM).toBe(state.gainM);
-    expect(result.lossM).toBe(state.lossM);
-  });
-});
-
-describe('ElevationConfig', () => {
-  test('a gentle config resolves terrain the GPS config smooths away', () => {
-    // why this test exists: it is the whole argument for tuning being a parameter.
-    // The same clean 30 m climb, at barometer precision, banks its full height under a
-    // gentle config and only two thirds of it under the noise-rejecting GPS one.
-    const climb = samples([
-      ...flat(10, 100),
-      ...Array.from({ length: 60 }, (_, i) => 100 + i * 0.5),
-      ...flat(10, 130),
-    ]);
-    const gentle = elevationRollup(climb, { medianWindow: 5, hysteresisM: 2 });
-    const gps = elevationRollup(climb, GPS_ELEVATION_CONFIG);
-
-    expect(gentle.gainM).toBeGreaterThan(gps.gainM);
-    expect(gentle.gainM).toBeGreaterThan(25);
-  });
-
-  test('defaults to the GPS config', () => {
-    expect(createElevationState().config).toEqual(GPS_ELEVATION_CONFIG);
-  });
-});
-
-describe('elevationStep trend', () => {
-  test('starts flat', () => {
-    expect(createElevationState().trend).toBe('flat');
-  });
-
-  test('becomes climbing once a rise clears the threshold, and stays climbing', () => {
-    let state = createElevationState();
-    for (const sample of samples([...flat(40, 100), ...rampUp])) {
-      state = elevationStep(state, sample).state;
-    }
-    expect(state.trend).toBe('climbing');
-
-    // why sticky: a banked move resets the anchor to the current altitude, so a
-    // non-sticky trend would flicker to flat between every banked step of one climb.
-    for (const sample of samples(flat(5, 140))) state = elevationStep(state, sample).state;
-    expect(state.trend).toBe('climbing');
-  });
-
-  test('flips to descending only after a threshold-clearing reversal', () => {
-    let state = createElevationState();
-    for (const sample of samples([...flat(40, 100), ...rampUp])) {
-      state = elevationStep(state, sample).state;
-    }
-    expect(state.trend).toBe('climbing');
-    for (const sample of samples(rampDown)) state = elevationStep(state, sample).state;
-    expect(state.trend).toBe('descending');
-  });
-
-  test('state stays JSON-serialisable', () => {
-    // why: the engine snapshots this for crash recovery (ADR 0007) when the live
-    // readout lands — a Map or a class would silently break that.
-    let state = createElevationState();
-    for (const sample of samples([...flat(40, 100), ...rampUp])) {
-      state = elevationStep(state, sample).state;
-    }
-    expect(JSON.parse(JSON.stringify(state))).toEqual(state);
-  });
-});
-```
-
+> **SUPERSEDED — the code that stood here is defective. Do not implement from it.**
+> It looped `seed <= 5`, which spec §9.2 records as having *passed on seed luck*:
+> all five seeds returned exactly 0.00 against a warm-up defect worth 22.38 m at
+> worst, and seed 7 was the first to expose it. The shipped tests are
+> `src/domain/elevation.test.ts` — 50 seeds (`NOISE_SEEDS`), reporting `{mean, worst}`.
+> Read that file; it is the authority.
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bun test src/domain/elevation.test.ts`
@@ -394,119 +206,15 @@ Expected: FAIL — `Cannot find module './elevation'`.
 
 - [ ] **Step 3: Write the implementation**
 
-```ts
-// src/domain/elevation.ts
-/** Pure elevation math — no React/Expo/native imports (ADR 0003). */
-
-/** One altitude reading. Deliberately not a GPS fix: the barometer feeds this same reducer. */
-export interface AltitudeSample {
-  timestamp: number;
-  /** Metres; null when the source carried no altitude. */
-  altitudeM: number | null;
-}
-
-export type ElevationTrend = 'climbing' | 'descending' | 'flat';
-
-/** why a parameter and not a constant: GPS needs a wide window and a ~10 m threshold to
- *  reject its own noise, while a barometer at ~1 m precision would have real terrain erased
- *  by those values. One shared pair would silently mis-tune whichever source came second. */
-export interface ElevationConfig {
-  medianWindow: number;
-  hysteresisM: number;
-}
-
-/** Measured, not guessed — spec §3.5: at these values +-10 m noise banks 0 m of phantom
- *  gain over a 30-minute flat run while a real 40 m climb still reports 40 m. */
-export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
-
-/** Plain JSON by construction: the engine snapshots this (ADR 0007) once the live readout lands. */
-export interface ElevationState {
-  config: ElevationConfig;
-  window: number[];
-  anchorM: number | null;
-  gainM: number;
-  lossM: number;
-  trend: ElevationTrend;
-}
-
-export interface ElevationStep {
-  state: ElevationState;
-  smoothedAltitudeM: number | null;
-  trend: ElevationTrend;
-}
-
-export interface ElevationRollup {
-  gainM: number;
-  lossM: number;
-  /** Smoothed and rebased so the first known altitude reads 0; null where the sample had none. */
-  seriesM: (number | null)[];
-}
-
-export function createElevationState(config: ElevationConfig = GPS_ELEVATION_CONFIG): ElevationState {
-  return { config, window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
-}
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-export function elevationStep(state: ElevationState, sample: AltitudeSample): ElevationStep {
-  const raw = sample.altitudeM;
-  if (raw === null || !Number.isFinite(raw)) {
-    return { state, smoothedAltitudeM: null, trend: state.trend };
-  }
-
-  const window = [...state.window, raw].slice(-state.config.medianWindow);
-  const smoothed = median(window);
-
-  if (state.anchorM === null) {
-    const seeded = { ...state, window, anchorM: smoothed };
-    return { state: seeded, smoothedAltitudeM: smoothed, trend: seeded.trend };
-  }
-
-  const delta = smoothed - state.anchorM;
-  if (Math.abs(delta) < state.config.hysteresisM) {
-    const held = { ...state, window };
-    return { state: held, smoothedAltitudeM: smoothed, trend: held.trend };
-  }
-
-  const banked: ElevationState = {
-    config: state.config,
-    window,
-    anchorM: smoothed,
-    gainM: delta > 0 ? state.gainM + delta : state.gainM,
-    lossM: delta < 0 ? state.lossM - delta : state.lossM,
-    trend: delta > 0 ? 'climbing' : 'descending',
-  };
-  return { state: banked, smoothedAltitudeM: smoothed, trend: banked.trend };
-}
-
-export function elevationRollup(
-  samples: readonly AltitudeSample[],
-  config: ElevationConfig = GPS_ELEVATION_CONFIG,
-): ElevationRollup {
-  let state = createElevationState(config);
-  const smoothed: (number | null)[] = [];
-
-  for (const sample of samples) {
-    const step = elevationStep(state, sample);
-    state = step.state;
-    smoothed.push(step.smoothedAltitudeM);
-  }
-
-  // why rebase: absolute GPS altitude carries a bias of tens of metres, so only the
-  // profile's shape is honest (ADR 0015 item 1).
-  const base = smoothed.find((value) => value !== null) ?? null;
-  return {
-    gainM: state.gainM,
-    lossM: state.lossM,
-    seriesM: base === null ? smoothed : smoothed.map((v) => (v === null ? null : v - base)),
-  };
-}
-```
-
+> **SUPERSEDED — the code that stood here is defective. Do not implement from it.**
+> It anchored on the first partial median with **no window-fill guard**, which is
+> Gate B's Critical: GPS altitude is worst at fix acquisition, so one bad opening
+> reading became both the anchor and the rebase base — 3.56 m mean phantom gain,
+> 22.38 m worst, over 200 seeds, and a flat run drawn as a 30 m descent. The shipped
+> reducer is `src/domain/elevation.ts`; its guard is the `window.length <
+> config.medianWindow` early return. It also takes a **required** `ElevationConfig`
+> (no GPS default) and imports `median` from `./math` rather than defining its own.
+> Read that file; it is the authority.
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test src/domain/elevation.test.ts`
@@ -531,103 +239,20 @@ git commit -m "feat: add the elevation reducer with per-source tuning"
 - Test: `src/domain/run-profile.test.ts`
 
 **Interfaces:**
-- Consumes: `elevationRollup`, `AltitudeSample` (Task 2); `createSmootherState`, `smoothFix`, `type LocationFix` from `@/domain/geo`.
+- Consumes: `createSmootherState`, `smoothFix`, `MAX_GAP_S`, `type LocationFix` from `@/domain/geo`. **Not** `elevationRollup` — elevation is deferred whole (spec §3.6).
 - Produces:
-  - `interface ProfilePoint { distanceM: number; paceSecPerKm: number | null }`
-  - `toRunProfile(fixes: readonly LocationFix[], bucketCount?: number): ProfilePoint[]`
-  - `PROFILE_SAMPLE_COUNT = 120`
+  - `type ProfilePoint = { distanceM: number; paceSecPerKm: number | null }`
+  - `toRunProfile(fixes: readonly LocationFix[], bucketCount?: number): ProfilePoint[]` — the default is fix-density-derived, not `PROFILE_SAMPLE_COUNT`
+  - `isDrawableProfile`, `paceRange`, `PROFILE_SAMPLE_COUNT = 120` (an upper bound)
 
 - [ ] **Step 1: Write the failing tests**
 
-```ts
-// src/domain/run-profile.test.ts
-import { describe, expect, test } from 'bun:test';
-
-import type { LocationFix } from './geo';
-import { PROFILE_SAMPLE_COUNT, toRunProfile } from './run-profile';
-
-/**
- * A straight northward run at a steady pace. 1 Hz, `metresPerFix` apart.
- * why hard-coded degrees: 1e-5 deg latitude is ~1.11 m, close enough that the
- * assertions below are about bucketing, not about haversine precision.
- */
-function straightRun(count: number, metresPerFix: number, altitudes?: number[]): LocationFix[] {
-  const degPerMetre = 1 / 111_320;
-  return Array.from({ length: count }, (_, i) => ({
-    timestamp: 1_000_000 + i * 1000,
-    lat: 59.3 + i * metresPerFix * degPerMetre,
-    lng: 18.06,
-    altitude: altitudes ? altitudes[i] : 100,
-    accuracy: 5,
-    speed: metresPerFix,
-  }));
-}
-
-describe('toRunProfile', () => {
-  test('a run with no fixes yields no points', () => {
-    expect(toRunProfile([])).toEqual([]);
-  });
-
-  test('a stationary run yields no points', () => {
-    const fixes = straightRun(60, 0);
-    expect(toRunProfile(fixes)).toEqual([]);
-  });
-
-  test('distance is monotonically increasing across the profile', () => {
-    const profile = toRunProfile(straightRun(600, 3));
-    expect(profile.length).toBeGreaterThan(1);
-    for (let i = 1; i < profile.length; i += 1) {
-      expect(profile[i].distanceM).toBeGreaterThan(profile[i - 1].distanceM);
-    }
-  });
-
-  test('the profile never exceeds the requested bucket count', () => {
-    const profile = toRunProfile(straightRun(600, 3));
-    expect(profile.length).toBeLessThanOrEqual(PROFILE_SAMPLE_COUNT);
-  });
-
-  test('a short run yields fewer buckets than the cap, not empty ones', () => {
-    const profile = toRunProfile(straightRun(20, 3));
-    expect(profile.length).toBeGreaterThan(0);
-    expect(profile.length).toBeLessThanOrEqual(PROFILE_SAMPLE_COUNT);
-    expect(profile.every((p) => Number.isFinite(p.distanceM))).toBe(true);
-  });
-
-  test('a steady 3 m/s run reports a pace near 333 s/km throughout', () => {
-    const profile = toRunProfile(straightRun(600, 3));
-    const paces = profile.map((p) => p.paceSecPerKm).filter((p): p is number => p !== null);
-    expect(paces.length).toBeGreaterThan(0);
-    for (const pace of paces) {
-      expect(pace).toBeGreaterThan(250);
-      expect(pace).toBeLessThan(450);
-    }
-  });
-
-  test('elevation is rebased so the first point reads about zero', () => {
-    const altitudes = Array.from({ length: 600 }, () => 850);
-    const profile = toRunProfile(straightRun(600, 3, altitudes));
-    expect(profile[0].elevationM).toBeCloseTo(0, 5);
-  });
-
-  test('a run whose fixes carry no altitude yields null elevation but real pace', () => {
-    const fixes = straightRun(600, 3).map((fix) => ({ ...fix, altitude: null }));
-    const profile = toRunProfile(fixes);
-    expect(profile.every((p) => p.elevationM === null)).toBe(true);
-    expect(profile.some((p) => p.paceSecPerKm !== null)).toBe(true);
-  });
-
-  test('the profile ends near the smoothed track distance', () => {
-    const fixes = straightRun(600, 3);
-    const profile = toRunProfile(fixes);
-    const last = profile.at(-1)!;
-    // why a band: the ADR 0021 smoother legitimately shortens a raw track, and the
-    // final bucket's centre sits half a bucket short of the true end.
-    expect(last.distanceM).toBeGreaterThan(1000);
-    expect(last.distanceM).toBeLessThan(2000);
-  });
-});
-```
-
+> **SUPERSEDED — do not implement from it.** These tests assert `elevationM` on
+> `ProfilePoint`, which the 2026-08-03 deferral removed (spec §3.6), and their
+> loose pace bands (250–450 s/km) are exactly what let the 1/N boundary bias
+> through. The shipped tests are `src/domain/run-profile.test.ts`, which pin the
+> gap-excluded clock, proportional leg splitting, the adaptive bucket count, and
+> `paceRange`. Read that file; it is the authority.
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `bun test src/domain/run-profile.test.ts`
@@ -635,95 +260,22 @@ Expected: FAIL — `Cannot find module './run-profile'`.
 
 - [ ] **Step 3: Write the implementation**
 
-```ts
-// src/domain/run-profile.ts
-import { elevationRollup, type AltitudeSample } from './elevation';
-import { createSmootherState, smoothFix, type LocationFix } from './geo';
-
-/** One resampled point of the summary chart. `distanceM` is the bucket's centre. */
-export interface ProfilePoint {
-  distanceM: number;
-  /** Seconds per km over the bucket; null when the bucket carried no usable time or distance. */
-  paceSecPerKm: number | null;
-}
-
-export const PROFILE_SAMPLE_COUNT = 120;
-
-interface Bucket {
-  meters: number;
-  /** The PREVIOUS fix's timestamp — a bucket's metres include the leg entering it, so its
-   *  clock must start there or pace reads fast by 1/N (spec §5.2). */
-  entryTimestamp: number;
-  lastTimestamp: number;
-}
-
-/**
- * Fixes → the chart's series, resampled onto a uniform distance grid.
- * Distance is folded with the SAME smoother the stored distance used (ADR 0021 §3), so the
- * chart's x extent agrees with the summary's headline figure. Inputs need not be pre-filtered:
- * `smoothFix` gates them. Returns [] when the run covered no ground.
- */
-export function toRunProfile(
-  fixes: readonly LocationFix[],
-  bucketCount = PROFILE_SAMPLE_COUNT,
-): ProfilePoint[] {
-  if (fixes.length === 0) return [];
-
-  const elevation = elevationRollup(
-    fixes.map<AltitudeSample>((fix) => ({ timestamp: fix.timestamp, altitudeM: fix.altitude })),
-  );
-
-  let state = createSmootherState();
-  let cumulative = 0;
-  const walked = fixes.map((fix, index) => {
-    const step = smoothFix(state, fix);
-    state = step.state;
-    cumulative += step.acceptedDeltaMeters;
-    return { distanceM: cumulative, timestamp: fix.timestamp, elevationM: elevation.seriesM[index] };
-  });
-
-  const total = cumulative;
-  if (total <= 0) return [];
-
-  const width = total / bucketCount;
-  const buckets = new Map<number, Bucket>();
-
-  for (let i = 0; i < walked.length; i += 1) {
-    const point = walked[i];
-    // why clamp: the final fix sits exactly on `total` and would otherwise open a
-    // bucketCount-th bucket holding a single fix and therefore no measurable pace.
-    const index = Math.min(bucketCount - 1, Math.floor(point.distanceM / width));
-    const existing = buckets.get(index);
-    const meters = i === 0 ? 0 : point.distanceM - walked[i - 1].distanceM;
-
-    if (existing === undefined) {
-      buckets.set(index, {
-        meters,
-        firstTimestamp: point.timestamp,
-        lastTimestamp: point.timestamp,
-        elevationM: point.elevationM,
-      });
-      continue;
-    }
-
-    existing.meters += meters;
-    existing.lastTimestamp = point.timestamp;
-    if (point.elevationM !== null) existing.elevationM = point.elevationM;
-  }
-
-  return [...buckets.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([index, bucket]) => {
-      const seconds = (bucket.lastTimestamp - bucket.firstTimestamp) / 1000;
-      return {
-        distanceM: (index + 0.5) * width,
-        paceSecPerKm: bucket.meters > 0 && seconds > 0 ? (seconds / bucket.meters) * 1000 : null,
-        elevationM: bucket.elevationM,
-      };
-    });
-}
-```
-
+> **SUPERSEDED — the code that stood here is defective and does not even compile.**
+> Do not implement from it. Four distinct problems:
+> 1. It folds `elevationRollup` and emits `elevationM` — elevation is deferred whole
+>    (spec §3.6), so `ProfilePoint` carries `distanceM` and `paceSecPerKm` only.
+> 2. It defaults `bucketCount = PROFILE_SAMPLE_COUNT`; the shipped count is derived
+>    from fix density (`MIN_FIXES_PER_BUCKET`), so a 240 m run gets 16 buckets rather
+>    than 120 with 86 of them null.
+> 3. It uses the **naive `firstTimestamp` clock** — the defect spec §5.2 exists to
+>    kill (267 s/km against a true 333, −41.3% on a 5-minute run), and it charges a
+>    pause or GPS dropout to whichever bucket spans it, collapsing the genuine
+>    run/walk separation to 3.8% of the axis. The shipped fold splits each leg's
+>    metres *and* seconds across every bucket it crosses and skips any leg longer
+>    than `MAX_GAP_S`.
+> 4. It declares `Bucket.entryTimestamp` and then assigns `firstTimestamp`.
+>
+> The shipped series is `src/domain/run-profile.ts`. Read that file; it is the authority.
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `bun test src/domain/run-profile.test.ts`
@@ -769,54 +321,32 @@ Task numbering is preserved so briefs still extract by number.
 
 **Files:**
 - Modify: `src/constants/theme.ts` (`StatColors`)
-- Create: `src/hooks/use-run-profile.ts`
+- Rename + extend: `src/hooks/use-run-route.ts` → `src/hooks/use-run-track.ts`
 
 **Interfaces:**
-- Consumes: `toRunProfile`, `ProfilePoint` (Task 3); `loadRunFixes` from `@/db/run-points`. NOTE: elevation is deferred (spec §3.6) — the hook exposes no `hasElevation`.
+- Consumes: `toRunProfile`, `isDrawableProfile`, `ProfilePoint` (Task 3); `loadRunFixes` from `@/db/run-points`; the existing route geometry helpers. NOTE: elevation is deferred (spec §3.6) — nothing exposes `hasElevation`.
 - Produces:
-  - `type RunProfile = { ready: false } | { ready: true; points: ProfilePoint[] }`
-  - `useRunProfile(runId: string, loaded: boolean): RunProfile`
+  - `type RunTrack = { ready: false } | (ReadyRoute & { profile: ProfilePoint[] | null })`
+  - `type RunRoute = { ready: false } | ReadyRoute` — the viewer's narrower view, with no `profile` field at all
+  - `useRunTrack(runId, segments, loaded): RunTrack` and `useRunRoute(runId, segments, loaded, epsilon?): RunRoute`
 
 - [ ] **Step 1: Write the hook**
 
-```ts
-// src/hooks/use-run-profile.ts
-import { useMemo } from 'react';
-
-import { loadRunFixes } from '@/db/run-points';
-import { toRunProfile, type ProfilePoint } from '@/domain/run-profile';
-
-export type RunProfile = { ready: false } | { ready: true; points: ProfilePoint[] };
-
-/**
- * A finished run's pace/elevation series. Reads `run_points` ONCE, non-reactively — never via
- * `useLiveQuery` (ADR 0004 §3) — and re-folds with the same smoother the stored distance used
- * (ADR 0021 §3). `loaded` is the caller's `updatedAt !== undefined`.
- */
-export function useRunProfile(runId: string, loaded: boolean): RunProfile {
-  return useMemo(() => {
-    if (!loaded) return { ready: false };
-    try {
-      const points = toRunProfile(loadRunFixes(runId));
-      // why 2: a single point draws no line, so it is indistinguishable from no chart.
-      if (points.length < 2) return { ready: false };
-      return { ready: true, points };
-    } catch (error) {
-      // why: no ErrorBoundary wraps this route; a SQLite read failure must degrade to
-      // no card, not crash render.
-      console.warn('[use-run-profile] profile load failed; hiding the card', error);
-      return { ready: false };
-    }
-  }, [runId, loaded]);
-}
-```
-
+> **SUPERSEDED — do not implement from it.** This creates a *second* hook beside
+> `useRunRoute`, so both ran `loadRunFixes(runId)` plus a full smoother fold in the
+> same render pass — two ~1800-row reads on the modal's first content frame — while
+> gating on different predicates, which is what let a treadmill run be told it
+> "didn't cover enough ground to map" above a chart drawn from that same rejected
+> drift. Spec §4.4 replaced it with the merged `src/hooks/use-run-track.ts`: one
+> read, one `ready`, route and profile derived together, the profile fold in its own
+> `try` so it cannot take the map down. There is no `src/hooks/use-run-profile.ts`.
+> Read `use-run-track.ts`; it is the authority.
 - [ ] **Step 2: Verify and commit**
 
 ```bash
 bun run typecheck && bun run lint
-git add -- src/hooks/use-run-profile.ts
-git commit -m "feat: add the run profile hook"
+git add -- src/hooks/use-run-track.ts
+git commit -m "feat: derive the route and the pace series from one run_points read"
 ```
 
 ---
@@ -832,59 +362,14 @@ git commit -m "feat: add the run profile hook"
 
 - [ ] **Step 1: Write the component**
 
-Apply the inversion mechanism Task 1 verified. If the reversed `domain` tuple worked, this is it:
-
-```tsx
-// src/components/run-profile-chart.tsx
-import { matchFont } from '@shopify/react-native-skia';
-import { useMemo } from 'react';
-import { View } from 'react-native';
-import { CartesianChart, Line } from 'victory-native';
-
-import type { ProfilePoint } from '@/domain/run-profile';
-import { useStatColors } from '@/hooks/use-theme';
-
-const AXIS_FONT_SIZE = 11;
-const CHART_HEIGHT = 200;
-
-/**
- * Pace and elevation against distance (spec §7.2). The only file importing victory-native —
- * if it is ever swapped for hand-drawn Skia, nothing outside this file changes.
- */
-export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
-  const stat = useStatColors();
-  const font = useMemo(() => matchFont({ fontSize: AXIS_FONT_SIZE }), []);
-
-  // why inverted: pace is seconds per km, so a LOWER value is faster and belongs higher.
-  const paceDomain = useMemo(() => {
-    const paces = points.map((p) => p.paceSecPerKm).filter((p): p is number => p !== null);
-    if (paces.length === 0) return undefined;
-    return [Math.max(...paces), Math.min(...paces)] as [number, number];
-  }, [points]);
-
-  return (
-    <View
-      style={{ height: CHART_HEIGHT }}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      <CartesianChart
-        data={points}
-        xKey="distanceM"
-        yKeys={['paceSecPerKm']}
-        yAxis={[{ yKeys: ['paceSecPerKm'], axisSide: 'left', font, domain: paceDomain }]}
-      >
-        {({ points: rendered }) => (
-          <Line points={rendered.paceSecPerKm} color={stat.pace} strokeWidth={2} />
-        )}
-      </CartesianChart>
-    </View>
-  );
-}
-```
-
-Task 1 confirmed the reversed `domain` tuple works and is scoped to the pace axis only — no negation fallback is needed.
-
+> **SUPERSEDED — do not implement from it.** The reversed `domain` tuple is right and
+> shipped, but this block is missing everything the gate review then found: axis
+> colours (victory's defaults are hardcoded `#000000` labels, invisible on the
+> dark-mode card), the app's own tick formatters (raw `400`/`450` where every other
+> pace surface reads `6:40`), the `PixelRatio.getFontScale()` scaling of font, chart
+> height and tick count, and the module-scope `Y_KEYS` identity that keeps victory's
+> axis memos. The shipped chart is `src/components/run-profile-chart.tsx`. Read that
+> file; it is the authority.
 - [ ] **Step 2: Verify it compiles**
 
 Run: `bun run typecheck && bun run lint`
@@ -906,54 +391,19 @@ git commit -m "feat: add the pace and elevation chart"
 - Modify: `src/app/runs/[runId]/index.tsx`
 
 **Interfaces:**
-- Consumes: `useRunProfile` (Task 5); `RunProfileChart` (Task 6); `formatDistanceKm` from `@/domain/format`; `Card`, `Text`.
-- Produces: `<RunProfileCard run={Run} />`
+- Consumes: `RunTrack` from `useRunTrack` (Task 5, passed in by the screen — the card runs no hook of its own); `RunProfileChart` (Task 6); `formatDistanceKm`, `formatPace`, `paceParts` from `@/domain/format`; `paceRange` from `@/domain/run-profile`; `hasMeasuredDistance` from `@/domain/run-stats`; `Card`, `Text`.
+- Produces: `<RunProfileCard run={Run} track={RunTrack} />`
 
 - [ ] **Step 1: Write the card**
 
-```tsx
-// src/components/run-profile-card.tsx
-import { View } from 'react-native';
-
-import { RunProfileChart } from '@/components/run-profile-chart';
-import { Card } from '@/components/ui/card';
-import { Text } from '@/components/ui/text';
-import type { Run } from '@/db/schema';
-import { formatDistanceKm } from '@/domain/format';
-import { useRunProfile } from '@/hooks/use-run-profile';
-
-/**
- * A finished run's pace-and-elevation profile (ADR 0013 domain component). Renders nothing
- * without a usable route: the route card directly above already explains why such a run has
- * no GPS data, and a second explanatory card would be noise.
- *
- * Pace only: elevation is deferred whole (spec §3.6) because the smoothed series fabricates
- * terrain on flat ground, so both the line and its totals wait for the barometer slice.
- */
-export function RunProfileCard({ run }: { run: Run }) {
-  const profile = useRunProfile(run.id, true);
-
-  if (!profile.ready) return null;
-
-  const distance = run.distanceM !== null ? formatDistanceKm(run.distanceM) : null;
-  const label = `Pace profile${distance ? ` over ${distance}` : ''}`;
-
-  return (
-    <Card surface="card" className="gap-3">
-      <Text variant="footnote" tone="secondary" className="font-semibold" accessibilityRole="header">
-        Pace
-      </Text>
-
-      {/* why the label lives here: the chart is a Skia canvas and carries no accessible
-          content of its own, so the card is the only thing VoiceOver can read. */}
-      <View accessible accessibilityLabel={label}>
-        <RunProfileChart points={profile.points} />
-      </View>
-    </Card>
-  );
-}
-```
-
+> **SUPERSEDED — do not implement from it.** It calls the removed `useRunProfile`
+> (see Task 5), and it gates only on that hook — where the shipped card takes the
+> shared `RunTrack` and requires **both** the route-extent gate and
+> `hasMeasuredDistance`, so a slow shuffle cannot chart a min/km line on a summary
+> that withholds pace everywhere else. Its `label` also lacks the pace range, and
+> must **not** regain the start-to-finish trend sentence: bucket means read "steady"
+> for every session in an interval plan (spec §7.1). The shipped card is
+> `src/components/run-profile-card.tsx`. Read that file; it is the authority.
 - [ ] **Step 2: Compose it into the summary**
 
 In `src/app/runs/[runId]/index.tsx`, add the import:
@@ -966,7 +416,7 @@ and place it between `RunStatGrid` and `SegmentBreakdown`:
 
 ```tsx
             <RunStatGrid run={run} segments={segments} />
-            <RunProfileCard run={run} />
+            <RunProfileCard run={run} track={track} />
             <SegmentBreakdown segments={segments} />
 ```
 
@@ -984,16 +434,21 @@ xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59
 
 Complete a compressed session, then on the summary confirm with a `screenshot`:
 1. The card appears between the stat grid and the segment breakdown.
-2. Both lines paint; the pace line reads **fast-at-top**.
-3. Gain and loss appear in the header, both multiples of 5.
-4. Contrast: the elevation line is legible against the card in light and dark. Non-text graphics want 3:1 — if systemGreen looks weak, darken the light-mode value and say so.
+2. The pace line paints and reads **fast-at-top**; its values agree with the summary's own headline pace stat (they disagreed by 20% before the boundary rule was fixed).
+3. The header reads `Pace` with `min/km · km`; the ticks are bare (`6:40`, `0.50`) with no repeated unit. **No gain/loss totals** — elevation is deferred whole (spec §3.6).
+4. Contrast: the pace line and both axes are legible against the card in light and dark. Non-text graphics want 3:1.
 
 Then re-check in dark mode and at a large text size:
 
 ```bash
 xcrun simctl ui <udid> appearance dark
-xcrun simctl ui <udid> content_size accessibility-large
+xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large
 ```
+
+The app reads `PixelRatio.getFontScale()` at render, and the simulator's content
+size does not reach a running JS bundle — **reload after changing it** or the
+chart will paint at the old scale and the check proves nothing. At AX5 the
+x-axis must thin to ~3 ticks; five would overrun the plot area.
 
 Finally confirm the degradation path: a run recorded with location off shows **no** profile card and no layout gap.
 
@@ -1043,11 +498,11 @@ It must record: that AGENTS.md prefers Expo-official packages and this is a deli
 
 - [ ] **Step 3b: Amend ADR 0015 with the measurement**
 
-ADR 0015 asserted GPS altitude is too noisy to sum. This slice *quantified* it. Add a dated amendment carrying spec §3.5's table — 537 m phantom gain at ±10 m untuned, ~94 m even at the tuned GPS config when noise reaches ±25 m, and the finding that the settings which suppress that also report zero loss on a real 40 m descent. State the conclusion plainly: no single window/threshold pair is safe across regimes, which is why the displayed totals were cut and deferred to the barometer slice. Record that item 5's columns move to that slice. Leave item 7 (background barometer delivery) open — this slice produced no device evidence for it.
+ADR 0015 asserted GPS altitude is too noisy to sum. This slice *quantified* it. Add a dated amendment carrying spec §3.5's table — **549.5 m** phantom gain at ±10 m untuned, **92.5 m** even at the tuned GPS config when noise reaches ±25 m, and the finding that the settings which suppress that also report zero loss on a real 40 m descent. Measure over **50 seeds**, never 5, and re-measure after the warm-up fix: the pre-fix figures (537 / ~85 / a 2.5 m banked gain at ±10 m) are what the first pass published and they no longer hold. State the conclusion plainly: no single window/threshold pair is safe across regimes, which is why the displayed totals were cut and deferred to the barometer slice. Record that item 5's columns move to that slice. Leave item 7 (background barometer delivery) open — this slice produced no device evidence for it.
 
 - [ ] **Step 4: Update the roadmap row**
 
-In `docs/roadmap/README.md`, change the elevation row's Status to `Planned` and **rename the feature** from "Run elevation on the map" to "Run elevation & pace profile" — elevation is deliberately not on the map. Link this spec and plan.
+In `docs/roadmap/README.md`, the row is titled **"Run pace & elevation profile"** with status **In progress** (pace slice building; elevation deferred to the barometer slice) — pace is what actually ships here, and elevation is deliberately not on the map. Link this spec and plan.
 
 - [ ] **Step 5: Record the HealthKit finding in the Stage 5 spec**
 
@@ -1080,14 +535,16 @@ Then report: which flows passed, the fingerprint result, the spike outcome, any 
 
 ## Self-Review
 
-**Spec coverage.** §2 decisions → Tasks 2–7; §3.1 spike and fingerprint → Task 1; §3.2 existing altitude data → Task 3; §4.2 reducer with the three load-bearing properties → Task 2 (each has a test); §4.3 hook → Task 5; §5.1 rebasing → Task 2; §5.2 bucketed pace → Task 3; §5.3 hysteresis → Task 2; §5.4 axis inversion → Tasks 1 and 6; §6 storage and rollup → Task 4; §7.1 card and a11y → Task 7; §7.2 chart → Task 6; §8 degradation → Tasks 5 (`ready: false`), 6 (`showElevation`), 7 (null return); §9.1 gate → Task 1; §9.2 unit set → Tasks 2–4; §9.3 E2E → Task 8; §9.4 manual → Task 7 Step 3; §10 docs → Task 8.
+**Spec coverage.** §2 decisions → Tasks 2–7; §3.1 spike and fingerprint → Task 1; §3.2 existing altitude data → Task 3; §4.2 reducer with the three load-bearing properties → Task 2 (each has a test); §4.3 "keep the module correct anyway" → Task 2's warm-up fix; §4.4 the merged one-read hook → Task 5; §5.1 rebasing → Task 2; §5.2 bucketed pace → Task 3; §5.3 hysteresis → Task 2; §5.4 axis inversion → Tasks 1 and 6; §6 storage — **nothing to build**, Task 4 is removed; §7.1 card and a11y → Task 7; §7.2 chart → Task 6; §8 degradation → Tasks 5 (`ready: false`, and the pace fold's own `try`), 7 (the extent gate and `hasMeasuredDistance`); §9.1 gate → Task 1; §9.2 unit set → Tasks 2–3; §9.3 E2E → Task 8; §9.4 manual → Task 7 Step 3; §10 docs → Task 8.
 
 **Gap found and closed (original pass):** §8's "run finalized before this shipped" row had no explicit coverage. After the 2026-08-03 amendment it needs none — nothing is stored, so the series is re-derived from `run_points` for every run alike and there is no old/new distinction.
 
 **Amendment pass (2026-08-03, first):** spec §3.5 covered by Task 2's noise tests; §2's "no totals" by Task 4's removal; §4.2's per-source config by Task 2's `ElevationConfig` test; §6's "no storage" by Task 4 being empty.
 
-**Amendment pass (2026-08-03, second — post Gate B):** spec §3.6's deferral covered by Tasks 3/5/6/7 dropping elevation; §4.3's "keep the module correct anyway" by Task 2's warm-up fix; §5.2's boundary rule by Task 3's `entryTimestamp`. The Task 3 code block below is superseded in detail by the Gate B fix dispatch, which carries the authoritative findings list — treat that as governing where the two differ.
+**Amendment pass (2026-08-03, second — post Gate B):** spec §3.6's deferral covered by Tasks 3/5/6/7 dropping elevation; §4.3's "keep the module correct anyway" by Task 2's warm-up fix; §5.2's boundary rule by Task 3's proportional leg splitting and gap exclusion.
+
+**Amendment pass (2026-08-03, third — post Gate D).** The two passes above rewrote these headers but left the task *bodies* carrying the defective code they describe, so an agent extracting Task 2 or 3 by number would have re-introduced both Gate B Criticals. **Every code block that no longer matches shipped code now carries a `SUPERSEDED` note naming the shipped file and the defect it was fixed for** — Tasks 2 (Steps 1, 3), 3 (Steps 1, 3), 5, 6 and 7 (Step 1). Task 1's spike block is deliberately left intact: it is a throwaway file, and its two-line chart is what verified the dual-axis mechanism for the barometer slice (spec §3.1). Interface lists, the File Structure table, Task 7's verification steps and this Self-Review are corrected in place rather than superseded.
 
 **Placeholders:** none. Every code step carries runnable code; the one branch point (axis inversion) names both concrete paths and which task decides.
 
-**Type consistency:** `AltitudeSample`, `ElevationConfig`, `GPS_ELEVATION_CONFIG`, `ElevationState`, `ElevationRollup.seriesM`, `ProfilePoint`, `RunProfile` are spelled identically wherever they appear across Tasks 2–7. `useRunProfile(runId, loaded)` is called as `useRunProfile(run.id, true)` in Task 7 — the summary only mounts the card once its own live query has loaded, matching how `RouteMapCard` passes `true` to `useRunRoute`.
+**Type consistency:** `AltitudeSample`, `ElevationConfig`, `GPS_ELEVATION_CONFIG`, `ElevationState`, `ElevationRollup.seriesM` and `ProfilePoint` are spelled identically across Tasks 2–7. The hook types are `RunTrack` / `RunRoute` (Task 5); `RunProfile` and `useRunProfile` do **not** exist — the superseded blocks that name them are marked as such at each site.

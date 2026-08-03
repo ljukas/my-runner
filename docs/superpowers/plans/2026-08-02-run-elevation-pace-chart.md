@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a run-summary card charting pace and elevation against distance.
+**Goal:** Add a run-summary card charting pace against distance. (Elevation was deferred whole after Gate B — spec §3.6.)
 
 **Architecture:** Elevation comes from `run_points.altitude`, which the app already persists for every accepted GPS fix — no new sensor, permission, native module, or schema change. A pure streaming reducer (`domain/elevation.ts`) smooths altitude and banks gain/loss with hysteresis; it mirrors `smoothFix`/`smoothTrack` (ADR 0021) so the barometer slice that follows plugs in as a second *source*, not a second implementation. The chart series is derived at display time from `run_points`, and nothing is stored — gain/loss totals are computed and tested but deliberately not displayed in this slice (spec §3.5).
 
@@ -24,19 +24,24 @@
 - **Test fixtures for the reducer have two hard requirements** (spec §9.2), both learned the expensive way: noise fixtures use a **seeded PRNG, never a sinusoid** (a median filter annihilates a coherent sinusoid, so a sinusoidal fixture passes while the reducer banks hundreds of phantom metres); and climb fixtures are **padded with flat samples at both ends** (the trailing median warms up at the start but lags at the end, a 4.5 m artifact that otherwise lands in the assertion).
 - **Gate everything on Task 1.** If the spike fails, stop and report — the slice reshapes.
 
-> **Amended 2026-08-03.** Elevation gain/loss totals and their storage are cut from this slice (spec §2, §3.5, §6) — GPS cannot support them honestly, and they land with the barometer slice instead. **Task 4 is removed**; Task 2's fixtures are rewritten; Task 7's card loses its header totals. Task numbering is unchanged so briefs still extract by number.
+> **Amended 2026-08-03 (first pass).** Elevation gain/loss totals and their storage are cut (spec §3.5). **Task 4 is removed**; Task 2's fixtures are rewritten; Task 7's card loses its header totals.
+>
+> **Amended 2026-08-03 (second pass, after Gate B).** Three adversarial reviewers found that §3.5's reasoning was inverted — hysteresis protects the totals, not the line — so **elevation is deferred whole** (spec §3.6) and this slice ships a **pace-only chart**. They also found two Criticals in already-committed code. Consequences:
+> - **Task 2** keeps `domain/elevation.ts` (the barometer slice consumes it unchanged — spec §4.3) but must fix the **warm-up anchor defect** and test across ≥50 seeds, not 5.
+> - **Task 3** drops elevation from `ProfilePoint` entirely and must fix the **pace boundary rule** (spec §5.2).
+> - **Tasks 5–7** render one pace line, one axis; the hook loses `hasElevation`.
+> - Task numbering is unchanged so briefs still extract by number.
 
 ## File Structure
 
 | File | Responsibility |
 |---|---|
-| `src/domain/elevation.ts` | **Create.** Pure streaming altitude reducer: median smoothing, hysteresis gain/loss, sticky trend. |
+| `src/domain/elevation.ts` | **Create.** Pure streaming altitude reducer. Shipped unconsumed — the barometer slice's foundation (spec §4.3). Must still be correct. |
 | `src/domain/elevation.test.ts` | **Create.** Property tests — the noise-rejection guard is the important one. |
-| `src/domain/run-profile.ts` | **Create.** Pure: fixes → resampled `{ distanceM, paceSecPerKm, elevationM }[]`. |
+| `src/domain/run-profile.ts` | **Create.** Pure: fixes → resampled `{ distanceM, paceSecPerKm }[]`. |
 | `src/domain/run-profile.test.ts` | **Create.** Bucketing, pace, distance preservation. |
-| `src/constants/theme.ts` | **Modify.** `StatColors.elevation`. |
 | `src/hooks/use-run-profile.ts` | **Create.** One imperative read, memoised fold. Modelled on `use-run-route.ts`. |
-| `src/components/run-profile-chart.tsx` | **Create.** The ONLY file importing `victory-native`. |
+| `src/components/run-profile-chart.tsx` | **Create.** The ONLY file importing `victory-native`. One line, one axis. |
 | `src/components/run-profile-card.tsx` | **Create.** Gating and accessibility. No totals — spec §3.5. |
 | `src/app/runs/[runId]/index.tsx` | **Modify.** Compose the card between `RunStatGrid` and `SegmentBreakdown`. |
 | `.maestro/tests/complete-session.yaml` | **Modify.** Assert the card's absence on a motionless run. |
@@ -528,7 +533,7 @@ git commit -m "feat: add the elevation reducer with per-source tuning"
 **Interfaces:**
 - Consumes: `elevationRollup`, `AltitudeSample` (Task 2); `createSmootherState`, `smoothFix`, `type LocationFix` from `@/domain/geo`.
 - Produces:
-  - `interface ProfilePoint { distanceM: number; paceSecPerKm: number | null; elevationM: number | null }`
+  - `interface ProfilePoint { distanceM: number; paceSecPerKm: number | null }`
   - `toRunProfile(fixes: readonly LocationFix[], bucketCount?: number): ProfilePoint[]`
   - `PROFILE_SAMPLE_COUNT = 120`
 
@@ -640,17 +645,16 @@ export interface ProfilePoint {
   distanceM: number;
   /** Seconds per km over the bucket; null when the bucket carried no usable time or distance. */
   paceSecPerKm: number | null;
-  /** Metres relative to the run's start; null when no altitude was recorded. */
-  elevationM: number | null;
 }
 
 export const PROFILE_SAMPLE_COUNT = 120;
 
 interface Bucket {
   meters: number;
-  firstTimestamp: number;
+  /** The PREVIOUS fix's timestamp — a bucket's metres include the leg entering it, so its
+   *  clock must start there or pace reads fast by 1/N (spec §5.2). */
+  entryTimestamp: number;
   lastTimestamp: number;
-  elevationM: number | null;
 }
 
 /**
@@ -761,35 +765,19 @@ Task numbering is preserved so briefs still extract by number.
 
 ---
 
-### Task 5: The colour token and the hook
+### Task 5: The hook
 
 **Files:**
 - Modify: `src/constants/theme.ts` (`StatColors`)
 - Create: `src/hooks/use-run-profile.ts`
 
 **Interfaces:**
-- Consumes: `toRunProfile`, `ProfilePoint` (Task 3); `loadRunFixes` from `@/db/run-points`.
+- Consumes: `toRunProfile`, `ProfilePoint` (Task 3); `loadRunFixes` from `@/db/run-points`. NOTE: elevation is deferred (spec §3.6) — the hook exposes no `hasElevation`.
 - Produces:
-  - `StatColors[scheme].elevation: string`
-  - `type RunProfile = { ready: false } | { ready: true; points: ProfilePoint[]; hasElevation: boolean }`
+  - `type RunProfile = { ready: false } | { ready: true; points: ProfilePoint[] }`
   - `useRunProfile(runId: string, loaded: boolean): RunProfile`
 
-- [ ] **Step 1: Add the elevation accent**
-
-In `src/constants/theme.ts`, add `elevation: string;` to the `StatColors` type literal, then a value to each scheme:
-
-```ts
-  light: {
-    // …existing…
-    elevation: '#34C759', // systemGreen
-  },
-  dark: {
-    // …existing…
-    elevation: '#30D158',
-  },
-```
-
-- [ ] **Step 2: Write the hook**
+- [ ] **Step 1: Write the hook**
 
 ```ts
 // src/hooks/use-run-profile.ts
@@ -798,9 +786,7 @@ import { useMemo } from 'react';
 import { loadRunFixes } from '@/db/run-points';
 import { toRunProfile, type ProfilePoint } from '@/domain/run-profile';
 
-export type RunProfile =
-  | { ready: false }
-  | { ready: true; points: ProfilePoint[]; hasElevation: boolean };
+export type RunProfile = { ready: false } | { ready: true; points: ProfilePoint[] };
 
 /**
  * A finished run's pace/elevation series. Reads `run_points` ONCE, non-reactively — never via
@@ -814,11 +800,7 @@ export function useRunProfile(runId: string, loaded: boolean): RunProfile {
       const points = toRunProfile(loadRunFixes(runId));
       // why 2: a single point draws no line, so it is indistinguishable from no chart.
       if (points.length < 2) return { ready: false };
-      return {
-        ready: true,
-        points,
-        hasElevation: points.some((point) => point.elevationM !== null),
-      };
+      return { ready: true, points };
     } catch (error) {
       // why: no ErrorBoundary wraps this route; a SQLite read failure must degrade to
       // no card, not crash render.
@@ -829,12 +811,12 @@ export function useRunProfile(runId: string, loaded: boolean): RunProfile {
 }
 ```
 
-- [ ] **Step 3: Verify and commit**
+- [ ] **Step 2: Verify and commit**
 
 ```bash
 bun run typecheck && bun run lint
-git add -- src/constants/theme.ts src/hooks/use-run-profile.ts
-git commit -m "feat: add the run profile hook and elevation accent token"
+git add -- src/hooks/use-run-profile.ts
+git commit -m "feat: add the run profile hook"
 ```
 
 ---
@@ -845,8 +827,8 @@ git commit -m "feat: add the run profile hook and elevation accent token"
 - Create: `src/components/run-profile-chart.tsx`
 
 **Interfaces:**
-- Consumes: `ProfilePoint` (Task 3); `useStatColors` from `@/hooks/use-theme`; the axis-inversion mechanism recorded in Task 1 Step 5.
-- Produces: `<RunProfileChart points={ProfilePoint[]} showElevation={boolean} />`
+- Consumes: `ProfilePoint` (Task 3); `useStatColors` from `@/hooks/use-theme`. Task 1 verified the axis-inversion mechanism: a reversed `domain: [max, min]` tuple on the pace axis entry.
+- Produces: `<RunProfileChart points={ProfilePoint[]} />`
 
 - [ ] **Step 1: Write the component**
 
@@ -869,13 +851,7 @@ const CHART_HEIGHT = 200;
  * Pace and elevation against distance (spec §7.2). The only file importing victory-native —
  * if it is ever swapped for hand-drawn Skia, nothing outside this file changes.
  */
-export function RunProfileChart({
-  points,
-  showElevation,
-}: {
-  points: ProfilePoint[];
-  showElevation: boolean;
-}) {
+export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   const stat = useStatColors();
   const font = useMemo(() => matchFont({ fontSize: AXIS_FONT_SIZE }), []);
 
@@ -895,19 +871,11 @@ export function RunProfileChart({
       <CartesianChart
         data={points}
         xKey="distanceM"
-        yKeys={['paceSecPerKm', 'elevationM']}
-        yAxis={[
-          { yKeys: ['paceSecPerKm'], axisSide: 'left', font, domain: paceDomain },
-          { yKeys: ['elevationM'], axisSide: 'right', font },
-        ]}
+        yKeys={['paceSecPerKm']}
+        yAxis={[{ yKeys: ['paceSecPerKm'], axisSide: 'left', font, domain: paceDomain }]}
       >
         {({ points: rendered }) => (
-          <>
-            <Line points={rendered.paceSecPerKm} color={stat.pace} strokeWidth={2} />
-            {showElevation ? (
-              <Line points={rendered.elevationM} color={stat.elevation} strokeWidth={2} />
-            ) : null}
-          </>
+          <Line points={rendered.paceSecPerKm} color={stat.pace} strokeWidth={2} />
         )}
       </CartesianChart>
     </View>
@@ -915,7 +883,7 @@ export function RunProfileChart({
 }
 ```
 
-**If Task 1 found the reversed `domain` tuple was rejected**, drop `paceDomain`, map `paceSecPerKm` to its negation when building the chart data, and add a tick formatter that re-negates for display. Record which path shipped in a `// why:` at the site.
+Task 1 confirmed the reversed `domain` tuple works and is scoped to the pace axis only — no negation fallback is needed.
 
 - [ ] **Step 2: Verify it compiles**
 
@@ -959,8 +927,8 @@ import { useRunProfile } from '@/hooks/use-run-profile';
  * without a usable route: the route card directly above already explains why such a run has
  * no GPS data, and a second explanatory card would be noise.
  *
- * No gain/loss totals — spec §3.5 measured GPS elevation as ~2x wrong in poor conditions,
- * so the shape ships and the numbers wait for the barometer slice.
+ * Pace only: elevation is deferred whole (spec §3.6) because the smoothed series fabricates
+ * terrain on flat ground, so both the line and its totals wait for the barometer slice.
  */
 export function RunProfileCard({ run }: { run: Run }) {
   const profile = useRunProfile(run.id, true);
@@ -968,20 +936,18 @@ export function RunProfileCard({ run }: { run: Run }) {
   if (!profile.ready) return null;
 
   const distance = run.distanceM !== null ? formatDistanceKm(run.distanceM) : null;
-  const label = profile.hasElevation
-    ? `Pace and elevation profile${distance ? ` over ${distance}` : ''}`
-    : `Pace profile${distance ? ` over ${distance}` : ''}`;
+  const label = `Pace profile${distance ? ` over ${distance}` : ''}`;
 
   return (
     <Card surface="card" className="gap-3">
       <Text variant="footnote" tone="secondary" className="font-semibold" accessibilityRole="header">
-        {profile.hasElevation ? 'Pace & Elevation' : 'Pace'}
+        Pace
       </Text>
 
       {/* why the label lives here: the chart is a Skia canvas and carries no accessible
           content of its own, so the card is the only thing VoiceOver can read. */}
       <View accessible accessibilityLabel={label}>
-        <RunProfileChart points={profile.points} showElevation={profile.hasElevation} />
+        <RunProfileChart points={profile.points} />
       </View>
     </Card>
   );
@@ -1060,7 +1026,7 @@ git commit -m "feat: show the pace and elevation profile on the run summary"
 # The profile card is GPS-gated exactly as the route card is, so a motionless E2E run must not
 # render it. Its absence is the only assertion this harness can make: no flow can produce
 # movement, so no flow can prove the chart is correct (spec §9.3).
-- assertNotVisible: "Pace & Elevation"
+- assertNotVisible: "Pace"
 ```
 
 - [ ] **Step 2: Run the affected flow**
@@ -1118,7 +1084,9 @@ Then report: which flows passed, the fingerprint result, the spike outcome, any 
 
 **Gap found and closed (original pass):** §8's "run finalized before this shipped" row had no explicit coverage. After the 2026-08-03 amendment it needs none — nothing is stored, so the series is re-derived from `run_points` for every run alike and there is no old/new distinction.
 
-**Amendment pass (2026-08-03):** spec §3.5 is covered by Task 2's two noise tests; §2's "no totals" by Task 4's removal and Task 7's card; §4.2's per-source config by Task 2's `ElevationConfig` block and its dedicated test; §6's "no storage" by Task 4 being empty.
+**Amendment pass (2026-08-03, first):** spec §3.5 covered by Task 2's noise tests; §2's "no totals" by Task 4's removal; §4.2's per-source config by Task 2's `ElevationConfig` test; §6's "no storage" by Task 4 being empty.
+
+**Amendment pass (2026-08-03, second — post Gate B):** spec §3.6's deferral covered by Tasks 3/5/6/7 dropping elevation; §4.3's "keep the module correct anyway" by Task 2's warm-up fix; §5.2's boundary rule by Task 3's `entryTimestamp`. The Task 3 code block below is superseded in detail by the Gate B fix dispatch, which carries the authoritative findings list — treat that as governing where the two differ.
 
 **Placeholders:** none. Every code step carries runnable code; the one branch point (axis inversion) names both concrete paths and which task decides.
 

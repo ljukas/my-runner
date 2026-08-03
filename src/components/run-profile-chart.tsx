@@ -21,8 +21,21 @@ const MAX_FONT_SCALE = 1.6;
 const Y_KEYS: 'paceSecPerKm'[] = ['paceSecPerKm'];
 
 // Ticks stay bare numbers; each axis names its own unit once (spec §7.2).
-const formatPaceTick = (secondsPerKm: number | null) => paceParts(secondsPerKm).value;
-const formatDistanceTick = (meters: number) => distanceParts(meters).value;
+
+// why U+2007 and not a plain space: a right-side axis places every label at the same left edge
+// (`YAxis.tsx` returns `chartBounds.right + labelOffset` regardless of label width), so "6:40"
+// and "13:20" ragged-right against each other. FIGURE SPACE is a digit's width by definition, so
+// padding the short form to the long one's length right-aligns them with no layout control.
+const FIGURE_SPACE = ' ';
+const PACE_TICK_WIDTH = 5; // "MM:SS"
+
+const formatPaceTick = (secondsPerKm: number | null) =>
+  paceParts(secondsPerKm).value.padStart(PACE_TICK_WIDTH, FIGURE_SPACE);
+
+// why trimmed here rather than in `distanceParts`: that helper feeds the stat tiles, where a run
+// reads "2.31 km" and the two decimals are the point. On an axis they are noise — the owner wants
+// 1, 1.5, 2.5 — and a tick is the only place a whole kilometre should lose its ".00".
+const formatDistanceTick = (meters: number) => String(Number(distanceParts(meters).value));
 
 // why the x unit sits here and the y unit in the card's title: victory renders an x title
 // horizontally under the tick row, but a y title only rotated 90° (`YAxis.tsx` hardcodes the

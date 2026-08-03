@@ -1,13 +1,23 @@
 import { matchFont } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
-import { View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
+import { formatDistanceKm, paceParts } from '@/domain/format';
 import type { ProfilePoint } from '@/domain/run-profile';
-import { useStatColors, useTheme } from '@/hooks/use-theme';
+import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
 const CHART_HEIGHT = 200;
+// why capped, and at the same 1.6 as route-map-card's chip: Skia takes raw pixels and scales
+// nothing itself, and past ~1.6× the axis labels claim more of the card than the line does.
+const MAX_FONT_SCALE = 1.6;
+
+// why module scope: a fresh array identity here misses victory's axis and transform memos on every
+// parent render, re-measuring each label through Skia font metrics and re-parsing the path.
+const Y_KEYS: 'paceSecPerKm'[] = ['paceSecPerKm'];
+
+const formatPaceTick = (secondsPerKm: number | null) => paceParts(secondsPerKm).value;
 
 /**
  * Pace against distance (spec §7.2). The only file importing victory-native — if it is ever
@@ -15,9 +25,25 @@ const CHART_HEIGHT = 200;
  */
 export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   const stat = useStatColors();
-  // why: victory-native's axis defaults are hardcoded black — invisible on the dark-mode card.
+  // why: victory-native's axis defaults are hardcoded black (`cartesian/utils/axisDefaults.ts`) —
+  // invisible on the dark-mode card, and latent only for as long as no axis rendered at all.
   const colors = useTheme();
-  const font = useMemo(() => matchFont({ fontSize: AXIS_FONT_SIZE }), []);
+  const grid = useChartGridColor();
+  const fontScale = Math.min(PixelRatio.getFontScale(), MAX_FONT_SCALE);
+  const font = useMemo(
+    () => matchFont({ fontSize: Math.round(AXIS_FONT_SIZE * fontScale) }),
+    [fontScale],
+  );
+
+  const xAxis = useMemo(
+    () => ({
+      font,
+      labelColor: colors.textSecondary,
+      lineColor: grid,
+      formatXLabel: formatDistanceKm,
+    }),
+    [font, colors.textSecondary, grid],
+  );
 
   // why inverted: pace is seconds per km, so a LOWER value is faster and belongs higher.
   const paceDomain = useMemo(() => {
@@ -26,30 +52,28 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
     return [Math.max(...paces), Math.min(...paces)] as [number, number];
   }, [points]);
 
+  const yAxis = useMemo(
+    () => [
+      {
+        yKeys: Y_KEYS,
+        axisSide: 'left' as const,
+        font,
+        domain: paceDomain,
+        labelColor: colors.textSecondary,
+        lineColor: grid,
+        formatYLabel: formatPaceTick,
+      },
+    ],
+    [font, paceDomain, colors.textSecondary, grid],
+  );
+
   return (
     <View
-      style={{ height: CHART_HEIGHT }}
+      style={{ height: Math.round(CHART_HEIGHT * fontScale) }}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <CartesianChart
-        // why cast: ProfilePoint is a declared `interface`, and TS does not treat an
-        // interface as satisfying `Record<string, unknown>` structurally — a `type` alias
-        // would, but the domain module isn't ours to change here.
-        data={points as (ProfilePoint & Record<string, unknown>)[]}
-        xKey="distanceM"
-        yKeys={['paceSecPerKm']}
-        yAxis={[
-          {
-            yKeys: ['paceSecPerKm'],
-            axisSide: 'left',
-            font,
-            domain: paceDomain,
-            labelColor: colors.textSecondary,
-            lineColor: colors.textSecondary,
-          },
-        ]}
-      >
+      <CartesianChart data={points} xKey="distanceM" yKeys={Y_KEYS} xAxis={xAxis} yAxis={yAxis}>
         {({ points: rendered }) => (
           <Line points={rendered.paceSecPerKm} color={stat.pace} strokeWidth={2} />
         )}

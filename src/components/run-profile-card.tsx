@@ -4,16 +4,10 @@ import { RunProfileChart } from '@/components/run-profile-chart';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
-import { formatDistanceKm, formatPace } from '@/domain/format';
-import { describeProfile, type ProfileShape } from '@/domain/run-profile';
+import { formatDistanceKm, formatPace, paceParts } from '@/domain/format';
+import { paceRange } from '@/domain/run-profile';
 import { hasMeasuredDistance } from '@/domain/run-stats';
 import type { RunTrack } from '@/hooks/use-run-track';
-
-const TREND_SENTENCE: Record<ProfileShape['trend'], string> = {
-  faster: 'Finished faster than you started.',
-  slower: 'Finished slower than you started.',
-  steady: 'Held a steady pace throughout.',
-};
 
 /**
  * A finished run's pace profile (ADR 0013 domain component). Renders nothing without a usable
@@ -29,12 +23,11 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
   // why hasMeasuredDistance: the stat grid withholds a drift-only distance, and announcing it here
   // would tell VoiceOver a number the screen deliberately does not show.
   const distanceM = hasMeasuredDistance(run.distanceM, run.activeDurationS) ? run.distanceM : null;
-  const shape = describeProfile(track.profile);
+  const range = paceRange(track.profile);
   const label = [
     `Pace profile${distanceM !== null ? ` over ${formatDistanceKm(distanceM)}` : ''}.`,
-    shape &&
-      `Fastest ${formatPace(shape.fastestSecPerKm)}, slowest ${formatPace(shape.slowestSecPerKm)}.`,
-    shape && TREND_SENTENCE[shape.trend],
+    range &&
+      `The chart spans ${paceParts(range.fastestSecPerKm).value} to ${formatPace(range.slowestSecPerKm)}.`,
   ]
     .filter(Boolean)
     .join(' ');

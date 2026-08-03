@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { smoothTrack, type LocationFix } from './geo';
 import {
-  describeProfile,
   isDrawableProfile,
+  paceRange,
   PROFILE_SAMPLE_COUNT,
   toRunProfile,
   type ProfilePoint,
@@ -244,29 +244,39 @@ describe('isDrawableProfile', () => {
   });
 });
 
-describe('describeProfile', () => {
+describe('paceRange', () => {
   const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
 
   test('a series with nothing measured describes nothing', () => {
-    expect(describeProfile([])).toBeNull();
-    expect(describeProfile([point(null), point(null)])).toBeNull();
+    expect(paceRange([])).toBeNull();
+    expect(paceRange([point(null), point(null)])).toBeNull();
   });
 
-  test('reports the extremes and the direction of travel', () => {
-    expect(describeProfile([point(400), point(null), point(300)])).toEqual({
+  test('reports the extremes, skipping unmeasured buckets', () => {
+    expect(paceRange([point(400), point(null), point(300)])).toEqual({
       fastestSecPerKm: 300,
       slowestSecPerKm: 400,
-      trend: 'faster',
     });
-    expect(describeProfile([point(300), point(400)])?.trend).toBe('slower');
-    expect(describeProfile([point(300), point(305)])?.trend).toBe('steady');
   });
 
-  test('a single measured bucket has extremes but no direction', () => {
-    expect(describeProfile([point(360)])).toEqual({
-      fastestSecPerKm: 360,
-      slowestSecPerKm: 360,
-      trend: 'steady',
-    });
+  test('a single measured bucket is its own range', () => {
+    expect(paceRange([point(360)])).toEqual({ fastestSecPerKm: 360, slowestSecPerKm: 360 });
+  });
+
+  test('a W1D1 range spans both interval bands, and no half-vs-half trend could say so', () => {
+    // why this pins the removed trend sentence: an interval plan puts the same run/walk mix in
+    // both halves by construction, so a first-half/second-half mean comparison called this run
+    // "steady" — a run that alternated eight times between these two bands.
+    const profile = toRunProfile(w1d1());
+    const range = paceRange(profile)!;
+    expect(range.fastestSecPerKm).toBeLessThan(1000 / RUN_MPS + 30);
+    expect(range.slowestSecPerKm).toBeGreaterThan(1000 / WALK_MPS - 30);
+
+    const paces = profile
+      .map((p) => p.paceSecPerKm)
+      .filter((pace): pace is number => pace !== null);
+    const half = Math.floor(paces.length / 2);
+    const mean = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
+    expect(mean(paces.slice(0, half)) / mean(paces.slice(-half))).toBeCloseTo(1, 1);
   });
 });

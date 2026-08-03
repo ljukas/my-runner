@@ -98,38 +98,24 @@ export function isDrawableProfile(points: readonly ProfilePoint[]): boolean {
   );
 }
 
-export interface ProfileShape {
+export interface ProfilePaceRange {
   fastestSecPerKm: number;
   slowestSecPerKm: number;
-  trend: 'faster' | 'slower' | 'steady';
 }
 
-// why a band rather than a comparison: GPS bucket pace wanders a few percent on a genuinely even
-// run, and announcing "finished slower" off 1% of noise is worse than announcing nothing.
-const TREND_BAND = 0.05;
-
-function mean(values: number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-/** The shape a sighted reader gets for free, for the card's VoiceOver label; null when nothing measured. */
-export function describeProfile(points: readonly ProfilePoint[]): ProfileShape | null {
+/**
+ * The pace axis's extent, for the card's VoiceOver label; null when nothing measured.
+ *
+ * why only a range, and no characterisation of the run: bucket means cannot support one here.
+ * A C25K session puts the same run/walk mix in both halves by construction, so a first-half /
+ * second-half comparison reported "steady" for every session in the program — including a W1D1
+ * alternating eight times between 5:43 and 11:55 /km.
+ */
+export function paceRange(points: readonly ProfilePoint[]): ProfilePaceRange | null {
   const paces = points
     .map((point) => point.paceSecPerKm)
     .filter((pace): pace is number => pace !== null);
   if (paces.length === 0) return null;
 
-  const half = Math.floor(paces.length / 2);
-  const opening = half > 0 ? mean(paces.slice(0, half)) : 0;
-  const closing = half > 0 ? mean(paces.slice(paces.length - half)) : 0;
-
-  let trend: ProfileShape['trend'] = 'steady';
-  if (half > 0 && closing < opening * (1 - TREND_BAND)) trend = 'faster';
-  if (half > 0 && closing > opening * (1 + TREND_BAND)) trend = 'slower';
-
-  return {
-    fastestSecPerKm: Math.min(...paces),
-    slowestSecPerKm: Math.max(...paces),
-    trend,
-  };
+  return { fastestSecPerKm: Math.min(...paces), slowestSecPerKm: Math.max(...paces) };
 }

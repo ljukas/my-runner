@@ -19,16 +19,22 @@ import { toRouteLines } from '@/domain/route-render';
 import { isDrawableProfile, toRunProfile, type ProfilePoint } from '@/domain/run-profile';
 import { useSegmentColors } from '@/hooks/use-theme';
 
+interface ReadyRoute {
+  ready: true;
+  bbox: BoundingBox;
+  route: RouteMapRoute;
+  endpoints: { start: LatLng; finish: LatLng };
+}
+
+/** The viewer's track. No `profile`: it never folds one, so it must not advertise a null field. */
+export type RunRoute = { ready: false } | ReadyRoute;
+
 export type RunTrack =
   | { ready: false }
-  | {
-      ready: true;
-      bbox: BoundingBox;
-      route: RouteMapRoute;
-      endpoints: { start: LatLng; finish: LatLng };
-      /** The pace series, or null when it is present but cannot be stroked (spec §8). */
+  | (ReadyRoute & {
+      /** The pace series, or null when it is absent, unstrokable (spec §8), or failed to fold. */
       profile: ProfilePoint[] | null;
-    };
+    });
 
 interface Geometry {
   bbox: BoundingBox;
@@ -53,6 +59,19 @@ function routeGeometry(fixes: readonly SegmentedFix[], epsilon: number): Geometr
   };
 }
 
+// why its own try, inside the shared read: the profile fold is a passenger on the route's memo
+// since the two share one `loadRunFixes`, and without this a throw here would take the route map
+// down with it — a coupling the map did not have before the two hooks were merged.
+function foldProfile(fixes: readonly SegmentedFix[]): ProfilePoint[] | null {
+  try {
+    const points = toRunProfile(fixes);
+    return isDrawableProfile(points) ? points : null;
+  } catch (error) {
+    console.warn('[use-run-track] pace fold failed; keeping the route', error);
+    return null;
+  }
+}
+
 function useTrack(
   runId: string,
   segments: readonly RunSegment[],
@@ -68,9 +87,7 @@ function useTrack(
       const fixes = loadRunFixes(runId);
       const geometry = routeGeometry(fixes, epsilon);
       if (!geometry) return null;
-      if (!withProfile) return { geometry, profile: null };
-      const points = toRunProfile(fixes);
-      return { geometry, profile: isDrawableProfile(points) ? points : null };
+      return { geometry, profile: withProfile ? foldProfile(fixes) : null };
     } catch (error) {
       // why: no ErrorBoundary wraps this route; a SQLite read failure must degrade to the
       // fallback card, not crash render.
@@ -117,6 +134,6 @@ export function useRunRoute(
   segments: readonly RunSegment[],
   loaded: boolean,
   epsilon = DP_EPSILON_M,
-): RunTrack {
+): RunRoute {
   return useTrack(runId, segments, loaded, epsilon, false);
 }

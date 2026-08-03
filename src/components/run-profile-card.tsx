@@ -36,7 +36,10 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
 
   return (
     <Card surface="card" className="gap-3">
-      <View className="flex-row items-baseline justify-between">
+      {/* why the pace unit rides the heading: HIG "Charts" tells a compact chart to describe units
+          "in other areas of the chart, such as in a title", and the title sits directly over the
+          y tick column — so it names that axis and nothing else. The x unit is on the x axis. */}
+      <View className="flex-row items-baseline gap-1.5">
         <Text
           variant="footnote"
           tone="secondary"
@@ -45,10 +48,8 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
         >
           Pace
         </Text>
-        {/* why both units here and not as axis titles: the ticks print bare m:ss and bare km, and
-            repeating a unit on every tick costs the width a rotated Skia title would too. */}
         <Text variant="caption" tone="secondary">
-          min/km · km
+          min/km
         </Text>
       </View>
 

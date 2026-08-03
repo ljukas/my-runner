@@ -8,7 +8,10 @@ import type { ProfilePoint } from '@/domain/run-profile';
 import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
-const CHART_HEIGHT = 200;
+// why 160 and not the former 200: the x axis spends ~30 pt on its tick row and unit, leaving a
+// ~130 pt plot — the "not full-height" band HIG "Charts" asks of a card-sized chart, and still
+// tall enough to keep a W1D1's eight run/walk swings distinct (verified on device).
+const CHART_HEIGHT = 160;
 // why capped, at route-map-card's 1.6: Skia takes raw pixels and scales nothing itself, and past
 // ~1.6× the axis labels claim more of the card than the line does.
 const MAX_FONT_SCALE = 1.6;
@@ -17,9 +20,16 @@ const MAX_FONT_SCALE = 1.6;
 // render, re-measuring each label through Skia font metrics and re-parsing the path.
 const Y_KEYS: 'paceSecPerKm'[] = ['paceSecPerKm'];
 
-// Both units are hoisted into the card header, so a tick is a bare number (spec §7.2).
+// Ticks stay bare numbers; each axis names its own unit once (spec §7.2).
 const formatPaceTick = (secondsPerKm: number | null) => paceParts(secondsPerKm).value;
 const formatDistanceTick = (meters: number) => distanceParts(meters).value;
+
+// why the x unit sits here and the y unit in the card's title: victory renders an x title
+// horizontally under the tick row, but a y title only rotated 90° (`YAxis.tsx` hardcodes the
+// transform) — and WWDC22 110340 rejects a y-axis label as "small and off to the side" in favour
+// of naming the unit in the heading. `end` prints "km" once at the axis's end, not on all five
+// ticks. Module scope keeps the identity stable for victory's axis memo, as with `Y_KEYS`.
+const X_AXIS_TITLE = { text: 'km', position: 'end' } as const;
 
 // why fewer ticks as text grows: victory's default 5 labels are ~64 pt each at the 1.6× cap,
 // needing ~320 pt of a ~285 pt plot area on a 393 pt phone — they collide before they clip.
@@ -47,6 +57,7 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
       labelColor: colors.textSecondary,
       lineColor: grid,
       formatXLabel: formatDistanceTick,
+      title: X_AXIS_TITLE,
       tickCount: Math.max(2, Math.round(DEFAULT_TICK_COUNT / fontScale)),
     }),
     [font, colors.textSecondary, grid, fontScale],

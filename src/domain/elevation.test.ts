@@ -4,7 +4,7 @@ import {
   createElevationState,
   elevationRollup,
   elevationStep,
-  ELEVATION_HYSTERESIS_M,
+  GPS_ELEVATION_CONFIG,
   type AltitudeSample,
 } from './elevation';
 
@@ -12,62 +12,102 @@ function samples(altitudes: (number | null)[]): AltitudeSample[] {
   return altitudes.map((altitudeM, i) => ({ timestamp: 1_000_000 + i * 1000, altitudeM }));
 }
 
-/** Deterministic pseudo-noise, so a failure is reproducible. */
-function noisyFlat(count: number, amplitudeM: number): AltitudeSample[] {
-  return samples(
-    Array.from({ length: count }, (_, i) => 100 + Math.sin(i * 2.399963) * amplitudeM),
-  );
+/** Seeded PRNG so a failure reproduces exactly. NEVER use a sinusoid for noise here:
+ *  a median filter annihilates a coherent sinusoid, so a sinusoidal fixture passes
+ *  while the reducer banks hundreds of phantom metres against real noise. */
+function mulberry32(seed: number) {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-describe('elevationRollup', () => {
-  test('noisy flat ground accumulates almost no gain', () => {
-    // why this matters: raw per-sample summing of ±10 m jitter over 600 samples
-    // inflates gain into the thousands (ADR 0015). Hysteresis is what stops it.
-    const result = elevationRollup(noisyFlat(600, 10));
-    expect(result.gainM).toBeLessThan(4 * ELEVATION_HYSTERESIS_M);
-    expect(result.lossM).toBeLessThan(4 * ELEVATION_HYSTERESIS_M);
+/** 30 minutes at 1 Hz on flat ground with +-`amplitude` m of vertical noise. */
+function flatWithNoise(amplitude: number, seed: number): AltitudeSample[] {
+  const random = mulberry32(seed);
+  return samples(Array.from({ length: 1800 }, () => 100 + (random() * 2 - 1) * amplitude));
+}
+
+function meanPhantomGain(amplitude: number): number {
+  let total = 0;
+  for (let seed = 1; seed <= 5; seed += 1) {
+    total += elevationRollup(flatWithNoise(amplitude, seed)).gainM;
+  }
+  return total / 5;
+}
+
+const RAMP = 300;
+const flat = (count: number, value: number) => Array.from({ length: count }, () => value);
+const rampUp = Array.from({ length: RAMP }, (_, i) => 100 + (i * 40) / RAMP);
+const rampDown = Array.from({ length: RAMP }, (_, i) => 140 - (i * 40) / RAMP);
+
+describe('elevationRollup noise rejection', () => {
+  test('realistic +-10 m noise on flat ground banks essentially nothing', () => {
+    // why this matters: raw per-sample summing inflates a flat run's gain into the
+    // hundreds of metres (ADR 0015). This is the reason the module exists.
+    // Do NOT loosen this bound — retune GPS_ELEVATION_CONFIG instead.
+    expect(meanPhantomGain(10)).toBeLessThan(5);
   });
 
-  test('a clean monotonic climb banks its full height', () => {
-    const climb = samples(Array.from({ length: 51 }, (_, i) => 100 + i));
-    const result = elevationRollup(climb);
-    expect(result.gainM).toBeGreaterThan(45);
-    expect(result.gainM).toBeLessThanOrEqual(50);
+  test('+-25 m noise defeats the GPS config — the reason totals are not displayed', () => {
+    // why assert the bad outcome: spec §3.5 cut the displayed gain/loss totals because
+    // GPS cannot support them in poor conditions. This pins that finding so the totals
+    // cannot quietly return. If this ever FAILS, that is good news — noise rejection
+    // improved, and spec §3.5's conclusion should be revisited deliberately.
+    expect(meanPhantomGain(25)).toBeGreaterThan(20);
+  });
+});
+
+describe('elevationRollup real terrain', () => {
+  test('a clean 40 m climb banks its full height and no loss', () => {
+    // why padded: the trailing median warms up at the start but lags at the end, and an
+    // unpadded fixture bakes that boundary artifact into the assertion (spec §3.5).
+    const result = elevationRollup(samples([...flat(40, 100), ...rampUp, ...flat(40, 140)]));
+    expect(result.gainM).toBeGreaterThan(35);
+    expect(result.gainM).toBeLessThanOrEqual(40);
     expect(result.lossM).toBe(0);
   });
 
-  test('climb then descend banks both', () => {
-    const up = Array.from({ length: 41 }, (_, i) => 100 + i);
-    const down = Array.from({ length: 41 }, (_, i) => 140 - i);
-    const result = elevationRollup(samples([...up, ...down]));
-    expect(result.gainM).toBeGreaterThan(35);
-    expect(result.lossM).toBeGreaterThan(35);
+  test('a symmetric climb and descent banks the two equally', () => {
+    const result = elevationRollup(
+      samples([...flat(40, 100), ...rampUp, ...rampDown, ...flat(40, 100)]),
+    );
+    // why not the full 40: a final partial move below the hysteresis threshold never banks.
+    expect(result.gainM).toBeGreaterThan(25);
+    expect(result.lossM).toBeGreaterThan(25);
+    expect(Math.abs(result.gainM - result.lossM)).toBeLessThan(2);
   });
 
   test('a sub-threshold bump that reverses banks nothing', () => {
-    const result = elevationRollup(samples([100, 100, 100, 101, 102, 101, 100, 100, 100]));
+    const result = elevationRollup(samples([...flat(40, 100), 102, 104, 102, ...flat(40, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
+});
 
-  test('series is rebased so the first known altitude reads 0', () => {
-    const result = elevationRollup(samples([850, 850, 850, 850, 850, 850, 850]));
+describe('elevationRollup series', () => {
+  test('is rebased so the first known altitude reads 0', () => {
+    const result = elevationRollup(samples(flat(40, 850)));
     expect(result.seriesM[0]).toBe(0);
     expect(result.seriesM.at(-1)).toBe(0);
   });
 
-  test('null altitudes are preserved as null and never bank movement', () => {
+  test('preserves nulls and never banks movement from them', () => {
     const result = elevationRollup(samples([null, 100, null, 100, null]));
     expect(result.seriesM[0]).toBeNull();
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
 
-  test('an all-null run produces no movement and an all-null series', () => {
+  test('an all-null run yields an all-null series and no movement', () => {
     const result = elevationRollup(samples([null, null, null]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
-    expect(result.seriesM.every((v) => v === null)).toBe(true);
+    expect(result.seriesM.every((value) => value === null)).toBe(true);
   });
 
   test('empty and single-sample inputs are safe', () => {
@@ -75,16 +115,38 @@ describe('elevationRollup', () => {
     expect(elevationRollup(samples([100])).gainM).toBe(0);
   });
 
-  test('the rollup equals a manual fold of elevationStep', () => {
+  test('equals a manual fold of elevationStep', () => {
     // why: the live path and the re-derived path must agree by construction
     // (the ADR 0021 §3 property, applied to elevation).
-    const input = samples([100, 102, 106, 110, 108, 103, 99, 95, 99, 104]);
+    const input = samples([...flat(40, 100), ...rampUp]);
     let state = createElevationState();
     for (const sample of input) state = elevationStep(state, sample).state;
 
-    const rollup = elevationRollup(input);
-    expect(rollup.gainM).toBe(state.gainM);
-    expect(rollup.lossM).toBe(state.lossM);
+    const result = elevationRollup(input);
+    expect(result.gainM).toBe(state.gainM);
+    expect(result.lossM).toBe(state.lossM);
+  });
+});
+
+describe('ElevationConfig', () => {
+  test('a gentle config resolves terrain the GPS config smooths away', () => {
+    // why this test exists: it is the whole argument for tuning being a parameter.
+    // The same clean 30 m climb, at barometer precision, banks its full height under a
+    // gentle config and only two thirds of it under the noise-rejecting GPS one.
+    const climb = samples([
+      ...flat(10, 100),
+      ...Array.from({ length: 60 }, (_, i) => 100 + i * 0.5),
+      ...flat(10, 130),
+    ]);
+    const gentle = elevationRollup(climb, { medianWindow: 5, hysteresisM: 2 });
+    const gps = elevationRollup(climb, GPS_ELEVATION_CONFIG);
+
+    expect(gentle.gainM).toBeGreaterThan(gps.gainM);
+    expect(gentle.gainM).toBeGreaterThan(25);
+  });
+
+  test('defaults to the GPS config', () => {
+    expect(createElevationState().config).toEqual(GPS_ELEVATION_CONFIG);
   });
 });
 
@@ -95,26 +157,24 @@ describe('elevationStep trend', () => {
 
   test('becomes climbing once a rise clears the threshold, and stays climbing', () => {
     let state = createElevationState();
-    for (const sample of samples([100, 101, 103, 106, 110, 115, 120])) {
+    for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }
     expect(state.trend).toBe('climbing');
 
     // why sticky: a banked move resets the anchor to the current altitude, so a
     // non-sticky trend would flicker to flat between every banked step of one climb.
-    for (const sample of samples([121, 121.5])) state = elevationStep(state, sample).state;
+    for (const sample of samples(flat(5, 140))) state = elevationStep(state, sample).state;
     expect(state.trend).toBe('climbing');
   });
 
   test('flips to descending only after a threshold-clearing reversal', () => {
     let state = createElevationState();
-    for (const sample of samples([100, 105, 110, 115, 120])) {
+    for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }
     expect(state.trend).toBe('climbing');
-    for (const sample of samples([115, 110, 105, 100, 95])) {
-      state = elevationStep(state, sample).state;
-    }
+    for (const sample of samples(rampDown)) state = elevationStep(state, sample).state;
     expect(state.trend).toBe('descending');
   });
 
@@ -122,7 +182,9 @@ describe('elevationStep trend', () => {
     // why: the engine snapshots this for crash recovery (ADR 0007) when the live
     // readout lands — a Map or a class would silently break that.
     let state = createElevationState();
-    for (const sample of samples([100, 104, 108])) state = elevationStep(state, sample).state;
+    for (const sample of samples([...flat(40, 100), ...rampUp])) {
+      state = elevationStep(state, sample).state;
+    }
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
   });
 });

@@ -9,17 +9,21 @@ export interface AltitudeSample {
 
 export type ElevationTrend = 'climbing' | 'descending' | 'flat';
 
-/** Widened from 5 to 8 (and, being even, its median averages two middle readings rather than
- * picking one): at 5, 600 samples of ±10 m sinusoidal noise (the 'noisy flat ground' test)
- * aliased into a slow drift the hysteresis below couldn't catch, banking 247 m of gain. */
-export const ALTITUDE_MEDIAN_WINDOW = 8;
-/** A move must clear this monotonically before it is banked — the guard against GPS
- * vertical noise (~15-50 m) inflating cumulative gain (ADR 0015). Tunable; paired with
- * ALTITUDE_MEDIAN_WINDOW above against the same noisy-flat failure — see task-2-report.md. */
-export const ELEVATION_HYSTERESIS_M = 2;
+/** why a parameter and not a constant: GPS needs a wide window and a ~10 m threshold to
+ *  reject its own noise, while a barometer at ~1 m precision would have real terrain erased
+ *  by those values. One shared pair would silently mis-tune whichever source came second. */
+export interface ElevationConfig {
+  medianWindow: number;
+  hysteresisM: number;
+}
+
+/** Measured, not guessed — spec §3.5: at these values +-10 m noise banks 0 m of phantom
+ *  gain over a 30-minute flat run while a real 40 m climb still reports 40 m. */
+export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
 
 /** Plain JSON by construction: the engine snapshots this (ADR 0007) once the live readout lands. */
 export interface ElevationState {
+  config: ElevationConfig;
   window: number[];
   anchorM: number | null;
   gainM: number;
@@ -40,8 +44,10 @@ export interface ElevationRollup {
   seriesM: (number | null)[];
 }
 
-export function createElevationState(): ElevationState {
-  return { window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
+export function createElevationState(
+  config: ElevationConfig = GPS_ELEVATION_CONFIG,
+): ElevationState {
+  return { config, window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
 }
 
 function median(values: readonly number[]): number {
@@ -56,7 +62,7 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
     return { state, smoothedAltitudeM: null, trend: state.trend };
   }
 
-  const window = [...state.window, raw].slice(-ALTITUDE_MEDIAN_WINDOW);
+  const window = [...state.window, raw].slice(-state.config.medianWindow);
   const smoothed = median(window);
 
   if (state.anchorM === null) {
@@ -65,12 +71,13 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
   }
 
   const delta = smoothed - state.anchorM;
-  if (Math.abs(delta) < ELEVATION_HYSTERESIS_M) {
+  if (Math.abs(delta) < state.config.hysteresisM) {
     const held = { ...state, window };
     return { state: held, smoothedAltitudeM: smoothed, trend: held.trend };
   }
 
   const banked: ElevationState = {
+    config: state.config,
     window,
     anchorM: smoothed,
     gainM: delta > 0 ? state.gainM + delta : state.gainM,
@@ -80,8 +87,11 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
   return { state: banked, smoothedAltitudeM: smoothed, trend: banked.trend };
 }
 
-export function elevationRollup(samples: readonly AltitudeSample[]): ElevationRollup {
-  let state = createElevationState();
+export function elevationRollup(
+  samples: readonly AltitudeSample[],
+  config: ElevationConfig = GPS_ELEVATION_CONFIG,
+): ElevationRollup {
+  let state = createElevationState(config);
   const smoothed: (number | null)[] = [];
 
   for (const sample of samples) {

@@ -51,18 +51,15 @@ export function toRunProfile(
   const meters = new Array<number>(bucketCount).fill(0);
   const seconds = new Array<number>(bucketCount).fill(0);
 
-  // Each inter-fix leg is split across every bucket it crosses, in proportion to the metres it
-  // contributes there. That keeps spec §5.2's boundary rule (a bucket's metres include the leg
-  // entering it, so its clock must too) while leaving no bucket empty just because one long leg
-  // stepped over it — the irregular x-grid a fix-density-driven bucket width used to produce.
+  // Legs are split across the buckets they cross so a long one cannot step over a bucket and
+  // leave it empty; both measurements behind this are in spec §5.2.
   for (let i = 1; i < walked.length; i += 1) {
     const from = walked[i - 1];
     const to = walked[i];
     const legSeconds = (to.timestamp - from.timestamp) / 1000;
-    // why MAX_GAP_S: a pause or a GPS dropout is a bare timestamp gap in `run_points`, and charging
-    // it to one bucket makes that bucket an outlier the auto-fit y-axis then scales the chart to —
-    // a 240 s stop collapsed the genuine run/walk band to 4% of chart height. It is the smoother's
-    // own reset threshold, so a leg it skips committed no distance either (`smoothFix` gaps to 0).
+    // why MAX_GAP_S: a pause or dropout is a bare timestamp gap, and charging it to one bucket
+    // made it an outlier the auto-fit axis scaled the whole chart to. Such a leg carries no
+    // distance to lose — it is the smoother's own reset threshold.
     if (legSeconds <= 0 || legSeconds > MAX_GAP_S) continue;
 
     const legMeters = to.distanceM - from.distanceM;

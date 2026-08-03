@@ -9,12 +9,12 @@ import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
 const CHART_HEIGHT = 200;
-// why capped, and at the same 1.6 as route-map-card's chip: Skia takes raw pixels and scales
-// nothing itself, and past ~1.6× the axis labels claim more of the card than the line does.
+// why capped, at route-map-card's 1.6: Skia takes raw pixels and scales nothing itself, and past
+// ~1.6× the axis labels claim more of the card than the line does.
 const MAX_FONT_SCALE = 1.6;
 
-// why module scope: a fresh array identity here misses victory's axis and transform memos on every
-// parent render, re-measuring each label through Skia font metrics and re-parsing the path.
+// why module scope: a fresh identity misses victory's axis and transform memos on every parent
+// render, re-measuring each label through Skia font metrics and re-parsing the path.
 const Y_KEYS: 'paceSecPerKm'[] = ['paceSecPerKm'];
 
 const formatPaceTick = (secondsPerKm: number | null) => paceParts(secondsPerKm).value;
@@ -25,8 +25,8 @@ const formatPaceTick = (secondsPerKm: number | null) => paceParts(secondsPerKm).
  */
 export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   const stat = useStatColors();
-  // why: victory-native's axis defaults are hardcoded black (`cartesian/utils/axisDefaults.ts`) —
-  // invisible on the dark-mode card, and latent only for as long as no axis rendered at all.
+  // why every axis color is passed: victory's defaults are hardcoded black (`axisDefaults.ts`),
+  // latent only for as long as no axis rendered at all.
   const colors = useTheme();
   const grid = useChartGridColor();
   const fontScale = Math.min(PixelRatio.getFontScale(), MAX_FONT_SCALE);

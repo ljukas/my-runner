@@ -97,14 +97,11 @@ function useTrack(
 /**
  * A finished run's route AND pace series, from ONE `run_points` read — never via `useLiveQuery`
  * (ADR 0004 §3) — re-derived with the same smoother the stored distance used (ADR 0021 §3).
- * `segments` comes from the caller's live query; the hook only needs the segmentSeq → kind join.
- * `loaded` is the caller's `updatedAt !== undefined` — a run with zero `run_segments` rows is still
- * a real, routeable run (save-run skips the insert then), so readiness needs `loaded`, not
- * `segments.length`.
+ * `loaded` is the caller's `updatedAt !== undefined`, not `segments.length`: a run with zero
+ * `run_segments` rows is still a real, routeable run (save-run skips the insert then).
  *
- * One `ready` covers both, deliberately: the route-extent floor is the single predicate deciding
- * whether a run has GPS worth drawing, so a treadmill session can no longer be told it "didn't
- * cover enough ground to map" above a pace chart drawn from that same rejected drift (spec §8).
+ * One `ready` covers both deliberately, so a treadmill session cannot be told it "didn't cover
+ * enough ground to map" above a chart drawn from that same rejected drift (spec §8).
  */
 export function useRunTrack(
   runId: string,

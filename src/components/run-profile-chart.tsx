@@ -53,11 +53,6 @@ const DEFAULT_TICK_COUNT = 5;
 // fewer-ticks-as-text-grows shape, different baseline.
 const Y_AXIS_TICK_COUNT = 3;
 
-// why the container needs right padding now: `axisSide: 'right'` draws the pace labels starting
-// at the chart's own right edge with no margin to the canvas boundary, and the x-axis title's
-// `end` position (`km`) draws flush with that same edge — both clip without room to breathe.
-const CHART_PADDING_RIGHT = 40;
-
 // why [1, 3] and not evenly split: a hairline stroke this thin needs a short dash and a longer
 // gap to read as dotted rather than dashed at chart scale.
 const Y_GRID_DASH_INTERVALS = [1, 3];
@@ -120,14 +115,7 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <CartesianChart
-        data={points}
-        xKey="distanceM"
-        yKeys={Y_KEYS}
-        xAxis={xAxis}
-        yAxis={yAxis}
-        padding={{ right: CHART_PADDING_RIGHT }}
-      >
+      <CartesianChart data={points} xKey="distanceM" yKeys={Y_KEYS} xAxis={xAxis} yAxis={yAxis}>
         {({ points: rendered }) => (
           <Line
             points={rendered.paceSecPerKm}

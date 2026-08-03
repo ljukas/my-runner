@@ -32,9 +32,8 @@ function flatWithNoise(amplitude: number, seed: number): AltitudeSample[] {
   return samples(Array.from({ length: 1800 }, () => 100 + (random() * 2 - 1) * amplitude));
 }
 
-/** why 50 and not 5: the committed 5-seed version passed on seed luck — seeds 1-5 all returned
- *  exactly 0.00 against a warm-up defect whose worst case was 22.38 m. Seed 7 was the first to
- *  expose it, and at 50 seeds 12 of them do (spec §9.2). */
+/** why 50: seeds 1-5 all read 0.00 against a warm-up defect worth 22.38 m at worst;
+ *  12 of 50 seeds expose it (spec §9.2). */
 const NOISE_SEEDS = 50;
 
 function phantomGain(amplitude: number): { mean: number; worst: number } {
@@ -69,15 +68,13 @@ describe('elevationRollup noise rejection', () => {
     // GPS cannot support them in poor conditions. This pins that finding so the totals
     // cannot quietly return. If this ever FAILS, that is good news — noise rejection
     // improved, and spec §3.5's conclusion should be revisited deliberately.
-    // Bound raised from 20 to 50 against the post-warm-up-fix measurement: 92.47 mean
-    // over these 50 seeds (91.07 over 200), down from 100.57 before the fix.
+    // Bound is half the 92.47 mean measured over these 50 seeds (91.07 over 200; 100.57 pre-fix).
     expect(phantomGain(25).mean).toBeGreaterThan(50);
   });
 });
 
 describe('elevationRollup warm-up', () => {
-  // The measured defect (spec §9.2): seeding the anchor from a partially-filled median let one
-  // bad opening reading become both the hysteresis anchor and the rebase base.
+  // The warm-up defect these pin (spec §9.2) is described at `elevationStep`.
 
   test('a bad first reading banks nothing and does not tilt the series', () => {
     const result = elevationRollup(samples([130, ...flat(600, 100)]));
@@ -94,8 +91,7 @@ describe('elevationRollup warm-up', () => {
   });
 
   test('the same spike mid-run is already harmless — the median kills it', () => {
-    // why this contrast matters: it is what proved the defect was specifically warm-up,
-    // not the reducer's spike handling.
+    // why keep this: it isolates the defect to warm-up, not the reducer's spike handling.
     const result = elevationRollup(samples([...flat(50, 100), 130, ...flat(600, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
@@ -239,8 +235,8 @@ describe('elevationStep trend', () => {
   });
 
   test('state stays JSON-serialisable', () => {
-    // why: the engine snapshots this for crash recovery (ADR 0007) when the live
-    // readout lands — a Map or a class would silently break that.
+    // why: the reducer folds state by spreading it, so a Map would be shared by reference
+    // across steps and a class would lose its prototype.
     let state = createElevationState();
     for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;

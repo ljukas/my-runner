@@ -54,9 +54,8 @@ describe('toRunProfile pace', () => {
   });
 
   test('pace does not depend on how many buckets the run is cut into', () => {
-    // The bug this pins (spec §5.2): a bucket's metres include the leg entering it, so timing
-    // only from its first fix spanned one leg fewer than the distance and read fast by 1/N —
-    // measured at 267.52 / 300.89 / 323.14 s/km for 120 / 60 / 20 buckets against a true 333.33.
+    // The bug this pins (spec §5.2; mechanism at Bucket.entryTimestamp): 267.52 / 300.89 / 323.14
+    // s/km for 120 / 60 / 20 buckets against a true 333.33.
     const fixes = straightRun(600, 3);
     const means = [120, 60, 20].map((count) => meanPace(toRunProfile(fixes, count)));
     for (const mean of means) {
@@ -74,8 +73,7 @@ describe('toRunProfile pace', () => {
 
 describe('toRunProfile resampling', () => {
   test('the x extent equals the smoothed track distance the summary reports', () => {
-    // The ADR 0021 §3 agreement guarantee: the last bucket's centre sits exactly half a
-    // bucket short of the end, so adding that back must land on `smoothTrack` to the metre.
+    // ADR 0021 §3: the chart's x extent must agree with the summary's headline distance.
     const fixes = straightRun(600, 3);
     const profile = toRunProfile(fixes, PROFILE_SAMPLE_COUNT);
     const width = smoothTrack(fixes).distanceM / PROFILE_SAMPLE_COUNT;
@@ -84,7 +82,7 @@ describe('toRunProfile resampling', () => {
 
   test('the grid is contiguous — no bucket is left empty and skipped', () => {
     // why this can fail: a bucket holding no fix never enters the map, so the chart would
-    // jump a grid step and draw a gap. It is what the fixes-per-bucket floor exists to prevent.
+    // jump a grid step and draw a gap.
     const profile = toRunProfile(straightRun(80, 3));
     const gaps = profile.slice(1).map((point, i) => point.distanceM - profile[i].distanceM);
     expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThan(1e-9);

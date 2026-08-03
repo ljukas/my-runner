@@ -10,8 +10,7 @@ export interface ProfilePoint {
 /** Upper bound on the resampled point count; shorter runs get proportionally fewer. */
 export const PROFILE_SAMPLE_COUNT = 120;
 
-// why 5: the density the 120 cap already has over a reference 600-fix run — a short run keeps that
-// resolution rather than thinning into single-leg GPS noise (spec §5.2).
+// why 5: 600 fixes / 120 buckets — the cap's own density; fewer thins into GPS noise (spec §5.2).
 const MIN_FIXES_PER_BUCKET = 5;
 
 function bucketCountFor(fixCount: number): number {

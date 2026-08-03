@@ -24,7 +24,8 @@ export interface ElevationConfig {
  *  fixed: window 25 still admits a 10 m worst case and 21 a 21 m one. */
 export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
 
-/** Plain JSON by construction: the engine snapshots this (ADR 0007) once the live readout lands. */
+/** Derived filter state: a resume re-folds it from `run_points.altitude` rather than restoring it,
+ *  because the crash snapshot never serializes filter state (ADR 0021 §3). */
 export interface ElevationState {
   config: ElevationConfig;
   window: number[];

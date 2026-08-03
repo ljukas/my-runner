@@ -1,19 +1,22 @@
 # Run Elevation & Pace Profile — Design Spec
 
 **Date:** 2026-08-02
-**Status:** Approved pending final user review
+**Status:** Approved. **Amended 2026-08-03 during implementation** — the elevation
+gain/loss totals and their storage are cut from this slice and deferred to the
+barometer slice, on measured evidence (§3.5). Everything else stands.
 **Scope:** A roadmap feature ([`docs/roadmap/README.md`](../../roadmap/README.md)), not a v1 delivery stage. This is the **GPS slice**; the barometer slice follows immediately after and is specified in [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md).
 **Governing ADRs:** 0001 (E2E), 0003 (ports), 0004 (storage/reactivity), 0007 (engine event log), 0010 (the official-tooling exception precedent), 0013 (components), 0015 (elevation — deliberately unamended, §10), 0016 (Maestro selectors), 0021 (GPS smoothing)
 
 ## 1. Goal
 
 *A finished run shows how it actually felt.* The run summary gains one card: a
-two-line chart plotting **pace and elevation against distance**, with the run's
-**total elevation gain and loss** in its header.
+two-line chart plotting **pace and elevation against distance**.
 
-Elevation is captured for the chart and the totals only. It is **not** drawn on
-the map (the route map stays as ADR 0010 left it) and **not** written to Apple
-Health (§3.4 — the library cannot).
+Elevation is derived for the chart's shape only. It is **not** drawn on the map
+(the route map stays as ADR 0010 left it), **not** written to Apple Health
+(§3.4 — the library cannot), and — amended 2026-08-03 — **not shown as a gain/loss
+total**, which measurement showed GPS cannot support honestly (§3.5). Totals land
+with the barometer slice that follows.
 
 ## 2. Decisions
 
@@ -22,9 +25,10 @@ Health (§3.4 — the library cannot).
 | X axis | **Distance.** An elevation profile against time is an odd read for a runner; against distance it reads as terrain. |
 | Gating | **GPS-recorded runs only.** A run without a usable route gets no card at all. Accepted deliberately: the alternative is a chart with one meaningful axis. |
 | Elevation source | **Smoothed GPS altitude**, already persisted in `run_points.altitude` (§3.2). The barometer is the next slice and feeds the *same* reducer (§4.2), so it is a new source, not a second implementation. |
-| Storage | **Stored rollup** — `elevation_gain_m` / `elevation_loss_m` on `runs`, written at finalize beside `distance_m`. **No backfill**: the app is pre-release, so runs recorded before this ships simply have `null`. This supersedes nothing — it *implements* [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md) item 5, which anticipated exactly these columns. |
-| `elevation_source` column | **Deferred to the barometer slice.** Every value here is GPS, so the column would store a constant that nothing reads. The barometer slice needs its own migration for per-point barometric altitude and can add the discriminator there, when two sources actually exist. |
-| Gain/loss placement | **Together, in the profile card's own header.** `RunStatGrid` is untouched — the totals belong beside the chart that explains them, not in the grid of headline numbers. |
+| Elevation **totals** | **Not shipped in this slice — amended 2026-08-03, see §3.5.** The design originally stored `elevation_gain_m` / `elevation_loss_m` on `runs` and showed them in the card header. Measurement during implementation showed GPS-derived totals are accurate in open sky and roughly **2× wrong** in poor conditions, with no way for the reducer to tell the regimes apart. The chart's *shape* survives smoothing; the *integral* does not. Totals therefore wait for the barometer slice, which lands next and can support them. |
+| Storage | **None.** No schema change, no migration. [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md) item 5's `elevation_gain_m` / `elevation_loss_m` columns land with the barometer slice that can populate them honestly. |
+| Reducer tuning | **A parameter, not a constant** (§4.2). The right smoothing window and hysteresis threshold depend on the *source*: GPS needs an aggressive window against ±10–25 m noise, a barometer at ~1 m precision needs a gentle one. A single module constant would be wrong for one of them. |
+| Gain/loss placement | **Not applicable in this slice.** `RunStatGrid` is untouched and the card header carries only its title. |
 | Live readout | **Summary only in this slice.** But the core helper is a *streaming reducer* (§4.2), so a live "currently climbing / descending" state on the run screen is later a read of state we already keep — not a rewrite. |
 | Chart library | **`victory-native` (XL, v41).** Not an Expo-official package, so this needs the same explicit exception ADR 0010 made for react-native-maps — recorded in a new ADR (§10), not slipped in. |
 | Apple Health elevation | **Not written.** `HKMetadataKeyElevationAscended` is the correct Apple mechanism and the library types it, but its bridge cannot produce an `HKQuantity` (§3.4). |
@@ -52,7 +56,8 @@ pure JS (`d3-scale`, `d3-shape`, `d3-zoom`, `its-fine`, `react-fast-compare`).
 **Consequence that shapes the whole slice:** no native module means
 `@expo/fingerprint` is unchanged, so `e2e-refresh` stays a ~1 min repack instead
 of the 15–20 min rebuild that `expo-maps` and HealthKit each forced. This slice
-is JS-only end to end apart from its migration.
+is JS-only end to end (and, after the 2026-08-03 amendment, has no migration
+either — §6).
 
 Two API facts the design leans on:
 
@@ -81,6 +86,37 @@ ADR 0015's core finding stands: smartphone vertical error is ~2× horizontal
 (~15–50 m), and summing per-sample deltas *systematically inflates* cumulative
 gain. §5.3 is the mitigation, and §9.2's first test is the guard.
 
+### 3.5 Measured 2026-08-03: GPS totals are not trustworthy enough to display
+
+The original design assumed hysteresis would make GPS totals merely
+*approximate*. It was measured during implementation rather than assumed, over
+5 seeds × 1800 samples (30 min at 1 Hz), and the assumption was wrong.
+
+| Vertical noise | Window / hysteresis | Phantom gain on flat ground | Real 40 m climb (gain/loss) |
+|---|---|---|---|
+| ±10 m | 8 / 3 | **537 m** | 167 / 163 |
+| ±10 m | 31 / 10 | **0 m** | 41.5 / 31.5 |
+| ±25 m | 31 / 10 | **85 m** | 83.7 / 69.3 |
+| ±25 m | 61 / 30 | 0 m | 30.7 / **0.0** |
+
+Two things follow. In open sky (±10 m) a window of 31 with a 10 m threshold is
+genuinely good: zero phantom gain, and 41.5 m reported for a real 40 m climb. In
+poor conditions (±25 m) the same settings report **85 m of climb on flat
+ground**, and the settings aggressive enough to suppress that (61/30) also report
+**zero loss on a run that descended 40 m** — the filter that rejects bad-condition
+noise erases real terrain.
+
+There is no setting safe in both regimes, because **the reducer cannot know which
+regime it is in**. A displayed total would therefore be right in good conditions
+and about 2× wrong in poor ones, which is worse than approximate.
+
+The elevation *line* is unaffected: the smoothed series is a shape, and shape
+survives smoothing. Only the integral is untrustworthy. Hence §2's amendment —
+the chart ships, the totals wait for the barometer.
+
+This is a direct vindication of ADR 0015's barometer-first decision. What it
+strains is this spec's original *ordering*, not that ADR.
+
 ### 3.4 Apple Health cannot receive the elevation
 
 The right mechanism exists and the library types it —
@@ -108,11 +144,11 @@ does not depend on it beyond declining to attempt the write.
 src/domain/elevation.ts             # PURE: streaming altitude reducer → gain/loss + trend
 src/domain/run-profile.ts           # PURE: fixes → resampled chart series
 src/hooks/use-run-profile.ts        # reads run_points ONCE, folds, memoizes
-src/components/run-profile-card.tsx   # gating, header totals, a11y label (ADR 0013 domain component)
+src/components/run-profile-card.tsx   # gating, a11y label (ADR 0013 domain component)
 src/components/run-profile-chart.tsx  # the ONLY file importing victory-native
-src/db/save-run.ts                  # (edit) elevation joins the finalize rollup
-src/db/schema.ts                    # (edit) two columns + generated migration
 ```
+
+No `src/db/` change: this slice stores nothing (§6).
 
 ### 4.1 Why the card and the chart are separate files
 
@@ -133,10 +169,24 @@ a decision rather than an oversight.
 export interface AltitudeSample { timestamp: number; altitudeM: number | null }
 export type ElevationTrend = 'climbing' | 'descending' | 'flat';
 
-export function createElevationState(): ElevationState;
+/** Tuning travels with the state, because the right values depend on the source (§3.5). */
+export interface ElevationConfig { medianWindow: number; hysteresisM: number }
+export const GPS_ELEVATION_CONFIG: ElevationConfig;
+
+export function createElevationState(config?: ElevationConfig): ElevationState;
 export function elevationStep(state: ElevationState, sample: AltitudeSample): ElevationStep;
-export function elevationRollup(samples: readonly AltitudeSample[]): ElevationRollup;
+export function elevationRollup(
+  samples: readonly AltitudeSample[],
+  config?: ElevationConfig,
+): ElevationRollup;
 ```
+
+**Tuning is a parameter, not a module constant** (amended 2026-08-03). §3.5
+measured that GPS needs a wide window and a ~10 m threshold to reject its noise,
+while a barometer at ~1 m precision would have real terrain erased by those same
+values. Baking one pair into the module would silently mis-tune whichever source
+came second. The config rides on `ElevationState`, so it stays plain JSON and the
+barometer slice adds a second preset rather than retuning a shared constant.
 
 `elevationStep` / `elevationRollup` mirror `smoothFix` / `smoothTrack`
 (ADR 0021 §2–§3) one-to-one: a per-sample reducer, plus a batch fold built *from*
@@ -166,19 +216,7 @@ non-reactively, never `useLiveQuery` on `run_points`** (ADR 0004 §3) — the sa
 
 ## 5. The data pipeline
 
-The same persisted fixes are folded at two different moments, and it matters
-which is which:
-
-**At finalize, once, written to `runs` (§6):** steps 1–3, then gain/loss by
-hysteresis accumulation (§5.3) via `elevationRollup`.
-
-**At display, on every summary open, never written:** steps 1–5, producing the
-chart series. The totals shown in the card header are *read from the stored
-columns* — they are not recomputed here.
-
-Both paths fold the identical `run_points` stream through the identical reducer,
-which is what makes the stored total and the drawn profile agree by construction
-rather than by coincidence (the same guarantee ADR 0021 §3 gives distance).
+One fold, at display time, on every summary open. Nothing is written (§6).
 
 1. `loadRunFixes(runId)` → fixes in `seq` order.
 2. Fold with **the same `smoothFix` primitives the distance used** (ADR 0021 §3)
@@ -201,17 +239,20 @@ The profile's *shape* is the honest signal; its offset is not.
 Per-fix pace from GPS is unreadable noise. Bucketing by distance is what makes
 the line legible — and it falls out for free, since step 4 is resampling anyway.
 
-### 5.3 Hysteresis is the whole game
+### 5.3 Hysteresis, and why it is kept despite the totals not shipping
 
-A move is only banked as gain or loss once it clears `ELEVATION_HYSTERESIS_M`
-monotonically; below that it stays pending and can be cancelled by a reversal. So
-sample-to-sample jitter cancels instead of accumulating. Without this, a flat
-5 km reports well over a hundred metres of climb.
+A move is only banked as gain or loss once it clears `config.hysteresisM`
+monotonically; below that it stays pending and can be cancelled by a reversal.
 
-The threshold is seeded at **3.0 m** and is explicitly **tunable against real
-recorded runs**. §9.2's tests assert the *property* (noisy flat ground → ~0 gain;
-a clean monotonic climb → exactly its height), never a magic constant, so tuning
-the value does not rewrite the suite.
+Nothing in this slice *displays* gain or loss (§2). The machinery is still built
+and still tested, for two reasons: the barometer slice lands next and needs it on
+data that can support it, and the sticky `trend` that answers "am I climbing right
+now?" is a read of the hysteresis state (§4.2 property 2) — the explicit
+forward-looking requirement this design was asked to leave room for.
+
+§9.2's tests assert *properties* (realistic noise → ~0 gain; a clean monotonic
+climb → close to its height), never a magic constant, so re-tuning a config
+preset never rewrites the suite.
 
 ### 5.4 The pace axis must read fast-at-top
 
@@ -219,24 +260,26 @@ Lower sec/km is faster, so a naively plotted pace line reads upside-down. Whethe
 this is expressed as a reversed axis `domain` tuple or by plotting negated values
 with formatted ticks is settled in the §9.1 spike rather than guessed here.
 
-## 6. Storage and the finalize rollup
+## 6. Storage — none *(amended 2026-08-03)*
 
-Two nullable columns on `runs`: `elevation_gain_m`, `elevation_loss_m` (REAL).
-Additive, no change to existing rows (ADR 0004).
+**This slice adds no column, no migration, and no change to `src/db/`.**
 
-The migration is produced by `bun run db:generate` and committed as generated —
-`src/db/migrations/` is hook-guarded and must never be hand-edited.
+The original design stored `elevation_gain_m` / `elevation_loss_m` on `runs` at
+finalize. §3.5 removed the reason to: the only consumer was the card header, and
+that header is not shipping. Storing a figure nothing displays would mean
+committing a migration for data measured to be ~2× wrong in poor conditions, then
+having to decide at the barometer slice whether to trust, recompute, or discard
+every stored GPS value.
 
-The rollup site already exists. `rollupFromPoints` (`src/db/save-run.ts:12`)
-re-folds the persisted fixes at finalize; elevation joins that fold, and the two
-values join the single `set()` inside the existing transaction
-(`src/db/save-run.ts:102-118`) beside `distanceM` and `summaryPolyline`.
+The chart re-derives its series from `run_points` on each open, which is cheap at
+C25K volumes (~1800 rows) and is exactly what `useRunRoute` already does for the
+route map.
 
-**One asymmetry carried over deliberately.** `saveRun` — the path with no
-`'active'` row and therefore no `run_points` to re-derive from — writes
-`distanceM: record.distanceM ?? null`. Elevation is `null` there for the same
-reason: no points, no elevation. The existing `// why:` comment at
-`src/db/save-run.ts:29` already explains the class.
+ADR 0015 item 5's columns are not cancelled — they land with the barometer slice,
+which can populate them from a ~1 m-precision source and needs its own migration
+for per-point barometric altitude regardless. That slice adds the
+`elevation_source` discriminator at the same time, when two sources finally exist
+to distinguish.
 
 ## 7. UI surfaces
 
@@ -246,8 +289,7 @@ A `Card` (ADR 0013) placed in `src/app/runs/[runId]/index.tsx` **between
 `RunStatGrid` and `SegmentBreakdown`** — headline numbers, then the profile that
 explains them, then the interval breakdown.
 
-Its header carries both totals together, `arrow.up.right` / `arrow.down.right`
-SF Symbols with metre values rounded to 5 m (§11.2). The chart sits below.
+Its header carries the card title only. **No gain/loss totals** — §2 and §3.5.
 
 **Accessibility is the card's job, not the chart's.** A Skia canvas is invisible
 to VoiceOver, so the chart is marked `accessibilityElementsHidden` and the card
@@ -271,10 +313,10 @@ reason, never render a misleading chart.
 | Situation | Behaviour |
 |---|---|
 | No fixes, or route below `MIN_ROUTE_EXTENT_M` | **No card at all.** The route card directly above already explains why this run has no GPS data; a second explanatory card is noise. |
-| Usable distance, every altitude `null` | Chart renders **pace only** — right axis and elevation line omitted, header totals omitted. |
-| Altitude present but degenerate (all equal) | Flat elevation line, gain/loss `0 m`. Honest, not hidden. |
+| Usable distance, every altitude `null` | Chart renders **pace only** — right axis and elevation line omitted. |
+| Altitude present but degenerate (all equal) | Flat elevation line. Honest, not hidden. |
 | `loadRunFixes` throws | `console.warn` and no card, exactly as `use-run-route.ts` catches today. |
-| Run finalized before this shipped | `elevation_gain_m` is `null`; header totals omitted, chart still renders from points. |
+| Run finalized before this shipped | No special case — the series is re-derived from `run_points`, which every GPS-recorded run already has. |
 
 ## 9. Testing
 
@@ -293,10 +335,18 @@ also settles §5.4's axis-inversion mechanism.
 `domain/elevation.ts` and `domain/run-profile.ts` are pure, so they carry the
 coverage:
 
-- **Noisy flat ground → ~0 gain.** The ADR 0015 inflation guard, and the single
-  most important test in this slice.
-- Clean monotonic climb → exactly its height; a climb-then-descend → matching
-  gain and loss.
+- **Realistic noise on flat ground → ~0 gain.** The ADR 0015 inflation guard, and
+  the single most important test in this slice. **The fixture must be genuine
+  pseudo-random noise (a seeded PRNG), never a sinusoid** — §3.5 found that a
+  coherent sinusoid is annihilated by a median filter, so a sinusoidal fixture
+  passes while the reducer banks hundreds of phantom metres against real noise.
+  A second case at ±25 m documents the degradation §3.5 measured rather than
+  pretending it away.
+- Clean monotonic climb → close to its height; a climb-then-descend → gain and
+  loss within a metre of each other. **Both fixtures must be padded with flat
+  samples at each end**: the trailing median warms up at the start but lags at
+  the end, and an unpadded fixture bakes that 4.5 m boundary artifact into the
+  assertion (§3.5).
 - A pending move below threshold that reverses → banks nothing.
 - `null` altitudes: interspersed, all-null, and leading/trailing.
 - Single-fix and empty runs.
@@ -326,8 +376,8 @@ xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59
 ```
 
 Then confirm on the summary: the card appears, both lines render, the pace line
-reads fast-at-top, the totals are plausible for the simulated route, and
-VoiceOver reads the card's summary label. Repeat once in dark mode
+reads fast-at-top, the elevation line tracks the simulated route's terrain
+plausibly, and VoiceOver reads the card's summary label. Repeat once in dark mode
 (`xcrun simctl ui <udid> appearance dark`) and once at an accessibility text size.
 
 ## 10. Documentation impact
@@ -336,10 +386,13 @@ VoiceOver reads the card's summary label. Repeat once in dark mode
   (AGENTS.md prefers Expo-official packages; ADR 0010 set the precedent for
   making such an exception explicitly), the single-import containment rule, and
   the Reanimated 4 risk with its Skia fallback.
-- **ADR 0015 — deliberately untouched.** Its open item 7 (does the barometer
-  deliver while backgrounded?) can only be closed with device evidence, and this
-  slice generates none. The barometer slice amends it, and will also record that
-  item 5's columns landed here.
+- **ADR 0015 — amend with §3.5's measurement.** The ADR asserted GPS altitude is
+  too noisy to sum; this slice *quantified* it (537 m phantom gain at ±10 m
+  untuned; ~2× error at ±25 m even tuned) and found no setting safe across both
+  regimes. That is new evidence strengthening a decision the ADR already made, and
+  it belongs in the ADR rather than only in a spec. Item 7 (does the barometer
+  deliver while backgrounded?) still awaits device evidence this slice cannot
+  produce; item 5's columns now land with the barometer slice, not here.
 - **`docs/roadmap/README.md`** — move "Run elevation on the map" to `Planned`,
   and correct its title: elevation is **not** going on the map.
 - **`docs/healthkit-capability-ledger.md`** — already written; this spec is the
@@ -355,9 +408,13 @@ VoiceOver reads the card's summary label. Repeat once in dark mode
 1. **victory-native under Reanimated 4.** Gated by §9.1 before any other work;
    fallback is a Skia `Path` in one file. This is the only risk that could change
    the shape of the slice.
-2. **GPS gain/loss is approximate.** Values are rounded to 5 m and must never be
-   presented as precise. A runner will compare them against Strava and find them
-   different; the barometer slice is the answer, and it is next.
+2. **Retired 2026-08-03 by removing the totals.** This risk read "GPS gain/loss is
+   approximate, round to 5 m". §3.5 measured it as ~2× wrong in poor conditions,
+   which no amount of rounding makes honest, so the totals were cut instead
+   (§2, §6). What remains is a smaller risk: the elevation *line's* vertical scale
+   is likewise noise-dependent, so the right axis must be read as a shape rather
+   than a measurement. Mitigated by the axis carrying relative metres from the
+   run's start (§5.1), never an absolute altitude.
 3. **A non-Expo-official dependency enters the tree.** Priced by ADR 0024. Pure
    JS, one import site, and a proven fallback keep the blast radius small.
 4. **Hysteresis tuning is empirical.** The seeded 3.0 m is a starting point, not
@@ -365,9 +422,10 @@ VoiceOver reads the card's summary label. Repeat once in dark mode
 
 ## 12. Out of scope
 
-Elevation on the route map · absolute elevation and any network/DEM source
-(ADR 0015 item 6) · barometer capture (the next slice) · a live
-climbing/descending readout on the run screen (designed for in §4.2, not built) ·
-writing elevation to Apple Health (§3.4) · elevation in the Log list or any
-aggregate/all-time elevation stat · chart interaction — no tooltips, pan, zoom or
-scrubbing in this slice · Android.
+**Displayed elevation gain/loss totals, and the columns that would store them
+(§3.5 — deferred to the barometer slice, not cancelled)** · elevation on the route
+map · absolute elevation and any network/DEM source (ADR 0015 item 6) · barometer
+capture (the next slice) · a live climbing/descending readout on the run screen
+(designed for in §4.2, not built) · writing elevation to Apple Health (§3.4) ·
+elevation in the Log list or any aggregate/all-time elevation stat · chart
+interaction — no tooltips, pan, zoom or scrubbing in this slice · Android.

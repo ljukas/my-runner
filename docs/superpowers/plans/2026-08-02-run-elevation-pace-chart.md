@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a run-summary card charting pace and elevation against distance, with the run's total elevation gain and loss in its header.
+**Goal:** Add a run-summary card charting pace and elevation against distance.
 
-**Architecture:** Elevation comes from `run_points.altitude`, which the app already persists for every accepted GPS fix — no new sensor, permission, or native module. A pure streaming reducer (`domain/elevation.ts`) turns altitude samples into gain/loss with hysteresis; it mirrors `smoothFix`/`smoothTrack` (ADR 0021) so the barometer slice that follows plugs in as a second *source*, not a second implementation. Totals are rolled up once at finalize and stored on `runs`; the chart series is re-derived at display time from the same fixes through the same reducer.
+**Architecture:** Elevation comes from `run_points.altitude`, which the app already persists for every accepted GPS fix — no new sensor, permission, native module, or schema change. A pure streaming reducer (`domain/elevation.ts`) smooths altitude and banks gain/loss with hysteresis; it mirrors `smoothFix`/`smoothTrack` (ADR 0021) so the barometer slice that follows plugs in as a second *source*, not a second implementation. The chart series is derived at display time from `run_points`, and nothing is stored — gain/loss totals are computed and tested but deliberately not displayed in this slice (spec §3.5).
 
 **Tech Stack:** TypeScript ~6.0 (strict), Expo SDK 57, React Native 0.86, Drizzle + expo-sqlite, `victory-native` 41 (Skia/Reanimated/Gesture-Handler — all three already installed), `bun test`.
 
@@ -20,8 +20,11 @@
 - **Package manager is Bun.** Use `bun expo install <pkg>`. If `"packageManager": "yarn@…"` appears in `package.json`, delete it before committing (corepack injects it; a committed value breaks EAS/CI).
 - **Conventional Commits** for every commit (`feat:`, `fix:`, `docs:`, `chore:`, `test:`).
 - **Branch:** `ll/run-elevation-pace-chart` (already created, already holds the spec and the HealthKit ledger).
-- **Constants seeded in this plan are starting values, not verified truths:** `ELEVATION_HYSTERESIS_M = 3`, `ALTITUDE_MEDIAN_WINDOW = 5`, `PROFILE_SAMPLE_COUNT = 120`. Tests assert *properties*, never these numbers, so tuning them later must not require touching a test.
+- **Reducer tuning is a per-source config, not a module constant** (spec §4.2, amended 2026-08-03). `GPS_ELEVATION_CONFIG = { medianWindow: 31, hysteresisM: 10 }` — measured, not guessed (spec §3.5). `PROFILE_SAMPLE_COUNT = 120` remains a seeded starting value. Tests assert *properties*, never these numbers.
+- **Test fixtures for the reducer have two hard requirements** (spec §9.2), both learned the expensive way: noise fixtures use a **seeded PRNG, never a sinusoid** (a median filter annihilates a coherent sinusoid, so a sinusoidal fixture passes while the reducer banks hundreds of phantom metres); and climb fixtures are **padded with flat samples at both ends** (the trailing median warms up at the start but lags at the end, a 4.5 m artifact that otherwise lands in the assertion).
 - **Gate everything on Task 1.** If the spike fails, stop and report — the slice reshapes.
+
+> **Amended 2026-08-03.** Elevation gain/loss totals and their storage are cut from this slice (spec §2, §3.5, §6) — GPS cannot support them honestly, and they land with the barometer slice instead. **Task 4 is removed**; Task 2's fixtures are rewritten; Task 7's card loses its header totals. Task numbering is unchanged so briefs still extract by number.
 
 ## File Structure
 
@@ -31,14 +34,10 @@
 | `src/domain/elevation.test.ts` | **Create.** Property tests — the noise-rejection guard is the important one. |
 | `src/domain/run-profile.ts` | **Create.** Pure: fixes → resampled `{ distanceM, paceSecPerKm, elevationM }[]`. |
 | `src/domain/run-profile.test.ts` | **Create.** Bucketing, pace, distance preservation. |
-| `src/domain/format.ts` | **Modify.** Add `formatElevationM`. |
-| `src/db/schema.ts` | **Modify.** Two nullable REAL columns on `runs`. |
-| `src/db/migrations/` | **Generated.** `bun run db:generate` output — commit as generated. |
-| `src/db/save-run.ts` | **Modify.** Elevation joins the existing finalize rollup and transaction. |
 | `src/constants/theme.ts` | **Modify.** `StatColors.elevation`. |
 | `src/hooks/use-run-profile.ts` | **Create.** One imperative read, memoised fold. Modelled on `use-run-route.ts`. |
 | `src/components/run-profile-chart.tsx` | **Create.** The ONLY file importing `victory-native`. |
-| `src/components/run-profile-card.tsx` | **Create.** Gating, header totals, accessibility. |
+| `src/components/run-profile-card.tsx` | **Create.** Gating and accessibility. No totals — spec §3.5. |
 | `src/app/runs/[runId]/index.tsx` | **Modify.** Compose the card between `RunStatGrid` and `SegmentBreakdown`. |
 | `.maestro/tests/complete-session.yaml` | **Modify.** Assert the card's absence on a motionless run. |
 | `docs/adr/0024-victory-native-charting.md` | **Create.** The official-tooling exception. |
@@ -176,13 +175,16 @@ State explicitly: spike passed or failed, the before/after fingerprint hashes, a
 - Produces:
   - `interface AltitudeSample { timestamp: number; altitudeM: number | null }`
   - `type ElevationTrend = 'climbing' | 'descending' | 'flat'`
-  - `interface ElevationState { window: number[]; anchorM: number | null; gainM: number; lossM: number; trend: ElevationTrend }`
+  - `interface ElevationConfig { medianWindow: number; hysteresisM: number }`
+  - `const GPS_ELEVATION_CONFIG: ElevationConfig` — `{ medianWindow: 31, hysteresisM: 10 }`
+  - `interface ElevationState { config: ElevationConfig; window: number[]; anchorM: number | null; gainM: number; lossM: number; trend: ElevationTrend }`
   - `interface ElevationStep { state: ElevationState; smoothedAltitudeM: number | null; trend: ElevationTrend }`
   - `interface ElevationRollup { gainM: number; lossM: number; seriesM: (number | null)[] }`
-  - `createElevationState(): ElevationState`
+  - `createElevationState(config?: ElevationConfig): ElevationState`
   - `elevationStep(state: ElevationState, sample: AltitudeSample): ElevationStep`
-  - `elevationRollup(samples: readonly AltitudeSample[]): ElevationRollup`
-  - `ALTITUDE_MEDIAN_WINDOW = 5`, `ELEVATION_HYSTERESIS_M = 3`
+  - `elevationRollup(samples: readonly AltitudeSample[], config?: ElevationConfig): ElevationRollup`
+
+**Every bound below was measured against this exact implementation before the plan was written — they are observations, not guesses. If one fails, the implementation diverged from the brief; re-read it before touching a number.**
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -194,7 +196,7 @@ import {
   createElevationState,
   elevationRollup,
   elevationStep,
-  ELEVATION_HYSTERESIS_M,
+  GPS_ELEVATION_CONFIG,
   type AltitudeSample,
 } from './elevation';
 
@@ -202,62 +204,102 @@ function samples(altitudes: (number | null)[]): AltitudeSample[] {
   return altitudes.map((altitudeM, i) => ({ timestamp: 1_000_000 + i * 1000, altitudeM }));
 }
 
-/** Deterministic pseudo-noise, so a failure is reproducible. */
-function noisyFlat(count: number, amplitudeM: number): AltitudeSample[] {
-  return samples(
-    Array.from({ length: count }, (_, i) => 100 + Math.sin(i * 2.399963) * amplitudeM),
-  );
+/** Seeded PRNG so a failure reproduces exactly. NEVER use a sinusoid for noise here:
+ *  a median filter annihilates a coherent sinusoid, so a sinusoidal fixture passes
+ *  while the reducer banks hundreds of phantom metres against real noise. */
+function mulberry32(seed: number) {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-describe('elevationRollup', () => {
-  test('noisy flat ground accumulates almost no gain', () => {
-    // why this matters: raw per-sample summing of ±10 m jitter over 600 samples
-    // inflates gain into the thousands (ADR 0015). Hysteresis is what stops it.
-    const result = elevationRollup(noisyFlat(600, 10));
-    expect(result.gainM).toBeLessThan(4 * ELEVATION_HYSTERESIS_M);
-    expect(result.lossM).toBeLessThan(4 * ELEVATION_HYSTERESIS_M);
+/** 30 minutes at 1 Hz on flat ground with +-`amplitude` m of vertical noise. */
+function flatWithNoise(amplitude: number, seed: number): AltitudeSample[] {
+  const random = mulberry32(seed);
+  return samples(Array.from({ length: 1800 }, () => 100 + (random() * 2 - 1) * amplitude));
+}
+
+function meanPhantomGain(amplitude: number): number {
+  let total = 0;
+  for (let seed = 1; seed <= 5; seed += 1) {
+    total += elevationRollup(flatWithNoise(amplitude, seed)).gainM;
+  }
+  return total / 5;
+}
+
+const RAMP = 300;
+const flat = (count: number, value: number) => Array.from({ length: count }, () => value);
+const rampUp = Array.from({ length: RAMP }, (_, i) => 100 + (i * 40) / RAMP);
+const rampDown = Array.from({ length: RAMP }, (_, i) => 140 - (i * 40) / RAMP);
+
+describe('elevationRollup noise rejection', () => {
+  test('realistic +-10 m noise on flat ground banks essentially nothing', () => {
+    // why this matters: raw per-sample summing inflates a flat run's gain into the
+    // hundreds of metres (ADR 0015). This is the reason the module exists.
+    // Do NOT loosen this bound — retune GPS_ELEVATION_CONFIG instead.
+    expect(meanPhantomGain(10)).toBeLessThan(5);
   });
 
-  test('a clean monotonic climb banks its full height', () => {
-    const climb = samples(Array.from({ length: 51 }, (_, i) => 100 + i));
-    const result = elevationRollup(climb);
-    expect(result.gainM).toBeGreaterThan(45);
-    expect(result.gainM).toBeLessThanOrEqual(50);
+  test('+-25 m noise defeats the GPS config — the reason totals are not displayed', () => {
+    // why assert the bad outcome: spec §3.5 cut the displayed gain/loss totals because
+    // GPS cannot support them in poor conditions. This pins that finding so the totals
+    // cannot quietly return. If this ever FAILS, that is good news — noise rejection
+    // improved, and spec §3.5's conclusion should be revisited deliberately.
+    expect(meanPhantomGain(25)).toBeGreaterThan(20);
+  });
+});
+
+describe('elevationRollup real terrain', () => {
+  test('a clean 40 m climb banks its full height and no loss', () => {
+    // why padded: the trailing median warms up at the start but lags at the end, and an
+    // unpadded fixture bakes that boundary artifact into the assertion (spec §3.5).
+    const result = elevationRollup(samples([...flat(40, 100), ...rampUp, ...flat(40, 140)]));
+    expect(result.gainM).toBeGreaterThan(35);
+    expect(result.gainM).toBeLessThanOrEqual(40);
     expect(result.lossM).toBe(0);
   });
 
-  test('climb then descend banks both', () => {
-    const up = Array.from({ length: 41 }, (_, i) => 100 + i);
-    const down = Array.from({ length: 41 }, (_, i) => 140 - i);
-    const result = elevationRollup(samples([...up, ...down]));
-    expect(result.gainM).toBeGreaterThan(35);
-    expect(result.lossM).toBeGreaterThan(35);
+  test('a symmetric climb and descent banks the two equally', () => {
+    const result = elevationRollup(
+      samples([...flat(40, 100), ...rampUp, ...rampDown, ...flat(40, 100)]),
+    );
+    // why not the full 40: a final partial move below the hysteresis threshold never banks.
+    expect(result.gainM).toBeGreaterThan(25);
+    expect(result.lossM).toBeGreaterThan(25);
+    expect(Math.abs(result.gainM - result.lossM)).toBeLessThan(2);
   });
 
   test('a sub-threshold bump that reverses banks nothing', () => {
-    const result = elevationRollup(samples([100, 100, 100, 101, 102, 101, 100, 100, 100]));
+    const result = elevationRollup(samples([...flat(40, 100), 102, 104, 102, ...flat(40, 100)]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
+});
 
-  test('series is rebased so the first known altitude reads 0', () => {
-    const result = elevationRollup(samples([850, 850, 850, 850, 850, 850, 850]));
+describe('elevationRollup series', () => {
+  test('is rebased so the first known altitude reads 0', () => {
+    const result = elevationRollup(samples(flat(40, 850)));
     expect(result.seriesM[0]).toBe(0);
     expect(result.seriesM.at(-1)).toBe(0);
   });
 
-  test('null altitudes are preserved as null and never bank movement', () => {
+  test('preserves nulls and never banks movement from them', () => {
     const result = elevationRollup(samples([null, 100, null, 100, null]));
     expect(result.seriesM[0]).toBeNull();
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
   });
 
-  test('an all-null run produces no movement and an all-null series', () => {
+  test('an all-null run yields an all-null series and no movement', () => {
     const result = elevationRollup(samples([null, null, null]));
     expect(result.gainM).toBe(0);
     expect(result.lossM).toBe(0);
-    expect(result.seriesM.every((v) => v === null)).toBe(true);
+    expect(result.seriesM.every((value) => value === null)).toBe(true);
   });
 
   test('empty and single-sample inputs are safe', () => {
@@ -265,16 +307,38 @@ describe('elevationRollup', () => {
     expect(elevationRollup(samples([100])).gainM).toBe(0);
   });
 
-  test('the rollup equals a manual fold of elevationStep', () => {
+  test('equals a manual fold of elevationStep', () => {
     // why: the live path and the re-derived path must agree by construction
     // (the ADR 0021 §3 property, applied to elevation).
-    const input = samples([100, 102, 106, 110, 108, 103, 99, 95, 99, 104]);
+    const input = samples([...flat(40, 100), ...rampUp]);
     let state = createElevationState();
     for (const sample of input) state = elevationStep(state, sample).state;
 
-    const rollup = elevationRollup(input);
-    expect(rollup.gainM).toBe(state.gainM);
-    expect(rollup.lossM).toBe(state.lossM);
+    const result = elevationRollup(input);
+    expect(result.gainM).toBe(state.gainM);
+    expect(result.lossM).toBe(state.lossM);
+  });
+});
+
+describe('ElevationConfig', () => {
+  test('a gentle config resolves terrain the GPS config smooths away', () => {
+    // why this test exists: it is the whole argument for tuning being a parameter.
+    // The same clean 30 m climb, at barometer precision, banks its full height under a
+    // gentle config and only two thirds of it under the noise-rejecting GPS one.
+    const climb = samples([
+      ...flat(10, 100),
+      ...Array.from({ length: 60 }, (_, i) => 100 + i * 0.5),
+      ...flat(10, 130),
+    ]);
+    const gentle = elevationRollup(climb, { medianWindow: 5, hysteresisM: 2 });
+    const gps = elevationRollup(climb, GPS_ELEVATION_CONFIG);
+
+    expect(gentle.gainM).toBeGreaterThan(gps.gainM);
+    expect(gentle.gainM).toBeGreaterThan(25);
+  });
+
+  test('defaults to the GPS config', () => {
+    expect(createElevationState().config).toEqual(GPS_ELEVATION_CONFIG);
   });
 });
 
@@ -285,26 +349,24 @@ describe('elevationStep trend', () => {
 
   test('becomes climbing once a rise clears the threshold, and stays climbing', () => {
     let state = createElevationState();
-    for (const sample of samples([100, 101, 103, 106, 110, 115, 120])) {
+    for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }
     expect(state.trend).toBe('climbing');
 
     // why sticky: a banked move resets the anchor to the current altitude, so a
     // non-sticky trend would flicker to flat between every banked step of one climb.
-    for (const sample of samples([121, 121.5])) state = elevationStep(state, sample).state;
+    for (const sample of samples(flat(5, 140))) state = elevationStep(state, sample).state;
     expect(state.trend).toBe('climbing');
   });
 
   test('flips to descending only after a threshold-clearing reversal', () => {
     let state = createElevationState();
-    for (const sample of samples([100, 105, 110, 115, 120])) {
+    for (const sample of samples([...flat(40, 100), ...rampUp])) {
       state = elevationStep(state, sample).state;
     }
     expect(state.trend).toBe('climbing');
-    for (const sample of samples([115, 110, 105, 100, 95])) {
-      state = elevationStep(state, sample).state;
-    }
+    for (const sample of samples(rampDown)) state = elevationStep(state, sample).state;
     expect(state.trend).toBe('descending');
   });
 
@@ -312,7 +374,9 @@ describe('elevationStep trend', () => {
     // why: the engine snapshots this for crash recovery (ADR 0007) when the live
     // readout lands — a Map or a class would silently break that.
     let state = createElevationState();
-    for (const sample of samples([100, 104, 108])) state = elevationStep(state, sample).state;
+    for (const sample of samples([...flat(40, 100), ...rampUp])) {
+      state = elevationStep(state, sample).state;
+    }
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
   });
 });
@@ -338,13 +402,21 @@ export interface AltitudeSample {
 
 export type ElevationTrend = 'climbing' | 'descending' | 'flat';
 
-export const ALTITUDE_MEDIAN_WINDOW = 5;
-/** A move must clear this monotonically before it is banked — the guard against GPS
- * vertical noise (~15-50 m) inflating cumulative gain (ADR 0015). Tunable. */
-export const ELEVATION_HYSTERESIS_M = 3;
+/** why a parameter and not a constant: GPS needs a wide window and a ~10 m threshold to
+ *  reject its own noise, while a barometer at ~1 m precision would have real terrain erased
+ *  by those values. One shared pair would silently mis-tune whichever source came second. */
+export interface ElevationConfig {
+  medianWindow: number;
+  hysteresisM: number;
+}
+
+/** Measured, not guessed — spec §3.5: at these values +-10 m noise banks 0 m of phantom
+ *  gain over a 30-minute flat run while a real 40 m climb still reports 40 m. */
+export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
 
 /** Plain JSON by construction: the engine snapshots this (ADR 0007) once the live readout lands. */
 export interface ElevationState {
+  config: ElevationConfig;
   window: number[];
   anchorM: number | null;
   gainM: number;
@@ -365,8 +437,8 @@ export interface ElevationRollup {
   seriesM: (number | null)[];
 }
 
-export function createElevationState(): ElevationState {
-  return { window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
+export function createElevationState(config: ElevationConfig = GPS_ELEVATION_CONFIG): ElevationState {
+  return { config, window: [], anchorM: null, gainM: 0, lossM: 0, trend: 'flat' };
 }
 
 function median(values: readonly number[]): number {
@@ -381,7 +453,7 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
     return { state, smoothedAltitudeM: null, trend: state.trend };
   }
 
-  const window = [...state.window, raw].slice(-ALTITUDE_MEDIAN_WINDOW);
+  const window = [...state.window, raw].slice(-state.config.medianWindow);
   const smoothed = median(window);
 
   if (state.anchorM === null) {
@@ -390,12 +462,13 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
   }
 
   const delta = smoothed - state.anchorM;
-  if (Math.abs(delta) < ELEVATION_HYSTERESIS_M) {
+  if (Math.abs(delta) < state.config.hysteresisM) {
     const held = { ...state, window };
     return { state: held, smoothedAltitudeM: smoothed, trend: held.trend };
   }
 
   const banked: ElevationState = {
+    config: state.config,
     window,
     anchorM: smoothed,
     gainM: delta > 0 ? state.gainM + delta : state.gainM,
@@ -405,8 +478,11 @@ export function elevationStep(state: ElevationState, sample: AltitudeSample): El
   return { state: banked, smoothedAltitudeM: smoothed, trend: banked.trend };
 }
 
-export function elevationRollup(samples: readonly AltitudeSample[]): ElevationRollup {
-  let state = createElevationState();
+export function elevationRollup(
+  samples: readonly AltitudeSample[],
+  config: ElevationConfig = GPS_ELEVATION_CONFIG,
+): ElevationRollup {
+  let state = createElevationState(config);
   const smoothed: (number | null)[] = [];
 
   for (const sample of samples) {
@@ -431,14 +507,14 @@ export function elevationRollup(samples: readonly AltitudeSample[]): ElevationRo
 Run: `bun test src/domain/elevation.test.ts`
 Expected: PASS, all cases.
 
-If "noisy flat ground" fails, do NOT loosen the assertion — that test is the reason this module exists. Raise `ELEVATION_HYSTERESIS_M` or widen `ALTITUDE_MEDIAN_WINDOW` instead, and record what you changed and why.
+If a bound fails, the implementation has diverged from Step 3 — re-read it before adjusting any number. The two noise tests in particular encode spec §3.5's measured findings; changing either of their bounds changes what the app claims about its own accuracy, and is a spec decision, not an implementation one. Report rather than adjust.
 
 - [ ] **Step 5: Gate and commit**
 
 ```bash
 bun test && bun run typecheck && bun run lint
 git add -- src/domain/elevation.ts src/domain/elevation.test.ts
-git commit -m "feat: add the elevation reducer with hysteresis gain/loss"
+git commit -m "feat: add the elevation reducer with per-source tuning"
 ```
 
 ---
@@ -661,113 +737,27 @@ git commit -m "feat: derive the pace and elevation chart series from run points"
 
 ---
 
-### Task 4: Store the totals
+### Task 4: REMOVED (amended 2026-08-03)
 
-**Files:**
-- Modify: `src/db/schema.ts` (the `runs` table)
-- Generated: `src/db/migrations/` (via `bun run db:generate` — never hand-edited)
-- Modify: `src/db/save-run.ts:12` (`rollupFromPoints`) and `:102-118` (the transaction)
-- Modify: `src/domain/format.ts`
-- Test: `src/domain/format.test.ts`
+**No work. Do not implement. Skip to Task 5.**
 
-**Interfaces:**
-- Consumes: `elevationRollup` (Task 2).
-- Produces: `runs.elevationGainM` / `runs.elevationLossM` (`number | null` on the inferred `Run` type); `formatElevationM(meters: number): string`.
+This task stored `elevation_gain_m` / `elevation_loss_m` on `runs`, generated the
+migration, wired the finalize rollup in `src/db/save-run.ts`, and added
+`formatElevationM`. All of it is cut.
 
-- [ ] **Step 1: Add the columns to the schema**
+**Why:** measurement during Task 2 showed GPS-derived elevation totals are
+accurate in open sky and roughly 2× wrong in poor conditions, with no
+window/threshold pair safe across both regimes (spec §3.5). The only consumer was
+Task 7's card header, which is also cut. Storing a figure nothing displays would
+mean committing a migration for data we know to be unreliable, then having to
+decide at the barometer slice whether to trust, recompute, or discard every stored
+GPS value.
 
-In `src/db/schema.ts`, inside the `runs` table, immediately after `summaryPolyline`:
+ADR 0015 item 5's columns are deferred, not cancelled — the barometer slice adds
+them, populated from a ~1 m-precision source, alongside the per-point barometric
+altitude column and the `elevation_source` discriminator it needs anyway.
 
-```ts
-  elevationGainM: real('elevation_gain_m'),
-  elevationLossM: real('elevation_loss_m'),
-```
-
-No comment needed — the names carry it.
-
-- [ ] **Step 2: Generate the migration**
-
-```bash
-bun run db:generate
-```
-
-Expected: a new `.sql` file plus an updated `migrations.js` under `src/db/migrations/`. Read the generated SQL and confirm it is two `ALTER TABLE runs ADD COLUMN` statements and nothing else. If it proposes to recreate the table or drop anything, STOP and report.
-
-- [ ] **Step 3: Write the failing formatter test**
-
-Append to `src/domain/format.test.ts`:
-
-```ts
-describe('formatElevationM', () => {
-  test('rounds to the nearest 5 m', () => {
-    // why: GPS-derived gain is approximate (ADR 0015); a precise-looking figure
-    // would overstate what the measurement can support.
-    expect(formatElevationM(0)).toBe('0 m');
-    expect(formatElevationM(122)).toBe('120 m');
-    expect(formatElevationM(123)).toBe('125 m');
-    expect(formatElevationM(2)).toBe('0 m');
-  });
-});
-```
-
-Add `formatElevationM` to the existing `import { … } from './format'` at the top of that file.
-
-- [ ] **Step 4: Run it to verify it fails**
-
-Run: `bun test src/domain/format.test.ts`
-Expected: FAIL — `formatElevationM is not a function`.
-
-- [ ] **Step 5: Implement the formatter**
-
-Append to `src/domain/format.ts`:
-
-```ts
-/** Metres rounded to 5 — GPS-derived elevation cannot support a finer figure (ADR 0015). */
-export function formatElevationM(meters: number): string {
-  return `${Math.round(meters / 5) * 5} m`;
-}
-```
-
-- [ ] **Step 6: Wire elevation into the finalize rollup**
-
-In `src/db/save-run.ts`, extend the import and the rollup:
-
-```ts
-import { elevationRollup } from '@/domain/elevation';
-```
-
-```ts
-function rollupFromPoints(runId: string) {
-  const fixes = loadRunFixes(runId);
-  const elevation = elevationRollup(
-    fixes.map((fix) => ({ timestamp: fix.timestamp, altitudeM: fix.altitude })),
-  );
-  return { hasPoints: fixes.length > 0, elevation, ...smoothTrackBySegment(fixes) };
-}
-```
-
-Destructure it in `finalizeRun`:
-
-```ts
-const { hasPoints, distanceM, points, distanceBySegmentSeq, elevation } = rollupFromPoints(runId);
-```
-
-And add two lines to the existing `.set({ … })` inside the transaction, after `summaryPolyline`:
-
-```ts
-        elevationGainM: hasPoints ? elevation.gainM : null,
-        elevationLossM: hasPoints ? elevation.lossM : null,
-```
-
-**Leave `saveRun` untouched.** That path has no `'active'` row and therefore no `run_points` to fold — the existing `// why:` at `src/db/save-run.ts:29` already documents the class, and elevation is `null` there for the same reason.
-
-- [ ] **Step 7: Verify and commit**
-
-```bash
-bun test && bun run typecheck && bun run lint
-git add -- src/db/schema.ts src/db/migrations src/db/save-run.ts src/domain/format.ts src/domain/format.test.ts
-git commit -m "feat: store per-run elevation gain and loss at finalize"
-```
+Task numbering is preserved so briefs still extract by number.
 
 ---
 
@@ -948,77 +938,45 @@ git commit -m "feat: add the pace and elevation chart"
 - Modify: `src/app/runs/[runId]/index.tsx`
 
 **Interfaces:**
-- Consumes: `useRunProfile` (Task 5); `RunProfileChart` (Task 6); `formatElevationM` (Task 4); `formatDistanceKm` from `@/domain/format`; `Card`, `Text`, `useStatColors`.
+- Consumes: `useRunProfile` (Task 5); `RunProfileChart` (Task 6); `formatDistanceKm` from `@/domain/format`; `Card`, `Text`.
 - Produces: `<RunProfileCard run={Run} />`
 
 - [ ] **Step 1: Write the card**
 
 ```tsx
 // src/components/run-profile-card.tsx
-import { SymbolView } from 'expo-symbols';
-import { PixelRatio, View } from 'react-native';
+import { View } from 'react-native';
 
 import { RunProfileChart } from '@/components/run-profile-chart';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
-import { formatDistanceKm, formatElevationM } from '@/domain/format';
+import { formatDistanceKm } from '@/domain/format';
 import { useRunProfile } from '@/hooks/use-run-profile';
-import { useStatColors } from '@/hooks/use-theme';
-
-const TOTAL_SYMBOL_POINTS = 13;
-
-function symbolSize() {
-  return Math.round(TOTAL_SYMBOL_POINTS * Math.min(PixelRatio.getFontScale(), 1.6));
-}
 
 /**
- * A finished run's pace-and-elevation profile with its gain/loss totals (ADR 0013 domain
- * component). Renders nothing without a usable route: the route card directly above already
- * explains why such a run has no GPS data, and a second explanatory card would be noise.
+ * A finished run's pace-and-elevation profile (ADR 0013 domain component). Renders nothing
+ * without a usable route: the route card directly above already explains why such a run has
+ * no GPS data, and a second explanatory card would be noise.
+ *
+ * No gain/loss totals — spec §3.5 measured GPS elevation as ~2x wrong in poor conditions,
+ * so the shape ships and the numbers wait for the barometer slice.
  */
 export function RunProfileCard({ run }: { run: Run }) {
   const profile = useRunProfile(run.id, true);
-  const stat = useStatColors();
 
   if (!profile.ready) return null;
 
-  const gain = run.elevationGainM;
-  const loss = run.elevationLossM;
-  const showTotals = profile.hasElevation && gain !== null && loss !== null;
   const distance = run.distanceM !== null ? formatDistanceKm(run.distanceM) : null;
-
-  const label = [
-    'Elevation and pace profile',
-    showTotals ? `${formatElevationM(gain)} gained, ${formatElevationM(loss)} lost` : null,
-    distance ? `over ${distance}` : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
+  const label = profile.hasElevation
+    ? `Pace and elevation profile${distance ? ` over ${distance}` : ''}`
+    : `Pace profile${distance ? ` over ${distance}` : ''}`;
 
   return (
     <Card surface="card" className="gap-3">
-      <View className="flex-row items-center justify-between">
-        <Text variant="footnote" tone="secondary" className="font-semibold" accessibilityRole="header">
-          Pace & Elevation
-        </Text>
-        {showTotals ? (
-          <View className="flex-row items-center gap-3">
-            <View className="flex-row items-center gap-1">
-              <SymbolView name="arrow.up.right" size={symbolSize()} tintColor={stat.elevation} />
-              <Text variant="footnote" tone="secondary">
-                {formatElevationM(gain)}
-              </Text>
-            </View>
-            <View className="flex-row items-center gap-1">
-              <SymbolView name="arrow.down.right" size={symbolSize()} tintColor={stat.elevation} />
-              <Text variant="footnote" tone="secondary">
-                {formatElevationM(loss)}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-      </View>
+      <Text variant="footnote" tone="secondary" className="font-semibold" accessibilityRole="header">
+        {profile.hasElevation ? 'Pace & Elevation' : 'Pace'}
+      </Text>
 
       {/* why the label lives here: the chart is a Skia canvas and carries no accessible
           content of its own, so the card is the only thing VoiceOver can read. */}
@@ -1117,6 +1075,10 @@ Create `docs/adr/0024-victory-native-charting.md` following the house structure 
 
 It must record: that AGENTS.md prefers Expo-official packages and this is a deliberate exception, exactly as ADR 0010 made one for react-native-maps; that all three peers were already installed so nothing new reaches the native layer; the measured before/after fingerprint hashes from Task 1; the single-import containment rule and the hand-drawn Skia fallback; and the Reanimated 4 risk with the spike result that settled it.
 
+- [ ] **Step 3b: Amend ADR 0015 with the measurement**
+
+ADR 0015 asserted GPS altitude is too noisy to sum. This slice *quantified* it. Add a dated amendment carrying spec §3.5's table — 537 m phantom gain at ±10 m untuned, ~94 m even at the tuned GPS config when noise reaches ±25 m, and the finding that the settings which suppress that also report zero loss on a real 40 m descent. State the conclusion plainly: no single window/threshold pair is safe across regimes, which is why the displayed totals were cut and deferred to the barometer slice. Record that item 5's columns move to that slice. Leave item 7 (background barometer delivery) open — this slice produced no device evidence for it.
+
 - [ ] **Step 4: Update the roadmap row**
 
 In `docs/roadmap/README.md`, change the elevation row's Status to `Planned` and **rename the feature** from "Run elevation on the map" to "Run elevation & pace profile" — elevation is deliberately not on the map. Link this spec and plan.
@@ -1154,8 +1116,10 @@ Then report: which flows passed, the fingerprint result, the spike outcome, any 
 
 **Spec coverage.** §2 decisions → Tasks 2–7; §3.1 spike and fingerprint → Task 1; §3.2 existing altitude data → Task 3; §4.2 reducer with the three load-bearing properties → Task 2 (each has a test); §4.3 hook → Task 5; §5.1 rebasing → Task 2; §5.2 bucketed pace → Task 3; §5.3 hysteresis → Task 2; §5.4 axis inversion → Tasks 1 and 6; §6 storage and rollup → Task 4; §7.1 card and a11y → Task 7; §7.2 chart → Task 6; §8 degradation → Tasks 5 (`ready: false`), 6 (`showElevation`), 7 (null return); §9.1 gate → Task 1; §9.2 unit set → Tasks 2–4; §9.3 E2E → Task 8; §9.4 manual → Task 7 Step 3; §10 docs → Task 8.
 
-**Gap found and closed:** §8's "run finalized before this shipped" row had no explicit coverage. It is handled by Task 7's `showTotals` guard, which requires non-null `elevationGainM` *and* `elevationLossM` — an older run renders the chart with no header totals, which is the specified behaviour.
+**Gap found and closed (original pass):** §8's "run finalized before this shipped" row had no explicit coverage. After the 2026-08-03 amendment it needs none — nothing is stored, so the series is re-derived from `run_points` for every run alike and there is no old/new distinction.
+
+**Amendment pass (2026-08-03):** spec §3.5 is covered by Task 2's two noise tests; §2's "no totals" by Task 4's removal and Task 7's card; §4.2's per-source config by Task 2's `ElevationConfig` block and its dedicated test; §6's "no storage" by Task 4 being empty.
 
 **Placeholders:** none. Every code step carries runnable code; the one branch point (axis inversion) names both concrete paths and which task decides.
 
-**Type consistency:** `AltitudeSample`, `ElevationState`, `ElevationRollup.seriesM`, `ProfilePoint`, `RunProfile`, `elevationGainM`/`elevationLossM` are spelled identically wherever they appear across Tasks 2–7. `useRunProfile(runId, loaded)` is called as `useRunProfile(run.id, true)` in Task 7 — the summary only mounts the card once its own live query has loaded, matching how `RouteMapCard` passes `true` to `useRunRoute`.
+**Type consistency:** `AltitudeSample`, `ElevationConfig`, `GPS_ELEVATION_CONFIG`, `ElevationState`, `ElevationRollup.seriesM`, `ProfilePoint`, `RunProfile` are spelled identically wherever they appear across Tasks 2–7. `useRunProfile(runId, loaded)` is called as `useRunProfile(run.id, true)` in Task 7 — the summary only mounts the card once its own live query has loaded, matching how `RouteMapCard` passes `true` to `useRunRoute`.

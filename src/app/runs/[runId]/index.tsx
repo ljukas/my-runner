@@ -5,6 +5,7 @@ import { ScrollView, View } from 'react-native';
 
 import { HealthStatusRow } from '@/components/health-status-row';
 import { RouteMapCard } from '@/components/route-map-card';
+import { RunProfileCard } from '@/components/run-profile-card';
 import { RunStatGrid } from '@/components/run-stat-grid';
 import { RunSummaryHeadline } from '@/components/run-summary-headline';
 import { RunUnavailable } from '@/components/run-unavailable';
@@ -75,6 +76,7 @@ export default function RunSummaryScreen() {
             <RunSummaryHeadline run={run} celebrate={celebrating} />
             <RouteMapCard run={run} segments={segments} />
             <RunStatGrid run={run} segments={segments} />
+            <RunProfileCard run={run} />
             <SegmentBreakdown segments={segments} />
             <SegmentSplits segments={segments} />
             <HealthStatusRow run={run} />

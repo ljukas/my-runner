@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
-import { formatDistanceKm, paceParts } from '@/domain/format';
+import { distanceParts, paceParts } from '@/domain/format';
 import type { ProfilePoint } from '@/domain/run-profile';
 import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
@@ -17,7 +17,13 @@ const MAX_FONT_SCALE = 1.6;
 // render, re-measuring each label through Skia font metrics and re-parsing the path.
 const Y_KEYS: 'paceSecPerKm'[] = ['paceSecPerKm'];
 
+// Both units are hoisted into the card header, so a tick is a bare number (spec §7.2).
 const formatPaceTick = (secondsPerKm: number | null) => paceParts(secondsPerKm).value;
+const formatDistanceTick = (meters: number) => distanceParts(meters).value;
+
+// why fewer ticks as text grows: victory's default 5 labels are ~64 pt each at the 1.6× cap,
+// needing ~320 pt of a ~285 pt plot area on a 393 pt phone — they collide before they clip.
+const DEFAULT_TICK_COUNT = 5;
 
 /**
  * Pace against distance (spec §7.2). The only file importing victory-native — if it is ever
@@ -40,9 +46,10 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
       font,
       labelColor: colors.textSecondary,
       lineColor: grid,
-      formatXLabel: formatDistanceKm,
+      formatXLabel: formatDistanceTick,
+      tickCount: Math.max(2, Math.round(DEFAULT_TICK_COUNT / fontScale)),
     }),
-    [font, colors.textSecondary, grid],
+    [font, colors.textSecondary, grid, fontScale],
   );
 
   // why inverted: pace is seconds per km, so a LOWER value is faster and belongs higher.

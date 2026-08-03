@@ -45,10 +45,10 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
         >
           Pace
         </Text>
-        {/* why here and not an axis title: the y-axis prints m:ss, a pace only once the unit is
-            stated, and a rotated Skia title competes for width with the chart. */}
+        {/* why both units here and not as axis titles: the ticks print bare m:ss and bare km, and
+            repeating a unit on every tick costs the width a rotated Skia title would too. */}
         <Text variant="caption" tone="secondary">
-          min/km
+          min/km · km
         </Text>
       </View>
 

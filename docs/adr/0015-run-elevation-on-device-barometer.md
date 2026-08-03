@@ -8,6 +8,8 @@ Date: 2026-07-13
 
 Proposed — draft for review. Flip to `Accepted` on approval. Numbered 0015 because
 0014 is taken by the in-flight text-first-Maestro-selectors ADR on another branch.
+**Amended 2026-08-03** with measurements from the run-elevation-and-pace-chart
+slice — see [Amendment (2026-08-03)](#amendment-2026-08-03).
 
 ## Context
 
@@ -129,3 +131,83 @@ decision, taken before Stage 4).
 - **Defer elevation entirely** — viable and not precluded: this ADR fixes *how*
   elevation is captured if built, not *that* it must be. The build commitment
   remains a separate call.
+
+## Amendment (2026-08-03)
+
+Written during the run-elevation-and-pace-chart slice, which built the
+source-agnostic reducer this ADR specifies (§4.2) and pointed it at GPS
+altitude first, since GPS is what the app already records. This ADR asserted
+GPS altitude is "too noisy to sum"; that assumption was **measured** rather
+than trusted, over 5–30 seeds × 1800 samples (30 min at 1 Hz), against the
+[design spec](../superpowers/specs/2026-08-02-run-elevation-and-pace-chart-design.md)
+§3.5 and §3.6.
+
+**§3.5 — the totals, by window/hysteresis setting:**
+
+| Vertical noise | Window / hysteresis | Phantom gain on flat ground | Real 40 m climb (gain/loss) |
+|---|---|---|---|
+| ±10 m | 8 / 3 | **537 m** | 167 / 163 |
+| ±10 m | 31 / 10 | 0 m | 41.5 / 31.5 |
+| ±25 m | 31 / 10 | **~85 m** | 83.7 / 69.3 |
+| ±25 m | 61 / 30 | 0 m | 30.7 / **0.0** |
+
+A window/hysteresis pair tuned to reject ±10 m open-sky noise (31/10) still
+banks ~85 m of phantom gain once noise reaches ±25 m. Widening the window to
+suppress *that* (61/30) reports **zero loss on a real 40 m descent** — the
+setting that rejects bad-condition noise erases real terrain. There is no
+single pair safe in both regimes, because the reducer has no way to know which
+regime a given run is in.
+
+**§3.6 — the line, which turned out to be the *unprotected* output.** The
+hysteresis threshold above guards only the banked `gainM`/`lossM` totals;
+`seriesM` (what a chart would draw) receives median smoothing and no threshold
+at all:
+
+| Ground truth | Span the line draws | Banked gain |
+|---|---|---|
+| Flat, ±10 m noise | **10.8 m** (worst 15.3) | 2.5 m |
+| Flat, ±25 m noise | 27.1 m (worst 38.4) | 97.1 m |
+| A real 20 m hill | 19.5 m | — |
+
+A flat run at ±10 m noise draws a rolling landscape of the same order as a
+real 20 m hill, at whatever height the chart's y-axis auto-fits to — while the
+total that would have correctly reported "2.5 m, flat" is the number that gets
+cut as untrustworthy. Deferring the totals while keeping the line would have
+shipped the *more* dishonest half.
+
+**Conclusion, stated plainly: no single window/threshold pair is safe across
+noise regimes, for either the totals or the line.** This is why the slice
+deferred elevation whole — line and totals together — to the barometer, a
+source at ~1 m precision where the same reducer (§4.2) can be honest about
+both. It is a direct vindication of this ADR's barometer-first decision, not a
+reason to revisit it; what strained was the GPS-first *ordering* a later spec
+proposed on top of it, never this decision.
+
+**Item 5's columns** (`elevation_gain_m` / `elevation_loss_m` on `runs`, and
+the per-point altitude/pressure columns on `run_points`) **move to the
+barometer slice.** They are not cancelled — nothing GPS-derived was ever
+trustworthy enough to store, so there is nothing to migrate away from.
+
+**Item 7 stays open** — this slice produced no device evidence for background
+barometer delivery — but new research narrows what "open" means. The
+[Apple Watch companion research](../superpowers/research/2026-08-03-apple-watch-companion.md)
+(findings C1–C4) reads `expo-sensors`' own iOS source and finds the premise
+behind item 7 unsupported: `ios/BarometerModule.swift` has no
+`OnAppEntersBackground` block at all. Only `PedometerModule.swift` pauses and
+resumes on background/foreground transitions; the Barometer, Accelerometer,
+Gyroscope and DeviceMotion modules do not, and the JS wrapper
+(`src/DeviceSensor.ts`) adds no `AppState` handling of its own. So "the module
+stops updates on background" — the blocker item 7 names — may simply not
+exist; the open question narrows from *viability* to *device confirmation*
+under ADR 0008's location heartbeat, plus the actual delivery cadence
+(`CMAltimeter`'s header says "every few seconds", sparser than the 1 Hz this
+ADR's reducer was tuned against).
+
+That research also surfaces a hard constraint this ADR did not previously
+carry: **`CMAltimeter` has no backfill API.** Unlike `CMPedometer`, which
+replays accumulated activity after a background gap, the altimeter exposes no
+history query of any kind. If the process is ever suspended mid-run, GPS
+distance survives — points are already persisted — but altitude gained during
+that window is gone permanently. The barometer slice must detect such a gap
+and decline to report a total across it, rather than silently under-reporting
+one.

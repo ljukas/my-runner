@@ -1,4 +1,4 @@
-import { matchFont } from '@shopify/react-native-skia';
+import { DashPathEffect, matchFont } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
 import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
@@ -34,6 +34,20 @@ const X_AXIS_TITLE = { text: 'km', position: 'end' } as const;
 // why fewer ticks as text grows: victory's default 5 labels are ~64 pt each at the 1.6× cap,
 // needing ~320 pt of a ~285 pt plot area on a 393 pt phone — they collide before they clip.
 const DEFAULT_TICK_COUNT = 5;
+
+// why 3 and not DEFAULT_TICK_COUNT: the y axis (pace) follows Apple's Screen Time card, which
+// uses three; the x axis (distance) keeps its own five-tick baseline above. Same
+// fewer-ticks-as-text-grows shape, different baseline.
+const Y_AXIS_TICK_COUNT = 3;
+
+// why the container needs right padding now: `axisSide: 'right'` draws the pace labels starting
+// at the chart's own right edge with no margin to the canvas boundary, and the x-axis title's
+// `end` position (`km`) draws flush with that same edge — both clip without room to breathe.
+const CHART_PADDING_RIGHT = 40;
+
+// why [1, 3] and not evenly split: a hairline stroke this thin needs a short dash and a longer
+// gap to read as dotted rather than dashed at chart scale.
+const Y_GRID_DASH_INTERVALS = [1, 3];
 
 /**
  * Pace against distance (spec §7.2). The only file importing victory-native — if it is ever
@@ -74,15 +88,17 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
     () => [
       {
         yKeys: Y_KEYS,
-        axisSide: 'left' as const,
+        axisSide: 'right' as const,
         font,
         domain: paceDomain,
         labelColor: colors.textSecondary,
         lineColor: grid,
         formatYLabel: formatPaceTick,
+        tickCount: Math.max(2, Math.round(Y_AXIS_TICK_COUNT / fontScale)),
+        linePathEffect: <DashPathEffect intervals={Y_GRID_DASH_INTERVALS} />,
       },
     ],
-    [font, paceDomain, colors.textSecondary, grid],
+    [font, paceDomain, colors.textSecondary, grid, fontScale],
   );
 
   return (
@@ -91,9 +107,25 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <CartesianChart data={points} xKey="distanceM" yKeys={Y_KEYS} xAxis={xAxis} yAxis={yAxis}>
+      <CartesianChart
+        data={points}
+        xKey="distanceM"
+        yKeys={Y_KEYS}
+        xAxis={xAxis}
+        yAxis={yAxis}
+        padding={{ right: CHART_PADDING_RIGHT }}
+      >
         {({ points: rendered }) => (
-          <Line points={rendered.paceSecPerKm} color={stat.pace} strokeWidth={2} />
+          <Line
+            points={rendered.paceSecPerKm}
+            color={stat.pace}
+            strokeWidth={2}
+            // why monotoneX and no other curve: it's shape-preserving — the drawn line never goes
+            // beyond the data's own min/max. natural/cardinal/catmullRom/basis all overshoot,
+            // which here means drawing a pace faster than the runner ever ran. Don't swap this for
+            // a smoother-looking curve; that trade would draw fabricated paces.
+            curveType="monotoneX"
+          />
         )}
       </CartesianChart>
     </View>

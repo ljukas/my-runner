@@ -37,9 +37,10 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
   return (
     <Card surface="card" className="gap-3">
       {/* why the pace unit rides the heading: HIG "Charts" tells a compact chart to describe units
-          "in other areas of the chart, such as in a title", and the title sits directly over the
-          y tick column — so it names that axis and nothing else. The x unit is on the x axis. */}
-      <View className="flex-row items-baseline gap-1.5">
+          "in other areas of the chart, such as in a title", and the unit sits at the row's right
+          end because that's where the y ticks it names now render (`axisSide: 'right'`). `Pace`
+          stays the card title at the left; the x unit is on the x axis. */}
+      <View className="flex-row items-baseline justify-between">
         <Text
           variant="footnote"
           tone="secondary"

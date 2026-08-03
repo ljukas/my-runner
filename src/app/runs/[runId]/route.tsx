@@ -11,7 +11,7 @@ import { runNotDeleted } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
 import { formatDistanceKm } from '@/domain/format';
 import { VIEWER_DP_EPSILON_M } from '@/domain/geo';
-import { useRunRoute } from '@/hooks/use-run-route';
+import { useRunRoute } from '@/hooks/use-run-track';
 
 /** The full-screen, pannable/zoomable route (modal registered in `_layout`, dismissed by `router.back()`). */
 export default function RunRouteScreen() {

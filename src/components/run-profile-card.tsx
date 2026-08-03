@@ -4,41 +4,63 @@ import { RunProfileChart } from '@/components/run-profile-chart';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
-import { formatDistanceKm } from '@/domain/format';
-import { useRunProfile } from '@/hooks/use-run-profile';
+import { formatDistanceKm, formatPace } from '@/domain/format';
+import { describeProfile, type ProfileShape } from '@/domain/run-profile';
+import { hasMeasuredDistance } from '@/domain/run-stats';
+import type { RunTrack } from '@/hooks/use-run-track';
+
+const TREND_SENTENCE: Record<ProfileShape['trend'], string> = {
+  faster: 'Finished faster than you started.',
+  slower: 'Finished slower than you started.',
+  steady: 'Held a steady pace throughout.',
+};
 
 /**
  * A finished run's pace profile (ADR 0013 domain component). Renders nothing without a usable
- * route: the route card directly above already explains why such a run has no GPS data, and a
- * second explanatory card would be noise.
+ * route — it shares `useRunTrack`'s readiness with the route card directly above, which already
+ * explains why such a run has no GPS data, and a second explanatory card would be noise.
  *
  * Pace only: elevation is deferred whole (spec §3.6) because the smoothed series fabricates
  * terrain on flat ground, so both the line and its totals wait for the barometer slice.
  */
-export function RunProfileCard({ run }: { run: Run }) {
-  // why true: the caller (runs/[runId]/index) only mounts this card once its own live query has loaded.
-  const profile = useRunProfile(run.id, true);
+export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
+  if (!track.ready || !track.profile) return null;
 
-  if (!profile.ready) return null;
-
-  const distance = run.distanceM !== null ? formatDistanceKm(run.distanceM) : null;
-  const label = `Pace profile${distance ? ` over ${distance}` : ''}`;
+  // why hasMeasuredDistance: the stat grid withholds a drift-only distance, and announcing it here
+  // would tell VoiceOver a number the screen deliberately does not show.
+  const distanceM = hasMeasuredDistance(run.distanceM, run.activeDurationS) ? run.distanceM : null;
+  const shape = describeProfile(track.profile);
+  const label = [
+    `Pace profile${distanceM !== null ? ` over ${formatDistanceKm(distanceM)}` : ''}.`,
+    shape &&
+      `Fastest ${formatPace(shape.fastestSecPerKm)}, slowest ${formatPace(shape.slowestSecPerKm)}.`,
+    shape && TREND_SENTENCE[shape.trend],
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <Card surface="card" className="gap-3">
-      <Text
-        variant="footnote"
-        tone="secondary"
-        className="font-semibold"
-        accessibilityRole="header"
-      >
-        Pace
-      </Text>
+      <View className="flex-row items-baseline justify-between">
+        <Text
+          variant="footnote"
+          tone="secondary"
+          className="font-semibold"
+          accessibilityRole="header"
+        >
+          Pace
+        </Text>
+        {/* why here and not an axis title: the y-axis prints m:ss, which is only a pace once the
+            unit is stated, and a rotated Skia title would compete for width with the chart. */}
+        <Text variant="caption" tone="secondary">
+          min/km
+        </Text>
+      </View>
 
       {/* why the label lives here: the chart is a Skia canvas and carries no accessible
           content of its own, so the card is the only thing VoiceOver can read. */}
-      <View accessible accessibilityLabel={label}>
-        <RunProfileChart points={profile.points} />
+      <View accessible accessibilityRole="image" accessibilityLabel={label}>
+        <RunProfileChart points={track.profile} />
       </View>
     </Card>
   );

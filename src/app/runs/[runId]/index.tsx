@@ -16,6 +16,7 @@ import { db } from '@/db/client';
 import { runNotDeleted } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
 import { sessionTitle } from '@/domain/format';
+import { useRunTrack } from '@/hooks/use-run-track';
 
 /**
  * The run summary, opened as a large-title modal (route config in `_layout`,
@@ -54,6 +55,11 @@ export default function RunSummaryScreen() {
   const loaded = runLoaded !== undefined && segmentsLoaded !== undefined;
   const failed = runError !== undefined || segmentsError !== undefined;
 
+  // why the screen owns this: the route and the pace cards derive from the same `run_points` read,
+  // and hoisting it is what keeps the modal's first frame to one such read (and the two cards to
+  // one readiness answer).
+  const track = useRunTrack(runId, segments, loaded);
+
   if (runId === UNSAVED_RUN_ID || failed || (loaded && !run)) {
     return (
       <View className="flex-1 bg-background-grouped">
@@ -74,9 +80,9 @@ export default function RunSummaryScreen() {
         {loaded && run ? (
           <>
             <RunSummaryHeadline run={run} celebrate={celebrating} />
-            <RouteMapCard run={run} segments={segments} />
+            <RouteMapCard run={run} track={track} />
             <RunStatGrid run={run} segments={segments} />
-            <RunProfileCard run={run} />
+            <RunProfileCard run={run} track={track} />
             <SegmentBreakdown segments={segments} />
             <SegmentSplits segments={segments} />
             <HealthStatusRow run={run} />

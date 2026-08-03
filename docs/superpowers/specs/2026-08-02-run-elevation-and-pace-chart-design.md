@@ -192,8 +192,8 @@ does not depend on it beyond declining to attempt the write.
 
 ```
 src/domain/elevation.ts             # PURE: streaming altitude reducer → gain/loss + trend
-src/domain/run-profile.ts           # PURE: fixes → resampled chart series
-src/hooks/use-run-profile.ts        # reads run_points ONCE, folds, memoizes
+src/domain/run-profile.ts           # PURE: fixes → resampled chart series, drawability, shape
+src/hooks/use-run-track.ts          # reads run_points ONCE → route AND profile (was use-run-route)
 src/components/run-profile-card.tsx   # gating, a11y label (ADR 0013 domain component)
 src/components/run-profile-chart.tsx  # the ONLY file importing victory-native
 ```
@@ -278,13 +278,20 @@ slice. It is kept anyway, and that is a deliberate exception to YAGNI:
 It must therefore be *correct*, not merely present: the warm-up defect (§9.2) is
 fixed here rather than deferred with its consumer.
 
-### 4.4 The hook
+### 4.4 The hook *(amended 2026-08-03)*
 
-`useRunProfile(runId, loaded)` is modelled directly on `useRunRoute`
-(`src/hooks/use-run-route.ts`): the same `loadRunFixes` read — **once,
-non-reactively, never `useLiveQuery` on `run_points`** (ADR 0004 §3) — the same
-`useMemo` keying that survives rotation and theme changes, and the same
-`try/catch` that degrades to no card rather than crashing an unbounded route.
+The profile is **not** a second hook beside `useRunRoute`. It was, and the two
+each ran `loadRunFixes(runId)` plus a full smoother fold in the same render pass
+— two ~1800-row SQLite reads on the modal's first content frame — while gating on
+different predicates, which is what let a treadmill run get "didn't cover enough
+ground to map" above a chart drawn from that same rejected drift.
+
+`useRunTrack(runId, segments, loaded)` (`src/hooks/use-run-track.ts`, the renamed
+route hook) reads `run_points` **once, non-reactively, never `useLiveQuery`**
+(ADR 0004 §3) and derives both the route geometry and the pace series from it,
+behind **one** `ready`. The summary screen calls it and passes the result to both
+cards, so neither can contradict the other. `useRunRoute` remains as the
+viewer's entry point — same read, wider DP epsilon, no profile fold.
 
 ## 5. The data pipeline
 
@@ -326,6 +333,34 @@ summary's own headline pace on the same screen.
 
 The alternative — dropping each bucket's entry leg from its metres — is wrong: it
 breaks distance conservation, so the buckets would no longer sum to the run.
+
+**Bucket time is gap-excluded, and legs are split proportionally *(amended
+2026-08-03)*.** Two defects in the original "clock runs from the entry fix to the
+last fix in the bucket" rule were measured during the gate review:
+
+- **Wall clock swallows pauses and dropouts.** The engine ingests fixes only
+  while running, so a pause is a bare timestamp gap in `run_points` — and so is a
+  tunnel. Charging that gap to the one bucket that spans it makes that bucket an
+  unbounded outlier, and the y-axis auto-fits to it. Measured on a synthetic W1D1
+  (run 2.8 m/s, walk 1.4 m/s), as the share of the axis span the genuine run/walk
+  separation occupies: **96.0% clean, 21.1% with a 35 s pause, 9.5% with a 90 s
+  dropout, 3.8% with a 240 s pause.** A three-minute traffic-light stop left the
+  real signal at 4% of chart height. A bucket's elapsed time is therefore the sum
+  of its inter-fix legs, **skipping any leg longer than `MAX_GAP_S`** — the
+  smoother's own reset threshold (ADR 0021), which is also why such a leg
+  committed no distance to lose. All four cases now read 96.0%.
+  This also removes a disagreement on one screen: `RunStatGrid`'s Avg Pace uses
+  `activeDurationS`, which excludes pauses, while the chart used wall clock.
+  A stop *without* a pause (a traffic light the runner ran through) still counts
+  — that is real elapsed time, and only a bare gap is unmeasured.
+- **A leg that steps over a bucket used to leave it empty.** Bucket width is
+  fix-density-driven (`total / bucketCount`, `bucketCount` from the fix count),
+  so a stationary stretch shrinks the width until a fast leg can straddle several
+  buckets; the reviewer observed 98 of 120 buckets materialising and an irregular
+  x-grid. Each leg's metres *and* seconds are now split across every bucket it
+  crosses, in proportion to the overlap. This preserves distance conservation
+  exactly, keeps the entry-leg rule above (the entering leg's time lands with its
+  metres), and makes the full grid materialise for any run shape.
 
 ### 5.3 Hysteresis, and why it is kept despite the totals not shipping
 
@@ -382,14 +417,36 @@ Its header carries the card title only. **No gain/loss totals** — §2 and §3.
 **Accessibility is the card's job, not the chart's.** A Skia canvas is invisible
 to VoiceOver, so the chart is marked `accessibilityElementsHidden` and the card
 carries a summarising label — the same discipline `RouteMapCard` uses for its
-inert map (`route-map-card.tsx`), e.g. *"Elevation and pace profile: 124 metres
-gained, 118 metres lost over 5.2 kilometres."*
+inert map (`route-map-card.tsx`). The label must convey the *shape* a sighted
+reader gets, not restate a number `RunStatGrid` already announced: fastest and
+slowest bucket, and the start-to-finish direction (`describeProfile`), e.g.
+*"Pace profile over 3.20 km. Fastest 5:37 /km, slowest 7:22 /km. Finished faster
+than you started."* Its distance passes through `hasMeasuredDistance`, so it
+never announces a drift-only figure the visible grid withholds.
 
 ### 7.2 `RunProfileChart`
 
-`CartesianChart` with `xKey="distanceM"`, `yKeys={['paceSecPerKm']}`, and a
-single left `yAxis` whose domain is reversed so faster reads higher (§5.4). The
-colour is the existing `stat.pace` tint from `useStatColors()`.
+`CartesianChart` with `xKey="distanceM"`, `yKeys={['paceSecPerKm']}`, a bottom
+`xAxis`, and a single left `yAxis` whose domain is reversed so faster reads
+higher (§5.4). The colour is the existing `stat.pace` tint from `useStatColors()`.
+
+Three things the chart must carry, all of which were found missing at the gate
+review:
+
+- **Both axes are formatted with the app's own formatters** — `formatDistanceKm`
+  on x, `paceParts(...).value` on y. Victory's default is `String(label)`, which
+  printed raw seconds (`400`, `450`) where every other pace surface in the app
+  reads `6:40 /km`. The unit itself sits in the card header (`min/km`), not in a
+  rotated Skia axis title competing for width in a 200 pt box.
+- **Every axis colour is passed explicitly.** Victory's defaults are hardcoded
+  `#000000` labels and 25%-black lines (`cartesian/utils/axisDefaults.ts`) —
+  invisible on the dark-mode card. Gridlines stay near that default weight
+  (`ChartGridColors`) rather than full `textSecondary`, which out-contrasted the
+  pace line it exists to measure.
+- **Font size and chart height scale with `PixelRatio.getFontScale()`**, capped
+  at 1.6× as `route-map-card` caps its chip. `matchFont` takes raw pixels and
+  scales nothing itself, so a fixed 11 pt axis sat inside a card whose heading
+  grew ~3× at AX5.
 
 No elevation line and no right axis in this slice (§3.6). The dual-axis mechanism
 is verified and documented (§3.1) for the barometer slice to use unchanged.
@@ -401,10 +458,12 @@ reason, never render a misleading chart.
 
 | Situation | Behaviour |
 |---|---|
-| No fixes, or route below `MIN_ROUTE_EXTENT_M` | **No card at all.** The route card directly above already explains why this run has no GPS data; a second explanatory card is noise. |
-| Fewer than two usable buckets | No card — a single point draws no line and is indistinguishable from no chart. |
-| A bucket with one fix, or zero elapsed time | That bucket's `paceSecPerKm` is `null`; the line breaks rather than plotting a fabricated value. |
-| `loadRunFixes` throws | `console.warn` and no card, exactly as `use-run-route.ts` catches today. |
+| No fixes, or route below `MIN_ROUTE_EXTENT_M` | **No card at all.** The route card directly above already explains why this run has no GPS data; a second explanatory card is noise. Enforced by sharing *one* readiness answer with that card — `useRunTrack` applies the extent floor once and both cards read it, so the two cannot contradict each other. |
+| Fewer than two **adjacent** measured buckets | No card. `isDrawableProfile` is the gate: `Line` splits the series at nulls and a one-point group emits a move with no lineto, so counting *measured* buckets is not enough — two that are not neighbours still stroke nothing, and the card would head an empty canvas "Pace". |
+| A bucket with no metres, or no elapsed time | That bucket's `paceSecPerKm` is `null`; the line breaks rather than plotting a fabricated value. |
+| **A pause, or a GPS dropout** | The gap is **excluded from bucket time** (any inter-fix leg longer than `MAX_GAP_S`), so the bucket spanning it reads the pace actually run rather than becoming an outlier the whole axis scales to (§5.2). No visible break: such a leg commits no distance, so the buckets either side are contiguous. |
+| **A stationary stretch with fixes still arriving** | Counted as elapsed time in the bucket where it happened — a traffic light the runner never paused for genuinely slows that stretch. Only a bare timestamp gap is treated as unmeasured. |
+| `loadRunFixes` throws | `console.warn` and no card, exactly as the route hook catches today. |
 | Run finalized before this shipped | No special case — the series is re-derived from `run_points`, which every GPS-recorded run already has. |
 
 ## 9. Testing

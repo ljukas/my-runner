@@ -138,21 +138,27 @@ Written during the run-elevation-and-pace-chart slice, which built the
 source-agnostic reducer this ADR specifies (§4.2) and pointed it at GPS
 altitude first, since GPS is what the app already records. This ADR asserted
 GPS altitude is "too noisy to sum"; that assumption was **measured** rather
-than trusted, over 5–30 seeds × 1800 samples (30 min at 1 Hz), against the
+than trusted, over 1800-sample runs (30 min at 1 Hz), against the
 [design spec](../superpowers/specs/2026-08-02-run-elevation-and-pace-chart-design.md)
 §3.5 and §3.6.
+
+**Every figure below was re-measured on 2026-08-03**, after the warm-up anchor
+defect was fixed, over the **50 seeds** spec §9.2 now requires (the first pass
+used 5, which passed on seed luck). The flat-ground fixture is the committed
+`flatWithNoise` in `src/domain/elevation.test.ts`, so these are reproducible;
+the real-climb column is from the original padded-ramp measurement and is not.
 
 **§3.5 — the totals, by window/hysteresis setting:**
 
 | Vertical noise | Window / hysteresis | Phantom gain on flat ground | Real 40 m climb (gain/loss) |
 |---|---|---|---|
-| ±10 m | 8 / 3 | **537 m** | 167 / 163 |
-| ±10 m | 31 / 10 | 0 m | 41.5 / 31.5 |
-| ±25 m | 31 / 10 | **~85 m** | 83.7 / 69.3 |
-| ±25 m | 61 / 30 | 0 m | 30.7 / **0.0** |
+| ±10 m | 8 / 3 | **549.5 m** | 167 / 163 |
+| ±10 m | 31 / 10 | 0.00 m | 41.5 / 31.5 |
+| ±25 m | 31 / 10 | **92.5 m** | 83.7 / 69.3 |
+| ±25 m | 61 / 30 | 0.00 m | 30.7 / **0.0** |
 
 A window/hysteresis pair tuned to reject ±10 m open-sky noise (31/10) still
-banks ~85 m of phantom gain once noise reaches ±25 m. Widening the window to
+banks ~92 m of phantom gain once noise reaches ±25 m. Widening the window to
 suppress *that* (61/30) reports **zero loss on a real 40 m descent** — the
 setting that rejects bad-condition noise erases real terrain. There is no
 single pair safe in both regimes, because the reducer has no way to know which
@@ -165,15 +171,18 @@ at all:
 
 | Ground truth | Span the line draws | Banked gain |
 |---|---|---|
-| Flat, ±10 m noise | **10.8 m** (worst 15.3) | 2.5 m |
-| Flat, ±25 m noise | 27.1 m (worst 38.4) | 97.1 m |
+| Flat, ±5 m noise | 4.8 m (worst 5.7) | 0.00 m |
+| Flat, ±10 m noise | **9.5 m** (worst 11.5) | 0.00 m |
+| Flat, ±25 m noise | 23.8 m (worst 28.6) | 92.5 m |
 | A real 20 m hill | 19.5 m | — |
 
-A flat run at ±10 m noise draws a rolling landscape of the same order as a
-real 20 m hill, at whatever height the chart's y-axis auto-fits to — while the
-total that would have correctly reported "2.5 m, flat" is the number that gets
-cut as untrustworthy. Deferring the totals while keeping the line would have
-shipped the *more* dishonest half.
+The ±10 m row is the whole argument in one line. The banked total reports
+**0.00 m — correctly, the ground is flat** — while the line drawn from the very
+same samples carries 9.5 m of relief, about half a real 20 m hill and rendered
+at full height by an auto-fitting y-axis. The *protected* output is honest
+exactly where the *unprotected* one is not, so deferring the totals while
+keeping the line would have shipped the more dishonest half. At ±25 m the
+fabricated terrain (23.8 m) exceeds that real hill outright.
 
 **Conclusion, stated plainly: no single window/threshold pair is safe across
 noise regimes, for either the totals or the line.** This is why the slice

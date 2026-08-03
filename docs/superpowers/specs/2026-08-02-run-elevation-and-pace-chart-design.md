@@ -6,7 +6,7 @@ the elevation totals and their storage were cut on measured evidence (§3.5); th
 review found that reasoning inverted and **elevation was deferred whole** (§3.6).
 This slice ships a pace-only chart. Everything else stands.
 **Scope:** A roadmap feature ([`docs/roadmap/README.md`](../../roadmap/README.md)), not a v1 delivery stage. This is the **GPS slice**; the barometer slice follows immediately after and is specified in [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md).
-**Governing ADRs:** 0001 (E2E), 0003 (ports), 0004 (storage/reactivity), 0007 (engine event log), 0010 (the official-tooling exception precedent), 0013 (components), 0015 (elevation — deliberately unamended, §10), 0016 (Maestro selectors), 0021 (GPS smoothing)
+**Governing ADRs:** 0001 (E2E), 0003 (ports), 0004 (storage/reactivity), 0007 (engine event log), 0010 (the official-tooling exception precedent), 0013 (components), 0015 (elevation — amended with this slice's measurements, §10), 0016 (Maestro selectors), 0021 (GPS smoothing)
 
 ## 1. Goal
 
@@ -31,10 +31,10 @@ it) and **not** written to Apple Health (§3.4 — the library cannot).
 | X axis | **Distance.** Originally chosen because an elevation profile reads as terrain against distance. With elevation deferred (§3.6) that rationale no longer applies to what ships, and a reviewer noted pace is arguably time-structured for this app — on W1D1 the 8 running minutes take 39% of the chart width. **Kept as the owner's standing decision**, and revisited when elevation lands. |
 | Gating | **GPS-recorded runs only.** A run without a usable route gets no card at all. Accepted deliberately: the alternative is a chart with one meaningful axis. |
 | Elevation source *(when it ships)* | **Barometer**, via the same reducer (§4.2). GPS altitude is retained in `run_points` and remains a fallback the reducer can consume, but it is no longer the source anything displays. |
-| Elevation, **entirely** | **Not shipped in this slice — amended twice, see §3.5 and §3.6.** The design first stored and displayed gain/loss totals; measurement cut those (§3.5). A second review then found §3.5's reasoning inverted — hysteresis protects the totals, not the line, so the line fabricates ~11 m of terrain on flat ground at ±10 m noise (§3.6). **Owner's decision 2026-08-03: defer elevation whole.** This slice ships a **pace-only chart**; the elevation line and its totals arrive together with the barometer, on a source that can carry both honestly. |
+| Elevation, **entirely** | **Not shipped in this slice — amended twice, see §3.5 and §3.6.** The design first stored and displayed gain/loss totals; measurement cut those (§3.5). A second review then found §3.5's reasoning inverted — hysteresis protects the totals, not the line, so the line fabricates ~9.5 m of terrain on flat ground at ±10 m noise, where the total it displaced correctly read 0.00 m (§3.6). **Owner's decision 2026-08-03: defer elevation whole.** This slice ships a **pace-only chart**; the elevation line and its totals arrive together with the barometer, on a source that can carry both honestly. |
 | Storage | **None.** No schema change, no migration. [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md) item 5's `elevation_gain_m` / `elevation_loss_m` columns land with the barometer slice that can populate them honestly. |
 | Reducer tuning | **A parameter, not a constant** (§4.2). The right smoothing window and hysteresis threshold depend on the *source*: GPS needs an aggressive window against ±10–25 m noise, a barometer at ~1 m precision needs a gentle one. A single module constant would be wrong for one of them. |
-| Card contents | **One pace line.** `RunStatGrid` is untouched; the card header carries only its title. |
+| Card contents | **One pace line.** `RunStatGrid` is untouched; the card header carries its title and the two axis units (§7.2), and no gain/loss totals. |
 | Live readout | **Summary only in this slice.** But the core helper is a *streaming reducer* (§4.2), so a live "currently climbing / descending" state on the run screen is later a read of state we already keep — not a rewrite. |
 | Chart library | **`victory-native` (XL, v41).** Not an Expo-official package, so this needs the same explicit exception ADR 0010 made for react-native-maps — recorded in a new ADR (§10), not slipped in. |
 | Apple Health elevation | **Not written.** `HKMetadataKeyElevationAscended` is the correct Apple mechanism and the library types it, but its bridge cannot produce an `HKQuantity` (§3.4). |
@@ -73,7 +73,7 @@ Two API facts the design leans on:
   Task 1's spike and recorded for the barometer slice; **this slice draws one
   line and one axis** (§3.6).
 - **No font asset is needed.** Axis labels want an `SkFont`; the documented route
-  bundles a `.ttf`, but `src/components/skia-countdown.tsx:33` already solves this
+  bundles a `.ttf`, but `src/components/skia-countdown.tsx:35` already solves this
   with `matchFont({ fontSize, fontWeight })`. Nothing is added to `assets/`.
 
 **Unverified, and gated (§9.1):** victory's docs state it is "built upon React
@@ -97,19 +97,25 @@ gain. §5.3 is the mitigation, and §9.2's first test is the guard.
 ### 3.5 Measured 2026-08-03: GPS totals are not trustworthy enough to display
 
 The original design assumed hysteresis would make GPS totals merely
-*approximate*. It was measured during implementation rather than assumed, over
-5 seeds × 1800 samples (30 min at 1 Hz), and the assumption was wrong.
+*approximate*. It was measured during implementation rather than assumed, and the
+assumption was wrong.
+
+**Re-measured 2026-08-03** after the warm-up anchor fix, over **50 seeds** ×
+1800 samples (30 min at 1 Hz) — §9.2's floor, not the 5 the first pass used. The
+flat-ground fixture is the committed `flatWithNoise` in `elevation.test.ts`, so
+the phantom-gain column is reproducible; the real-climb column is from the
+original padded-ramp measurement and is not.
 
 | Vertical noise | Window / hysteresis | Phantom gain on flat ground | Real 40 m climb (gain/loss) |
 |---|---|---|---|
-| ±10 m | 8 / 3 | **537 m** | 167 / 163 |
-| ±10 m | 31 / 10 | **0 m** | 41.5 / 31.5 |
-| ±25 m | 31 / 10 | **85 m** | 83.7 / 69.3 |
-| ±25 m | 61 / 30 | 0 m | 30.7 / **0.0** |
+| ±10 m | 8 / 3 | **549.5 m** | 167 / 163 |
+| ±10 m | 31 / 10 | **0.00 m** | 41.5 / 31.5 |
+| ±25 m | 31 / 10 | **92.5 m** | 83.7 / 69.3 |
+| ±25 m | 61 / 30 | 0.00 m | 30.7 / **0.0** |
 
 Two things follow. In open sky (±10 m) a window of 31 with a 10 m threshold is
 genuinely good: zero phantom gain, and 41.5 m reported for a real 40 m climb. In
-poor conditions (±25 m) the same settings report **85 m of climb on flat
+poor conditions (±25 m) the same settings report **92 m of climb on flat
 ground**, and the settings aggressive enough to suppress that (61/30) also report
 **zero loss on a run that descended 40 m** — the filter that rejects bad-condition
 noise erases real terrain.
@@ -130,21 +136,23 @@ all**. So the totals are the *protected* output and the line is the *unprotected
 one. Deferring the totals while shipping the line cut the safe number and kept the
 unsafe drawing.
 
-Measured (30 seeds, 1800 samples, y-axis auto-fits so the span *is* the full chart
-height):
+Measured (50 seeds, 1800 samples, y-axis auto-fits so the span *is* the full chart
+height; re-measured 2026-08-03 after the warm-up fix):
 
 | Ground truth | Span the line draws | Banked gain |
 |---|---|---|
-| Flat, ±5 m noise | 5.4 m (worst 7.7) | 0.0 m |
-| Flat, ±10 m noise | **10.8 m** (worst 15.3) | 2.5 m |
-| Flat, ±25 m noise | **27.1 m** (worst 38.4) | 97.1 m |
+| Flat, ±5 m noise | 4.8 m (worst 5.7) | 0.00 m |
+| Flat, ±10 m noise | **9.5 m** (worst 11.5) | 0.00 m |
+| Flat, ±25 m noise | **23.8 m** (worst 28.6) | 92.5 m |
 | A real 8 m hill | 7.8 m | — |
 | A real 20 m hill | 19.5 m | — |
 
-A flat park loop at ±10 m noise therefore draws a rolling landscape of the same
-order as a real 20 m hill, at full chart height — while the number that would have
-correctly said "2.5 m, flat" was removed as dishonest. At ±25 m the fabricated
-terrain is *larger* than a real 20 m hill.
+The ±10 m row makes the inversion unarguable: the banked total says **0.00 m,
+correctly — the ground is flat** — while the line drawn from those same samples
+carries 9.5 m of relief, about half a real 20 m hill and stretched to full chart
+height by the auto-fitting axis. The output that was cut as dishonest is the one
+telling the truth. At ±25 m the fabricated terrain (23.8 m) is *larger* than a
+real 20 m hill.
 
 **How the error survived scrutiny:** every measurement behind §3.5 was taken of
 `gainM`. `seriesM` was never plotted. A claim about the line's trustworthiness was
@@ -291,7 +299,8 @@ route hook) reads `run_points` **once, non-reactively, never `useLiveQuery`**
 (ADR 0004 §3) and derives both the route geometry and the pace series from it,
 behind **one** `ready`. The summary screen calls it and passes the result to both
 cards, so neither can contradict the other. `useRunRoute` remains as the
-viewer's entry point — same read, wider DP epsilon, no profile fold.
+viewer's entry point — same read, tighter DP epsilon (`VIEWER_DP_EPSILON_M` 2 against
+`DP_EPSILON_M` 5, because it zooms further and can afford more points), no profile fold.
 
 ## 5. The data pipeline
 
@@ -302,8 +311,9 @@ One fold, at display time, on every summary open. Nothing is written (§6).
    to obtain per-fix cumulative distance. This is what guarantees the chart's
    x-axis extent equals the summary's headline distance.
 3. Resample onto a uniform distance grid (`PROFILE_SAMPLE_COUNT`, seeded at 120).
-4. Pace per **bucket** = bucket duration ÷ bucket distance, with the bucket's clock
-   starting at the **previous** fix's timestamp (§5.2).
+4. Pace per **bucket** = bucket duration ÷ bucket distance. Each inter-fix leg's metres
+   *and* seconds are split across every bucket it crosses in proportion to the overlap, and
+   a leg longer than `MAX_GAP_S` contributes neither (§5.2).
 
 No altitude step: elevation is deferred whole (§3.6).
 
@@ -412,17 +422,28 @@ A `Card` (ADR 0013) placed in `src/app/runs/[runId]/index.tsx` **between
 `RunStatGrid` and `SegmentBreakdown`** — headline numbers, then the profile that
 explains them, then the interval breakdown.
 
-Its header carries the card title only. **No gain/loss totals** — §2 and §3.5.
+Its header carries the card title and the two axis units (§7.2). **No gain/loss totals** — §2 and §3.5.
 
 **Accessibility is the card's job, not the chart's.** A Skia canvas is invisible
 to VoiceOver, so the chart is marked `accessibilityElementsHidden` and the card
 carries a summarising label — the same discipline `RouteMapCard` uses for its
-inert map (`route-map-card.tsx`). The label must convey the *shape* a sighted
-reader gets, not restate a number `RunStatGrid` already announced: fastest and
-slowest bucket, and the start-to-finish direction (`describeProfile`), e.g.
-*"Pace profile over 3.20 km. Fastest 5:37 /km, slowest 7:22 /km. Finished faster
-than you started."* Its distance passes through `hasMeasuredDistance`, so it
-never announces a drift-only figure the visible grid withholds.
+inert map (`route-map-card.tsx`). The label states what the axes show and nothing
+more: the distance covered and the pace range (`paceRange`), e.g.
+*"Pace profile over 3.19 km. The chart spans 5:43 to 11:55 /km."*
+
+**No characterisation of the run — amended 2026-08-03.** The label originally
+closed with a start-to-finish trend ("Finished faster than you started" /
+"Held a steady pace throughout"), derived by comparing the mean of the first half
+of buckets to the second. That is structurally false for this app: a C25K session
+puts an identical run/walk mix in both halves by construction, so **every session
+in the program** read "steady" — including a W1D1 alternating eight times between
+5:43 and 11:55 /km. Bucket means cannot support a trend for interval training, and
+this slice has no other way to compute one, so the sentence is gone rather than
+retuned. It can return with a method that understands intervals.
+
+The card renders only when the run clears **both** the route-extent gate and
+`hasMeasuredDistance` (§8), so it can neither announce nor chart a drift-only
+figure the visible grid withholds.
 
 ### 7.2 `RunProfileChart`
 
@@ -433,20 +454,24 @@ higher (§5.4). The colour is the existing `stat.pace` tint from `useStatColors(
 Three things the chart must carry, all of which were found missing at the gate
 review:
 
-- **Both axes are formatted with the app's own formatters** — `formatDistanceKm`
-  on x, `paceParts(...).value` on y. Victory's default is `String(label)`, which
-  printed raw seconds (`400`, `450`) where every other pace surface in the app
-  reads `6:40 /km`. The unit itself sits in the card header (`min/km`), not in a
-  rotated Skia axis title competing for width in a 200 pt box.
+- **Both axes are formatted with the app's own formatters, and print a bare
+  value** — `distanceParts(...).value` on x, `paceParts(...).value` on y. Victory's
+  default is `String(label)`, which printed raw seconds (`400`, `450`) where every
+  other pace surface in the app reads `6:40 /km`; `formatDistanceKm` then went too
+  far the other way and repeated the unit on all five x ticks
+  (`0.50 km · 1.00 km · …`). Both units sit in the card header (`min/km · km`),
+  not in a rotated Skia axis title competing for width in a 200 pt box.
 - **Every axis colour is passed explicitly.** Victory's defaults are hardcoded
   `#000000` labels and 25%-black lines (`cartesian/utils/axisDefaults.ts`) —
   invisible on the dark-mode card. Gridlines stay near that default weight
   (`ChartGridColors`) rather than full `textSecondary`, which out-contrasted the
   pace line it exists to measure.
-- **Font size and chart height scale with `PixelRatio.getFontScale()`**, capped
-  at 1.6× as `route-map-card` caps its chip. `matchFont` takes raw pixels and
-  scales nothing itself, so a fixed 11 pt axis sat inside a card whose heading
-  grew ~3× at AX5.
+- **Font size, chart height and tick count all follow
+  `PixelRatio.getFontScale()`**, capped at 1.6× as `route-map-card` caps its chip.
+  `matchFont` takes raw pixels and scales nothing itself, so a fixed 11 pt axis sat
+  inside a card whose heading grew ~3× at AX5. The x-axis `tickCount` scales *down*
+  as the font scales up: victory's default 5 labels are ~64 pt each at the cap,
+  needing ~320 pt of a ~285 pt plot area on a 393 pt phone.
 
 No elevation line and no right axis in this slice (§3.6). The dual-axis mechanism
 is verified and documented (§3.1) for the barometer slice to use unchanged.
@@ -458,7 +483,9 @@ reason, never render a misleading chart.
 
 | Situation | Behaviour |
 |---|---|
-| No fixes, or route below `MIN_ROUTE_EXTENT_M` | **No card at all.** The route card directly above already explains why this run has no GPS data; a second explanatory card is noise. Enforced by sharing *one* readiness answer with that card — `useRunTrack` applies the extent floor once and both cards read it, so the two cannot contradict each other. |
+| No fixes, or route below `MIN_ROUTE_EXTENT_M` | **No card at all.** The route card already explains why this run has no GPS data; a second explanatory card is noise. Enforced by sharing *one* readiness answer with that card — `useRunTrack` applies the extent floor once and both cards read it, so the two cannot contradict each other. |
+| **Distance recorded, but below `MIN_MEASURED_SPEED_MPS`** | **No card at all.** The extent gate is *spatial* and the stat grid's is a *speed floor*, so a slow shuffle (~240 m over 10 min) clears the first and fails the second. The card applies `hasMeasuredDistance` too, or a summary withholding Distance, Avg Pace and Splits would still chart a min/km line — and the card's own label, which already used that predicate, would announce "Pace profile." above a chart scaled in km. |
+| The pace fold throws | **The route survives.** Both derive from one `run_points` read, so the fold catches its own failures and leaves the track `ready` with a null profile rather than degrading the map to `RouteUnavailableCard`. |
 | Fewer than two **adjacent** measured buckets | No card. `isDrawableProfile` is the gate: `Line` splits the series at nulls and a one-point group emits a move with no lineto, so counting *measured* buckets is not enough — two that are not neighbours still stroke nothing, and the card would head an empty canvas "Pace". |
 | A bucket with no metres, or no elapsed time | That bucket's `paceSecPerKm` is `null`; the line breaks rather than plotting a fabricated value. |
 | **A pause, or a GPS dropout** | The gap is **excluded from bucket time** (any inter-fix leg longer than `MAX_GAP_S`), so the bucket spanning it reads the pace actually run rather than becoming an outlier the whole axis scales to (§5.2). No visible break: such a leg commits no distance, so the buckets either side are contiguous. |
@@ -508,8 +535,9 @@ coverage:
 - Single-fix and empty runs.
 - `elevationRollup` equals a manual fold of `elevationStep` over the same samples
   — the live-vs-re-derived guarantee (ADR 0021 §3's property, applied here).
-- Resampling preserves total distance, and bucket count is stable for short and
-  long runs alike.
+- Resampling preserves total distance, and bucket count tracks the fix count up to
+  `PROFILE_SAMPLE_COUNT` (16 / 40 / 120 for 80 / 200 / 1667 fixes) so a short run gets
+  fewer buckets rather than mostly empty ones.
 
 ### 9.3 E2E can only assert the absence path
 
@@ -531,7 +559,7 @@ where Maestro's `travel` does not:
 xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59.3353,18.0686
 ```
 
-Then confirm on the summary: the card appears, both lines render, the pace line
+Then confirm on the summary: the card appears, the pace line renders, it
 reads fast-at-top, its values agree with the summary's own headline pace stat
 (§5.2 — they disagreed by 20% before the boundary rule was fixed), and VoiceOver
 reads the card's summary label. Repeat once in dark mode
@@ -544,14 +572,16 @@ reads the card's summary label. Repeat once in dark mode
   making such an exception explicitly), the single-import containment rule, and
   the Reanimated 4 risk with its Skia fallback.
 - **ADR 0015 — amend with §3.5's measurement.** The ADR asserted GPS altitude is
-  too noisy to sum; this slice *quantified* it (537 m phantom gain at ±10 m
+  too noisy to sum; this slice *quantified* it (549.5 m phantom gain at ±10 m
   untuned; ~2× error at ±25 m even tuned) and found no setting safe across both
   regimes. That is new evidence strengthening a decision the ADR already made, and
   it belongs in the ADR rather than only in a spec. Item 7 (does the barometer
   deliver while backgrounded?) still awaits device evidence this slice cannot
   produce; item 5's columns now land with the barometer slice, not here.
-- **`docs/roadmap/README.md`** — move "Run elevation on the map" to `Planned`,
-  and correct its title: elevation is **not** going on the map.
+- **`docs/roadmap/README.md`** — the row reads **"Run pace & elevation profile"**,
+  status **In progress** (pace slice building, elevation deferred to the barometer
+  slice). Its old title, "Run elevation on the map", was wrong twice over: elevation
+  is **not** going on the map, and pace is what actually ships here.
 - **`docs/healthkit-capability-ledger.md`** — already written; this spec is the
   first consumer of its §2.2.
 - **Stage 5 spec** (`2026-07-31-stage-5-apple-health-design.md`) — add the
@@ -567,13 +597,14 @@ reads the card's summary label. Repeat once in dark mode
    the shape of the slice.
 2. **Retired 2026-08-03 by deferring elevation whole.** This risk read "GPS
    gain/loss is approximate, round to 5 m". §3.5 measured it as ~2× wrong; §3.6
-   then found the *line* was the unprotected output and fabricated ~11 m of terrain
-   on flat ground. Neither output ships (§2), so the risk is gone rather than
+   then found the *line* was the unprotected output and fabricated ~9.5 m of terrain
+   on flat ground while the total correctly read 0.00 m. Neither output ships (§2), so the risk is gone rather than
    mitigated. It returns, on better data, with the barometer slice.
 3. **A non-Expo-official dependency enters the tree.** Priced by ADR 0024. Pure
    JS, one import site, and a proven fallback keep the blast radius small.
-4. **Hysteresis tuning is empirical.** The seeded 3.0 m is a starting point, not
-   a verified constant; §9.2 tests properties so tuning is cheap.
+4. **Hysteresis tuning is empirical.** `GPS_ELEVATION_CONFIG`'s 31 / 10 m is measured
+   (§3.5), not seeded — the 3.0 m this risk was written against was the guess it
+   replaced. §9.2 tests properties, so re-tuning per source stays cheap.
 
 ## 12. Out of scope
 

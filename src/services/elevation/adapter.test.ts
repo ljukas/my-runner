@@ -60,7 +60,7 @@ describe('start', () => {
     const readings: AltitudeReading[] = [];
     const unsubscribe = elevationSource.onReading((reading) => readings.push(reading));
 
-    await elevationSource.start(); // second call while already running
+    await elevationSource.start();
     expect(addListenerCalls).toBe(1);
 
     emit({ pressure: 1000, relativeAltitude: 5, timestamp: 1 });

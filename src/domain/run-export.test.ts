@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import { RUN_EXPORT_MAGIC, toRunExport, type RunExportInput } from './run-export';
+import {
+  RUN_EXPORT_MAGIC,
+  toExportPoints,
+  toRunExport,
+  type RunExportInput,
+  type StoredRunPoint,
+} from './run-export';
 
 function input(overrides: Partial<RunExportInput> = {}): RunExportInput {
   return {
@@ -228,5 +234,76 @@ describe('toRunExport', () => {
     const expectedTotal = Object.values(header.counts).reduce((a, b) => a + b, 0);
     expect(lines.at(-2)).toBe(`# end ${expectedTotal}`);
     expect(lines.at(-1)).toBe('');
+  });
+});
+
+describe('toExportPoints', () => {
+  // Deliberately non-contiguous and out of array-index order: a positional-index bug (`index` from
+  // `.map`) would renumber these 0,1,2 — this fixture only passes if the stored `run_points.seq` is
+  // the value that lands in the export.
+  const stored: StoredRunPoint[] = [
+    {
+      seq: 5,
+      segmentSeq: 0,
+      timestamp: Date.parse('2026-08-04T09:00:05.000Z'),
+      lat: 59.1,
+      lng: 18.1,
+      altitude: 10,
+      accuracy: 5,
+      altitudeAccuracy: 2,
+      speed: 1,
+    },
+    {
+      seq: 9,
+      segmentSeq: 0,
+      timestamp: Date.parse('2026-08-04T09:00:09.000Z'),
+      lat: 59.2,
+      lng: 18.2,
+      altitude: 11,
+      accuracy: 5,
+      altitudeAccuracy: 2,
+      speed: 1,
+    },
+    {
+      seq: 12,
+      segmentSeq: 1,
+      timestamp: Date.parse('2026-08-04T09:00:12.000Z'),
+      lat: 59.3,
+      lng: 18.3,
+      altitude: 12,
+      accuracy: 5,
+      altitudeAccuracy: 2,
+      speed: 1,
+    },
+  ];
+
+  test('carries the stored seq through, not a positional index', () => {
+    expect(toExportPoints(stored).map((p) => p.seq)).toEqual([5, 9, 12]);
+  });
+
+  test('the stored seq survives serialization into the points section', () => {
+    const text = toRunExport(input({ points: toExportPoints(stored) }));
+    const body = text.slice(text.indexOf('## points'), text.indexOf('## altitude'));
+    const seqs = body
+      .split('\n')
+      .slice(2) // '## points' + the column header
+      .filter(Boolean)
+      .map((row) => Number(row.split(',')[0]));
+    expect(seqs).toEqual([5, 9, 12]);
+  });
+
+  test('renames the stored fields and normalizes an absent altitudeAccuracy to null', () => {
+    const [point] = toExportPoints([{ ...stored[0], altitudeAccuracy: undefined }]);
+    expect(point).toEqual({
+      seq: 5,
+      at: '2026-08-04T09:00:05.000Z',
+      lat: 59.1,
+      lng: 18.1,
+      altitudeM: 10,
+      accuracyM: 5,
+      altitudeAccuracyM: null,
+      speedMps: 1,
+      segmentSeq: 0,
+    });
   });
 });

@@ -204,3 +204,33 @@ export function toRunExport(input: RunExportInput): string {
 
   return `${lines.join('\n').trimEnd()}\n`;
 }
+
+/** Structural, not `BufferedRunPoint`: `src/domain/` may not import from `src/services/` (ADR 0003). */
+export interface StoredRunPoint {
+  seq: number;
+  segmentSeq: number;
+  timestamp: number;
+  lat: number;
+  lng: number;
+  altitude: number | null;
+  accuracy: number | null;
+  altitudeAccuracy?: number | null;
+  speed: number | null;
+}
+
+// why the stored `seq` and never the map index: a resumed run's points continue from the stored
+// watermark, so a positional index would silently renumber them and break every cross-section join
+// a reader makes on `seq` (spec §5.1).
+export function toExportPoints(points: readonly StoredRunPoint[]): ExportPoint[] {
+  return points.map((point) => ({
+    seq: point.seq,
+    at: new Date(point.timestamp).toISOString(),
+    lat: point.lat,
+    lng: point.lng,
+    altitudeM: point.altitude,
+    accuracyM: point.accuracy,
+    altitudeAccuracyM: point.altitudeAccuracy ?? null,
+    speedMps: point.speed,
+    segmentSeq: point.segmentSeq,
+  }));
+}

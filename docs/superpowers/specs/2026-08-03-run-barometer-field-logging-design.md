@@ -141,7 +141,7 @@ The scoring function is stated in §8.5. The closed loop survives only as a
 src/services/elevation/port.ts          # the ADR 0015 port — source-agnostic
 src/services/elevation/adapter.ios.ts   # expo-sensors Barometer, one permanent listener
 src/services/elevation/index.ts
-src/services/elevation/use-motion-permission.ts   # via Pedometer (§6.3)
+src/services/elevation/reading.ts       # PURE: measurement -> AltitudeReading, no Expo import
 
 src/services/run-engine/run-log.ts      # buffers + seq + a generic note(kind, detail) (§3.2)
 src/services/run-engine/engine.ts       # wiring only
@@ -931,7 +931,7 @@ The expensive step happens exactly once, and this slice pays it.
 Revision 1 named five of these. The rest are what a required-field change and a
 new port actually reach:
 
-**New:** `services/elevation/{port,adapter.ios,index,use-motion-permission}.ts`,
+**New:** `services/elevation/{port,adapter.ios,index,reading}.ts`,
 `services/run-engine/run-log.ts`, `domain/run-export.ts`,
 `services/run-export.ts`, `components/run-export-row.tsx`,
 `services/field-test.ts` (the flag plus the synthetic session — §8.0),

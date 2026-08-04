@@ -60,6 +60,32 @@ describe('RunLog', () => {
     expect(log.droppedCount).toBe(5);
   });
 
+  test('a cap eviction leaves a samples_dropped entry beside the seq gap it opens', () => {
+    const log = new RunLog();
+    for (let i = 0; i < MAX_LOG_BUFFER + 1; i += 1) log.sample(reading({ at: i }), 0, 0);
+    const drops = log.pendingEntries.filter((e) => e.kind === 'samples_dropped');
+    expect(drops).toHaveLength(1);
+    expect(drops[0].detailJson).toBe('{"reason":"cap","total":1}');
+  });
+
+  test('a saturated entry buffer notes its own eviction without recursing', () => {
+    const log = new RunLog();
+    for (let i = 0; i < MAX_LOG_BUFFER + 3; i += 1) log.note('tick', i);
+    expect(log.pendingEntries).toHaveLength(MAX_LOG_BUFFER);
+    expect(log.pendingEntries.some((e) => e.kind === 'samples_dropped')).toBe(true);
+    expect(log.droppedCount).toBeGreaterThanOrEqual(3);
+  });
+
+  test('a restore past the cap notes the drop after the buffer is swapped in, not into the array it replaces', () => {
+    const log = new RunLog();
+    for (let i = 0; i < MAX_LOG_BUFFER; i += 1) log.note('tick', i);
+    const taken = log.takeEntries(MAX_LOG_BUFFER);
+    log.note('tick', 'during the failed flush');
+    log.restoreEntries(taken);
+    expect(log.pendingEntries).toHaveLength(MAX_LOG_BUFFER);
+    expect(log.pendingEntries.some((e) => e.kind === 'samples_dropped')).toBe(true);
+  });
+
   test('take() removes what it hands out so a successful flush cannot double-write', () => {
     const log = new RunLog();
     log.sample(reading(), 0, 0);

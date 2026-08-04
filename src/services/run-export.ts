@@ -70,7 +70,7 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
         osVersion: String(Platform.Version),
         appVersion: Constants.expoConfig?.version ?? 'unknown',
         updateId,
-        barometerAvailable: samples.length > 0,
+        anySamplesRecorded: samples.length > 0,
         motionPermission: run.motionPermission,
         timezoneOffsetMin: new Date().getTimezoneOffset(),
       },

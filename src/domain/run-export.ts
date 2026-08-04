@@ -8,7 +8,11 @@ export interface RunExportDevice {
   osVersion: string;
   appVersion: string;
   updateId: string | null;
-  barometerAvailable: boolean;
+  /**
+   * False alike for a device with no barometer, a denied permission, a subscription that threw and a
+   * run that ended before the first reading; the hardware's own `isAvailable()` is the `sensor` log row.
+   */
+  anySamplesRecorded: boolean;
   motionPermission: string | null;
   timezoneOffsetMin: number;
 }
@@ -91,6 +95,23 @@ function section(name: string, columns: string, rows: readonly string[]): string
   return [`## ${name}`, columns, ...rows, ''];
 }
 
+// why a lower bound, not a count: the totals live in `samples_dropped` payloads, which the same cap
+// can evict, and a saturated buffer restates the total periodically rather than per drop (spec §6.2).
+function droppedTotal(log: readonly ExportLogEntry[]): number {
+  let total = 0;
+  for (const entry of log) {
+    if (entry.kind !== 'samples_dropped' || entry.detailJson === null) continue;
+    try {
+      const detail = JSON.parse(entry.detailJson) as { total?: unknown };
+      if (typeof detail.total === 'number' && detail.total > total) total = detail.total;
+    } catch {
+      // A row whose payload will not parse still counts as a drop having happened.
+      total = Math.max(total, 1);
+    }
+  }
+  return total;
+}
+
 /**
  * One run as a `#` magic line, a single-line JSON header, then CSV sections, then a `# end <total>`
  * trailer (spec §7.1) — a truncated write stops mid-file and never reaches it, so its presence is
@@ -113,6 +134,9 @@ export function toRunExport(input: RunExportInput): string {
     run,
     device: input.device,
     counts,
+    // why beside `counts` and not inside it: the trailer sums `counts`, and that sum is defined as
+    // the five section row counts — a drop count folded in would make a complete file look truncated.
+    dropped: droppedTotal(log),
   };
 
   const lines = [

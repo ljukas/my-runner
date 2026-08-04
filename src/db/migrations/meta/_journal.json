@@ -22,6 +22,13 @@
       "when": 1785820630667,
       "tag": "0002_minor_natasha_romanoff",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785841547066,
+      "tag": "0003_pale_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

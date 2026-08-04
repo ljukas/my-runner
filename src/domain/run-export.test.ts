@@ -10,7 +10,7 @@ function input(overrides: Partial<RunExportInput> = {}): RunExportInput {
       osVersion: '26.5',
       appVersion: '0.1.0',
       updateId: null,
-      barometerAvailable: true,
+      anySamplesRecorded: true,
       motionPermission: 'granted',
       timezoneOffsetMin: -120,
     },
@@ -71,6 +71,37 @@ describe('toRunExport', () => {
     expect(lines[0]).toBe(`# ${RUN_EXPORT_MAGIC}`);
     const header = JSON.parse(lines[1]) as { counts: Record<string, number> };
     expect(header.counts).toEqual({ segments: 1, points: 1, altitude: 1, log: 1, events: 1 });
+  });
+
+  test('the header reports the run drop total, taken from the samples_dropped rows', () => {
+    const lines = toRunExport(
+      input({
+        log: [
+          {
+            seq: 0,
+            at: '2026-08-04T09:00:00.500Z',
+            kind: 'samples_dropped',
+            detailJson: '{"reason":"nonfinite","total":1}',
+          },
+          {
+            seq: 1,
+            at: '2026-08-04T09:10:00.500Z',
+            kind: 'samples_dropped',
+            detailJson: '{"reason":"cap","total":7}',
+          },
+          { seq: 2, at: '2026-08-04T09:20:00.500Z', kind: 'tick', detailJson: null },
+        ],
+      }),
+    ).split('\n');
+    const header = JSON.parse(lines[1]) as { dropped: number; counts: Record<string, number> };
+    expect(header.dropped).toBe(7);
+    // Outside `counts`, or the `# end` trailer would make a complete file look truncated.
+    expect(header.counts).not.toHaveProperty('dropped');
+  });
+
+  test('a run that dropped nothing reports zero drops', () => {
+    const lines = toRunExport(input()).split('\n');
+    expect((JSON.parse(lines[1]) as { dropped: number }).dropped).toBe(0);
   });
 
   test('the device header carries a name, not a hardware model field', () => {

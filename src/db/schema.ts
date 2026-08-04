@@ -1,5 +1,13 @@
 import { sql } from 'drizzle-orm';
-import { check, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  check,
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+} from 'drizzle-orm/sqlite-core';
 
 // db/queries.test.ts hand-rolls this table's CREATE TABLE DDL — keep it in sync when adding a column.
 export const runs = sqliteTable('runs', {
@@ -74,34 +82,44 @@ export const runPoints = sqliteTable(
  * convention (append-only rows whose own `at` is their temporal record) — dropping the primary
  * key too is this table's own separate call, for the reason above.
  */
-export const runAltitudeSamples = sqliteTable('run_altitude_samples', {
-  runId: text('run_id')
-    .notNull()
-    .references(() => runs.id),
-  seq: integer('seq').notNull(),
-  at: text('at').notNull(),
-  /** CoreMotion's boot-relative clock. Paired with `at` it separates a sampling gap from a JS-scheduling one. */
-  sensorTimestampS: real('sensor_timestamp_s'),
-  pressureHpa: real('pressure_hpa').notNull(),
-  relativeAltitudeM: real('relative_altitude_m'),
-  epoch: integer('epoch').notNull(),
-  segmentSeq: integer('segment_seq').notNull(),
-});
+export const runAltitudeSamples = sqliteTable(
+  'run_altitude_samples',
+  {
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id),
+    seq: integer('seq').notNull(),
+    at: text('at').notNull(),
+    /** CoreMotion's boot-relative clock. Paired with `at` it separates a sampling gap from a JS-scheduling one. */
+    sensorTimestampS: real('sensor_timestamp_s'),
+    pressureHpa: real('pressure_hpa').notNull(),
+    relativeAltitudeM: real('relative_altitude_m'),
+    epoch: integer('epoch').notNull(),
+    segmentSeq: integer('segment_seq').notNull(),
+  },
+  // why indexed when the dropped primary key would have covered it: every read here is
+  // `where run_id = ?`, and on the launch/resume path — a full scan of a season of runs.
+  (table) => [index('run_altitude_samples_run_id_idx').on(table.runId)],
+);
 
 /**
  * Field-log entries for one run. `kind` is plain text, never a Drizzle enum: an enum would
  * force a migration for every new signal, which is the one thing this table exists to avoid.
  * Same PK and ADR 0004 §5 exemptions as `run_altitude_samples` above.
  */
-export const runLog = sqliteTable('run_log', {
-  runId: text('run_id')
-    .notNull()
-    .references(() => runs.id),
-  seq: integer('seq').notNull(),
-  at: text('at').notNull(),
-  kind: text('kind').notNull(),
-  detailJson: text('detail_json'),
-});
+export const runLog = sqliteTable(
+  'run_log',
+  {
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id),
+    seq: integer('seq').notNull(),
+    at: text('at').notNull(),
+    kind: text('kind').notNull(),
+    detailJson: text('detail_json'),
+  },
+  (table) => [index('run_log_run_id_idx').on(table.runId)],
+);
 
 /**
  * The in-flight run's crash-recovery snapshot: event log + sessionKey + cue and

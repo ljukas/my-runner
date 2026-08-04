@@ -15,7 +15,7 @@ import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
-import { isTimelineExhausted, RunEngine } from './engine';
+import { isTimelineExhausted, RunEngine, type RunRestoreInput } from './engine';
 import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
 import type { StepCounter } from './types';
@@ -24,19 +24,26 @@ export { endCountsAsCompleted } from './engine';
 
 // why wrap start() rather than note from the engine: this is the only seam that fires exactly once
 // per run start/restore (engine.ts's queueElevation) without engine.ts importing anything to log it
-// (spec §6.1). retryMotion() below calls the same wrapped start(), so a mid-run grant gets a row too.
+// (spec §6.1).
 const elevationWithSensorLog: ElevationSource = {
   ...elevationSource,
-  async start() {
-    try {
-      const [available, permission] = await Promise.all([
-        elevationSource.isAvailable(),
-        elevationSource.getPermissionStatus(),
-      ]);
-      runEngine.note('sensor', { available, permission, processToken: PROCESS_TOKEN });
-    } catch (error) {
-      console.warn('[run-engine] sensor note failed', error);
-    }
+  start() {
+    // why nothing here is awaited: a permission read that never settles would strand the engine's
+    // elevation op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
+    // only have to belong to this run, not precede the start.
+    void Promise.all([elevationSource.isAvailable(), elevationSource.getPermissionStatus()])
+      .then(([available, permission]) =>
+        runEngine.note('sensor', { available, permission, processToken: PROCESS_TOKEN }),
+      )
+      .catch((error) => console.warn('[run-engine] sensor note failed', error));
+    // why here and not at module load: the engine clears the log on every start()/restore(), so a
+    // one-shot read at import is always wiped before a run exists. Low Power Mode throttles
+    // background work, which is the first thing to rule out when a capture shows delivery gaps.
+    void Battery.getPowerStateAsync()
+      .then(({ batteryLevel, lowPowerMode }) =>
+        runEngine.note('battery', { level: batteryLevel, lowPowerMode }),
+      )
+      .catch((error) => console.warn('[run-engine] battery read failed', error));
     return elevationSource.start();
   },
 };
@@ -89,10 +96,8 @@ try {
 }
 
 // expo-battery is device-only (Simulator has no battery) — these resolve to defaults or reject
-// there, and the wrap absorbs it so a missing sensor can never affect a run (spec §6.3).
-void Battery.getBatteryLevelAsync()
-  .then((level) => runEngine.note('battery', { level }))
-  .catch((error) => console.warn('[run-engine] battery level read failed', error));
+// there, and the wrap absorbs it so a missing sensor can never affect a run (spec §6.3). The
+// per-run baseline is read from elevationWithSensorLog.start().
 try {
   Battery.addLowPowerModeListener(({ lowPowerMode }) => {
     runEngine.note('battery', { lowPowerMode });
@@ -118,6 +123,18 @@ function stopIdleTracking(): null {
       .catch((error) => console.warn('[run-engine] location stop failed', error));
   }
   return null;
+}
+
+// why its own try and not inline in the call: evaluated in an `abandon()`/`restore()` argument list,
+// a throwing read takes the whole call with it — leaving the interrupted run `'active'` forever and
+// invisible in the Log. Degrading the seeding is the cheaper failure by far.
+function logResumeOf(runId: string): RunRestoreInput['logResume'] {
+  try {
+    return loadLogResumeWatermarks(runId);
+  } catch (error) {
+    console.warn('[run-engine] log watermark read failed; this run restarts its log seq', error);
+    return undefined;
+  }
 }
 
 async function clearSnapshot(): Promise<void> {
@@ -168,10 +185,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       // why here too, not just resumeCrashedRun: abandon() also rebuilds the log counters before its
       // own finalize flush mints new rows (a tick at least) — without this the same duplicate-seq risk
       // applies to the discarded run's tail.
-      await runEngine.abandon({
-        ...candidate,
-        logResume: loadLogResumeWatermarks(candidate.runId),
-      });
+      await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
       return null;
     }
     return candidate;
@@ -189,7 +203,7 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
       points: loadBufferedRunPoints(candidate.runId),
       // why: continues this run's log `seq`/`epoch` instead of restarting them (spec §5.1) — see
       // db/run-log.ts's `loadLogResumeWatermarks` for why `epochBase` always comes from here.
-      logResume: loadLogResumeWatermarks(candidate.runId),
+      logResume: logResumeOf(candidate.runId),
     });
   } catch (error) {
     console.warn('[run-engine] resume failed', error);
@@ -200,7 +214,7 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
 /** Declining an offered run still finalizes it as `partial`, so its track stays reachable from the Log. */
 export async function discardResumableRun(candidate: ResumableRun): Promise<void> {
   try {
-    await runEngine.abandon({ ...candidate, logResume: loadLogResumeWatermarks(candidate.runId) });
+    await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
   } catch (error) {
     console.warn('[run-engine] discard failed', error);
   }
@@ -213,15 +227,6 @@ export async function retryTracking(): Promise<void> {
   if (status !== 'running' && status !== 'paused') return;
   if ((await locationTracker.getPermissionStatus()) !== 'granted') return;
   await locationTracker.start();
-}
-
-/** Motion analogue of `retryTracking()`: re-arms barometer capture after Motion & Fitness is granted
- *  mid-run through Settings (ADR 0008 §5's pattern, applied to the second sensor). */
-export async function retryMotion(): Promise<void> {
-  const { status } = runEngine.getSnapshot();
-  if (status !== 'running' && status !== 'paused') return;
-  if ((await elevationSource.getPermissionStatus()) !== 'granted') return;
-  await elevationWithSensorLog.start();
 }
 
 export function useRunEngine() {

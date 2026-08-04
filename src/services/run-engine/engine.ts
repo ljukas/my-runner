@@ -61,6 +61,35 @@ const IDLE_SNAPSHOT: RunSnapshot = {
 const MAX_FLUSH_POINTS = 500;
 // Bounded so a permanently failing write cannot spin the finalize path.
 const MAX_TAIL_FLUSHES = 6;
+// why bounded at all: a native promise can fail to *settle*, which no try/catch covers.
+// expo-sensors' PedometerModule.getPermissionsAsync returns without resolving or rejecting when its
+// permissions manager is absent, and getStepCountAsync's callback may only arrive once a system
+// alert is answered — which never happens on a pocketed auto-complete. Unbounded, that leaves the
+// run unsaved, its row `'active'` and the run screen with no route out; on the elevation chain it
+// leaves CMAltimeter sampling for the process's lifetime. 2 s is ~1000x the real latency of every
+// call it guards, so expiry means "stuck", never "slow".
+const NATIVE_TIMEOUT_MS = 2000;
+
+// why rejections are not absorbed too: every caller already has a catch that decides what a
+// rejection means, and only non-settlement is invisible to it.
+function withTimeout<T>(promise: Promise<T>, fallback: T, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      console.warn(`[run-engine] ${label} never settled; continuing without it`);
+      resolve(fallback);
+    }, ms);
+    void promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 /**
  * Active time is derived from the timestamped event log, never accumulated
@@ -183,6 +212,7 @@ export class RunEngine {
   private readonly tracker: LocationTracker;
   private readonly elevation: ElevationSource;
   private readonly stepCounter: StepCounter;
+  private readonly nativeTimeoutMs: number;
   private readonly scheduler: PointBatchScheduler;
 
   private session: PlanSession | null = null;
@@ -241,6 +271,9 @@ export class RunEngine {
     stepCounter: StepCounter;
     clock?: Clock;
     createScheduler?: (flush: () => void) => PointBatchScheduler;
+    // A test seam like createScheduler: the suite cannot afford real multi-second waits to prove
+    // these bounds, and there is nothing else in the engine to fake a native stall with.
+    nativeTimeoutMs?: number;
   }) {
     this.persistence = deps.persistence;
     this.cue = deps.cue;
@@ -248,6 +281,7 @@ export class RunEngine {
     this.tracker = deps.tracker;
     this.elevation = deps.elevation;
     this.stepCounter = deps.stepCounter;
+    this.nativeTimeoutMs = deps.nativeTimeoutMs ?? NATIVE_TIMEOUT_MS;
     this.clock = deps.clock ?? Date.now;
     const createScheduler =
       deps.createScheduler ??
@@ -510,8 +544,14 @@ export class RunEngine {
   // happen at this call site either.
   private async capturePedometerSteps(startedAt: number, endedAt: number): Promise<void> {
     try {
-      const steps = await this.stepCounter(new Date(startedAt), new Date(endedAt));
-      this.note('pedometer', { steps });
+      const steps = await withTimeout<number | null | undefined>(
+        this.stepCounter(new Date(startedAt), new Date(endedAt)),
+        undefined,
+        this.nativeTimeoutMs,
+        'step count read',
+      );
+      // A stall and a genuine null are different findings in the field, so they get different rows.
+      this.note('pedometer', steps === undefined ? { steps: null, timedOut: true } : { steps });
     } catch (error) {
       console.warn('[run-engine] step count unavailable; the run is unaffected', error);
     }
@@ -522,7 +562,12 @@ export class RunEngine {
   // this run already holds gives the same answer without depending on flush timing.
   private async readMotionPermission(): Promise<MotionPermissionStatus | undefined> {
     try {
-      return await this.elevation.getPermissionStatus();
+      return await withTimeout<MotionPermissionStatus | undefined>(
+        this.elevation.getPermissionStatus(),
+        undefined,
+        this.nativeTimeoutMs,
+        'motion permission read',
+      );
     } catch (error) {
       console.warn('[run-engine] motion permission unavailable; the run is unaffected', error);
       return undefined;
@@ -674,13 +719,12 @@ export class RunEngine {
     if (kind === 'completed') this.announce('complete');
     else this.cue.release();
     this.scheduler.stop();
-    this.queueTracker(() => this.tracker.stop(), 'stop');
-    this.queueElevation(() => this.elevation.stop(), 'stop');
-    // Queried here rather than above: both are awaited I/O, and nothing above this line is
-    // sensor-dependent, so this is the latest point that still lands before completeRun's drain
-    // (spec §6.3) without delaying the status flip or the completion cue a runner is waiting on.
+    // why above tracker.stop(): after that stop the process can be suspended mid-write (ADR 0008).
+    // Both reads are bounded, so holding the keepalive for them costs at most NATIVE_TIMEOUT_MS.
     await this.capturePedometerSteps(this.events[0].at, endAt);
     record.motionPermission = await this.readMotionPermission();
+    this.queueTracker(() => this.tracker.stop(), 'stop');
+    this.queueElevation(() => this.elevation.stop(), 'stop');
     await this.completeRun(record, this.runGeneration);
   }
 
@@ -788,17 +832,13 @@ export class RunEngine {
     };
   }
 
-  // why the log buffers count too: at finalize the points are normally already drained, so gating
-  // on them alone would drop every finalize-time entry — the completion cue, the pedometer read.
+  // why one unconditional flush and then a points-only loop: finalize always mints at least one
+  // entry (the completion cue, the pedometer read), so a log-gated loop would spend the whole retry
+  // budget on instrumentation under a failing DB — six synchronous transactions inside the window
+  // ADR 0008's keepalive has just closed.
   private async drainPendingPoints(): Promise<boolean> {
-    for (
-      let attempt = 0;
-      attempt < MAX_TAIL_FLUSHES &&
-      (this.pendingPoints.length > 0 ||
-        this.log.pendingSamples.length > 0 ||
-        this.log.pendingEntries.length > 0);
-      attempt++
-    ) {
+    await this.queueFlush();
+    for (let attempt = 1; attempt < MAX_TAIL_FLUSHES && this.pendingPoints.length > 0; attempt++) {
       await this.queueFlush();
     }
     // Points only: the caller's warning is about the run's distance, which instrumentation cannot shorten.
@@ -862,7 +902,9 @@ export class RunEngine {
 
   private queueElevation(op: () => Promise<void>, label: string): void {
     this.elevationOps = this.elevationOps
-      .then(op)
+      // why bounded and trackerOps is not: this chain carries the stop() that releases CMAltimeter,
+      // so one op that never settles leaves the barometer sampling for the process's lifetime.
+      .then(() => withTimeout<void>(op(), undefined, this.nativeTimeoutMs, `altitude ${label}`))
       .catch((error) => console.warn(`[run-engine] altitude ${label} failed`, error));
   }
 

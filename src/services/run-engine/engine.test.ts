@@ -9,7 +9,11 @@ import {
 } from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
-import type { AltitudeReading, ElevationSource } from '@/services/elevation';
+import type {
+  AltitudeReading,
+  ElevationSource,
+  MotionPermissionStatus,
+} from '@/services/elevation';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
@@ -152,6 +156,7 @@ function makeEngine(
     failStartRunTimes?: number;
     elevation?: ElevationSource;
     stepCounter?: StepCounter;
+    nativeTimeoutMs?: number;
   } = {},
 ) {
   let now = 1_000_000;
@@ -246,6 +251,7 @@ function makeEngine(
     stepCounter,
     clock: () => now,
     createScheduler,
+    nativeTimeoutMs: options.nativeTimeoutMs,
   });
   return {
     engine,
@@ -291,6 +297,8 @@ function makeEngine(
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+/** For the bounded native reads: `flush()` is a microtask drain, and a timeout needs real time. */
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('lifecycle', () => {
   test('start enters the first segment', () => {
@@ -1493,6 +1501,44 @@ describe('barometer capture (spec §6)', () => {
     expect(h.elevationCalls).toEqual(['start', 'stop', 'stop']);
   });
 
+  test('a reading that throws on access cannot fail the run', async () => {
+    const h = makeEngine();
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.emitReading({
+        get pressureHpa(): number {
+          throw new Error('hostile reading');
+        },
+      } as unknown as AltitudeReading);
+      h.tick(80);
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(h.saved).toHaveLength(1);
+  });
+
+  test('an elevation op that never settles cannot strand the stop that follows it', async () => {
+    const base = fakeElevation();
+    const calls: string[] = [];
+    const h = makeEngine({
+      nativeTimeoutMs: 10,
+      elevation: {
+        ...base.source,
+        // entered, never settled — the shape a dropped native promise takes.
+        start: () => new Promise<void>(() => void calls.push('start-entered')),
+        stop: async () => void calls.push('stop'),
+      },
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await settle(80);
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(calls).toEqual(['start-entered', 'stop']);
+  });
+
   test('a failed flush returns its rows with their original seq, never renumbered', async () => {
     const h = makeEngine();
     const warnings = await withoutWarnings(async () => {
@@ -1717,5 +1763,86 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
     expect(warnings).toBeGreaterThanOrEqual(1);
     expect(h.engine.getSnapshot().status).toBe('completed');
     expect(h.finalized[0].record.motionPermission).toBeUndefined();
+  });
+
+  test('a step count that never settles still saves the run', async () => {
+    const h = makeEngine({
+      nativeTimeoutMs: 10,
+      stepCounter: () => new Promise<number | null>(() => {}),
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await settle(80);
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.calls).toContain('finalizeRun');
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(
+      h
+        .flushedEntries()
+        .some(
+          (e) =>
+            e.kind === 'pedometer' &&
+            e.detailJson === JSON.stringify({ steps: null, timedOut: true }),
+        ),
+    ).toBe(true);
+  });
+
+  test('a motion-permission read that never settles still saves the run', async () => {
+    const base = fakeElevation();
+    const h = makeEngine({
+      nativeTimeoutMs: 10,
+      elevation: {
+        ...base.source,
+        getPermissionStatus: () => new Promise<MotionPermissionStatus>(() => {}),
+      },
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await settle(80);
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.calls).toContain('finalizeRun');
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(h.finalized[0].record.motionPermission).toBeUndefined();
+  });
+
+  test('both reads resolve while the location keepalive is still held (ADR 0008)', async () => {
+    let stopsWhenRead = -1;
+    const h = makeEngine({
+      // why the real-timer hop and not a microtask: `queueTracker` defers its stop by one microtask,
+      // so a read that resolves synchronously observes zero stops whichever order finalize uses. A
+      // native read takes real time — this measures what a *resolved* read sees, which is the point.
+      stepCounter: async () => {
+        await settle(0);
+        stopsWhenRead = h.trackerCalls.filter((c) => c === 'stop').length;
+        return 0;
+      },
+    });
+    h.engine.start(SESSION);
+    await flush();
+    h.tick(80);
+    await settle(20);
+    expect(stopsWhenRead).toBe(0);
+    expect(h.trackerCalls).toEqual(['start', 'stop']);
+    expect(h.calls).toContain('finalizeRun');
+  });
+
+  test('a failing store spends one finalize flush, not the whole retry budget, with no points pending', async () => {
+    const h = makeEngine();
+    const warnings = await withoutWarnings(async () => {
+      h.setFailFlush(true);
+      h.engine.start(SESSION);
+      await flush();
+      h.tick(80);
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    // One cadence attempt from startRun, one from the finalize drain — the loop's five remaining
+    // retries belong to points, and none are pending.
+    expect(h.calls.filter((c) => c === 'flush')).toHaveLength(2);
+    expect(h.calls).toContain('finalizeRun');
   });
 });

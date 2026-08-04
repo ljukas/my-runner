@@ -157,6 +157,7 @@ function toFix(point: BufferedRunPoint): LocationFix {
     lng: point.lng,
     altitude: point.altitude,
     accuracy: point.accuracy,
+    altitudeAccuracy: point.altitudeAccuracy,
     speed: point.speed,
   };
 }
@@ -446,6 +447,7 @@ export class RunEngine {
         lng: fix.lng,
         altitude: fix.altitude,
         accuracy: fix.accuracy,
+        altitudeAccuracy: fix.altitudeAccuracy ?? null,
         speed: fix.speed,
       };
       this.smootherState = step.state;

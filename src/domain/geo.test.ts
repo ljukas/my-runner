@@ -789,3 +789,32 @@ describe('route extent gate (spec §8)', () => {
 function chunkFrom(points: LatLng[], segmentSeq = 0, gapBefore = false): SegmentPolyline {
   return { segmentSeq, points, gapBefore };
 }
+
+describe('altitudeAccuracy', () => {
+  test('a fix carrying vertical accuracy keeps it, and a negative value is preserved verbatim', () => {
+    // why verbatim: CoreLocation reports a NEGATIVE verticalAccuracy to mean "altitude invalid".
+    // Clamping it here would erase that signal; the analysis applies the rule (spec §5.2).
+    const fix: LocationFix = {
+      timestamp: 1_000_000,
+      lat: 59.3,
+      lng: 18.0,
+      altitude: 12,
+      accuracy: 5,
+      altitudeAccuracy: -1,
+      speed: 2,
+    };
+    expect(fix.altitudeAccuracy).toBe(-1);
+  });
+
+  test('a fix without vertical accuracy is still a valid LocationFix', () => {
+    const fix: LocationFix = {
+      timestamp: 1_000_000,
+      lat: 59.3,
+      lng: 18.0,
+      altitude: null,
+      accuracy: 5,
+      speed: null,
+    };
+    expect(fix.altitudeAccuracy).toBeUndefined();
+  });
+});

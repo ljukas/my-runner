@@ -31,6 +31,12 @@ function parseFix(value: unknown): LocationFix | null {
     lng: fix.lng,
     altitude: numberOrNull(fix.altitude),
     accuracy: numberOrNull(fix.accuracy),
+    // Optional field: an older snapshot lacking it entirely must stay absent, not become an
+    // explicit null — `LocationFix.altitudeAccuracy` distinguishes "no field" from "reported null".
+    altitudeAccuracy:
+      typeof fix.altitudeAccuracy === 'number' || fix.altitudeAccuracy === null
+        ? fix.altitudeAccuracy
+        : undefined,
     speed: numberOrNull(fix.speed),
   };
 }

@@ -12,6 +12,8 @@ export interface LocationFix {
   altitude: number | null;
   /** Horizontal accuracy radius in metres; null when unknown. */
   accuracy: number | null;
+  /** Vertical accuracy in metres. NEGATIVE means iOS considers `altitude` invalid — never clamp it. */
+  altitudeAccuracy?: number | null;
   /** Ground speed in m/s; null when unavailable. */
   speed: number | null;
 }

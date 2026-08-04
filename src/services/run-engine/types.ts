@@ -40,6 +40,7 @@ export interface BufferedRunPoint {
   lng: number;
   altitude: number | null;
   accuracy: number | null;
+  altitudeAccuracy?: number | null;
   speed: number | null;
 }
 

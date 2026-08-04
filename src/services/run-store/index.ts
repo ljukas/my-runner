@@ -26,6 +26,7 @@ export const dbRunStore: RunStore = {
               lng: p.lng,
               altitude: p.altitude,
               accuracy: p.accuracy,
+              altitudeAccuracy: p.altitudeAccuracy ?? null,
               speed: p.speed,
               segmentSeq: p.segmentSeq,
             })),

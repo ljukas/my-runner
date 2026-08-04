@@ -266,6 +266,15 @@ the header. `CMSensorRecorder` records **accelerometer only**
 while a `CMRecordedPressureData` *type* exists (iOS 12+), a grep across every
 CoreMotion header finds **no public API that returns one**.
 
+> **Corrected 2026-08-04** by
+> [the CMPedometer floors research](2026-08-03-cmpedometer-floors-elevation.md):
+> a public API returning `CMRecordedPressureData` *does* exist — SensorKit's
+> `SRSensorAmbientPressure` (iOS 15.4+, `SensorKit.framework/Headers/SRSensors.h`),
+> which the grep above missed because it searched only CoreMotion. It changes
+> nothing operationally: the entitlement is granted per-study to preapproved
+> research studies and requires an IRB/EC approval letter, so the conclusion below
+> stands for a narrower reason than "no such API exists".
+
 The consequence is asymmetric and worth designing around: if the process is ever
 suspended mid-run, GPS distance survives (points are already persisted) but the
 altitude gained during that window is **gone permanently and unrecoverably**. Any

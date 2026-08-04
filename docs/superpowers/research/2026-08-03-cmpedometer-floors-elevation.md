@@ -1,0 +1,512 @@
+# `CMPedometer` floors as an elevation source — research
+
+Date: 2026-08-03
+Status: **research / Researched** — not a decision to build.
+
+**Question:** Should the app expose Apple's own barometric stair estimate —
+`CMPedometer`'s `floorsAscended` / `floorsDescended`, unreachable through
+`expo-sensors` — via a custom Expo native module, as an independent,
+backfill-capable elevation source for a recorded run?
+
+## TL;DR
+
+- **Feasibility:** `Feasible` — a local Expo module in `modules/` wrapping
+  `CMPedometer` is ~150 lines of Swift, autolinked with no `app.json` change and
+  no edit to the generated `ios/`. Feasibility is **not** what decides this.
+- **Local-first fit:** `Fully local` — CoreMotion is on-device, no account, no
+  network, no new data leaving the phone. Passes cleanly.
+- **What decides it:** Apple documents `floorsAscended` as *"only the floors
+  ascended while the user was walking or running up **stairs**"* — it is a
+  stair-climb classifier, not a vertical-gain estimate. On a road or trail run it
+  is expected to read ~0 regardless of how much the runner climbed. So it can
+  neither cross-check our barometer (disagreement is the designed behaviour) nor
+  fill a suspension gap (it would backfill a different quantity). It also yields
+  only two integers, never a series, so it cannot address the *line* that the
+  2026-08-02 slice deferred.
+- **Recommended approach:** Option C — **do not adopt floors**; keep
+  [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md)'s barometer plan
+  and, if a custom CoreMotion module is written at all, spend that budget on the
+  `CMAltimeter` surface `expo-sensors` leaves unbridged (absolute altitude with
+  `accuracy`/`precision`, iOS 15+). An assessment, not a commitment.
+- **Secondary question answered:** `CMRecordedPressureData` **is** returned by a
+  public API — but it is SensorKit's `SRSensorAmbientPressure`, gated behind an
+  entitlement Apple grants only to IRB-approved research studies. It does not
+  change the backfill story for a consumer app. This *corrects*
+  [the Watch research](2026-08-03-apple-watch-companion.md)'s C4, which found the
+  type but no API.
+
+## Context
+
+The idea comes out of the elevation work. ADR 0015 commits to capturing gain/loss
+on-device, barometer-first, behind an Elevation port (ADR 0003); its
+[2026-08-03 amendment](../../adr/0015-run-elevation-on-device-barometer.md#amendment-2026-08-03)
+records that GPS altitude was **measured** unusable for both the totals and the
+drawn line, which is why the
+[run elevation & pace slice](../specs/2026-08-02-run-elevation-and-pace-chart-design.md)
+shipped pace only and deferred elevation whole to the barometer.
+
+That amendment also carries one structurally unfixable hole, inherited from the
+Watch research's finding C4: **`CMAltimeter` has no backfill API of any kind.** If
+the process is suspended mid-run, GPS distance survives (points are persisted) but
+the altitude climbed in that window is gone permanently. `CMPedometer` is the exact
+opposite — it replays what accumulated while the app was away and answers historical
+queries — and it happens to report floors. Hence the question.
+
+**ADRs / subsystems touched (linked):**
+
+- [ADR 0015 — barometer-first elevation](../../adr/0015-run-elevation-on-device-barometer.md):
+  the decision this would supplement. Item 2's source hierarchy, item 5's storage,
+  item 7's open background question, and the amendment's no-backfill constraint.
+- [ADR 0003 — ports & adapters](../../adr/0003-platform-ports-and-adapters.md):
+  a floors source would be an implementation detail *inside* the Elevation port's
+  iOS adapter, not a new port. Its rule that adapters are "TypeScript over Expo
+  modules and config plugins, never edits to native projects" is satisfied by a
+  local module (see F13), but the *category* is new.
+- [ADR 0011 — Apple Health](../../adr/0011-apple-health-kingstinct-healthkit.md)
+  and [the capability ledger](../../healthkit-capability-ledger.md) §3.2: the
+  integration is **write-only by decision**, `toRead` is never passed, and
+  `plugins/with-healthkit-write-only.js` strips the read purpose string. Option B
+  would reverse that.
+- [ADR 0020 — iOS-only](../../adr/0020-ios-only-android-deferred.md): `CMPedometer`
+  is iOS-only, which costs nothing today.
+- [ADR 0012 — release flow](../../adr/0012-release-please-fingerprint-gated-releases.md):
+  a local native module changes the `@expo/fingerprint` hash, so the release that
+  introduces it cannot ship OTA (F9).
+- [ADR 0024 — victory-native](../../adr/0024-victory-native-charting.md) and
+  [ADR 0010 — maps](../../adr/0010-maps-expo-maps-ios18-floor.md): the precedents
+  for how this repo *prices* a departure from official tooling, explicitly and in
+  one contained place.
+
+**Inherited `AGENTS.md` hard constraints:** no backend, no accounts, no analytics;
+on-device data with iCloud as the only sync; iOS-only; `ios/` is generated by
+prebuild and never hand-edited.
+
+**Verification convention** (same as the Watch doc): `[VERIFIED]` = read from the
+local Xcode SDK, installed/published source, or a primary Apple document;
+`[INFERRED]` = reasoned from verified primitives; `[UNDETERMINED]` = not settled.
+
+---
+
+## Findings
+
+### A. What Apple's floors actually measure
+
+**F1. Floors are stairs, explicitly and by Apple's own wording. `[VERIFIED]`**
+This is the whole decision. Apple's documentation for
+[`floorsAscended`](https://developer.apple.com/documentation/coremotion/cmpedometerdata/floorsascended):
+
+> The approximate number of floors ascended by walking.
+>
+> This value reflects only the floors ascended while the user was walking or
+> running **up stairs** and does not reflect the floors ascended by elevator or
+> other assisted means. A single floor has a height of approximately three
+> meters. The value in this property is `nil` when floor counting is not supported
+> on the current device.
+
+[`floorsDescended`](https://developer.apple.com/documentation/coremotion/cmpedometerdata/floorsdescended)
+is worded identically for descent (both fetched 2026-08-03 via
+`developer.apple.com/tutorials/data/…json`). The local SDK header agrees and is
+even blunter: *"Approximate number of floors ascended **by way of stairs**"*
+(`CoreMotion/CMPedometer.h:65-81`, iPhoneOS26.5.sdk), and the availability gate is
+named `isFloorCountingAvailable` — *"whether the device supports counting **flights
+of stairs**"* (`:227-234`).
+
+Apple's device-level design is consistent with that: floor counting fuses the
+barometer with accelerometer/gyroscope motion classification precisely so that
+elevators, escalators and driving uphill are *not* counted
+([Apple Community, 2019–2023 threads](https://discussions.apple.com/thread/252584142)).
+
+**F2. Therefore a road/trail run's climb is expected to read ~0 floors.
+`[INFERRED from F1]`** A continuous outdoor gradient has no stair cadence and no
+landings, so the classifier that exists to reject non-stair vertical will reject
+it. This is inference, not measurement — no device test was run — but it follows
+directly from Apple's own statement of what the value reflects, and matches the
+consistent third-party account that outdoor hills do not register as flights. It
+is the single most decision-relevant claim in this doc and the one a device spike
+would settle in ten minutes.
+
+**F3. The 3 m quantum is documented and is *not* the problem. `[VERIFIED]`**
+Contrary to the framing that prompted this research, Apple *does* state the figure
+— "approximately three meters" (F1). Against a run whose plausible gain is tens of
+metres, a ~3 m resolution would be tolerable; ADR 0015's own reducer runs a 10 m
+hysteresis on GPS. So coarseness is a caveat, not the disqualifier. **F1 is.**
+
+**F4. Single-floor changes are also unreliable in the case floors *do* cover.
+`[UNDETERMINED, corroborating]`** An Apple Developer Forums report
+([thread 748101](https://developer.apple.com/forums/thread/748101), no Apple/DTS
+reply) has `isFloorCountingAvailable() == true` on an iPhone 13 Pro, other
+pedometer fields arriving, and `floorsAscended`/`floorsDescended` empty after two
+round trips on a flight of stairs; the community answer is that detection needs a
+trend over several floors. Not authoritative, and not load-bearing here — noted so
+nobody assumes floors is crisp even indoors.
+
+**F5. Apple's own answer for a workout's vertical is metres, not floors.
+`[VERIFIED]`** HealthKit's `HKMetadataKeyElevationAscended` — *"the cumulative
+elevation ascent during a workout… expected value type is an HKQuantity object
+compatible with **length** unit"* (`HealthKit/HKMetadata.h:379-384`) — is a
+separate, metre-valued channel from `HKQuantityTypeIdentifierFlightsClimbed`
+(unit `count`). Apple models "how much did this workout climb" and "how many
+flights of stairs" as different quantities. Adopting floors as the former would be
+using Apple's data against Apple's own model. (That metadata key is, separately,
+not writable through the installed library — ledger §2.2.)
+
+### B. What is genuinely true about backfill
+
+**F6. `CMPedometer` really is backfill-capable, and system-wide. `[VERIFIED]`**
+`CMPedometer.h:271-281`: `queryPedometerDataFromDate:toDate:withHandler:` — *"Data
+is available for up to 7 days. The data returned is computed from a **system-wide
+history that is continuously being collected in the background**."* And
+`:283-297`: *"If the app is backgrounded and resumed at a later time, the app will
+receive all of the pedestrian activity accumulated during the background period in
+the very next update."* Crucially, `floorsAscended`/`floorsDescended` carry **no
+historical-query exclusion** — unlike `currentPace` and `currentCadence`, which the
+header explicitly documents as `nil` for a historical query (`:84-111`). So floors
+*is* available retrospectively.
+
+`runs.startedAt` / `runs.endedAt` are already persisted (`src/db/schema.ts:8-9`),
+so the exact query window survives a crash and a relaunch. The mechanism is real.
+
+**F7. But it backfills the wrong quantity, so the hole stays open. `[INFERRED
+from F1 + F6]`** A gap-spanning query would answer *"did the runner climb stairs
+while we were suspended?"* — for an outdoor run, reliably "no" (F2). Nothing in
+this path recovers the metres `CMAltimeter` lost. Nor is it needed for gap
+*detection*: a gap is already visible from the barometer stream's own sample
+timestamps against `startedAt`/`endedAt`, which is what ADR 0015's amendment asks
+the barometer slice to do.
+
+A second-order wrinkle: `queryPedometerData` takes a wall-clock window, but a run
+can be paused (`runs.status` includes `'partial'`). Floors accumulated during a
+pause — a runner walking upstairs at home mid-pause — would land inside the
+window. Per-segment queries would narrow it but not close it.
+
+**F8. And the cross-check is not independent in the way that would matter.
+`[INFERRED]`** Floors is derived from the *same* barometer hardware, plus a motion
+classifier. It is an independent *algorithm*, not an independent *sensor*, so it
+cannot corroborate a hardware reading. And because F1/F2 make disagreement the
+designed outcome on every road run, a comparison that expects disagreement carries
+no signal — there is no reading from which "our reducer is wrong" could be
+concluded.
+
+**F9. Floors also cannot feed the deferred chart line. `[VERIFIED]`**
+`CMPedometerData` exposes floors only as cumulative counts over a window. The
+app's reducer takes a *sample stream* — `AltitudeSample { timestamp, altitudeM }`
+(`src/domain/elevation.ts:6-10`), deliberately source-agnostic so the barometer can
+reuse it. Floors composes with none of it. The 2026-08-02 slice deferred the line
+*and* the totals together, and the ADR amendment argues the line was the more
+dishonest half; floors could at best produce two integers, addressing neither.
+
+### C. The gap in `expo-sensors`, confirmed
+
+**F10. `expo-sensors@57.0.2` bridges `{ steps }` and nothing else. `[VERIFIED]`**
+Read from the published tarball (the package is not installed in this repo, and is
+not in `package.json` — the barometer slice will add it). Both paths drop floors:
+`ios/PedometerModule.swift:36-38` resolves `["steps": data?.numberOfSteps ?? 0]`
+from a `queryPedometerData` call, and `:78-80` sends the same single key on live
+updates. The TS type is `PedometerResult = { steps: number }`
+(`src/Pedometer.ts:7-11`), matching
+[the SDK 57 docs](https://docs.expo.dev/versions/v57.0.0/sdk/pedometer/) (verified
+2026-08-03). `isAvailableAsync` returns `isStepCountingAvailable()`, not
+`isFloorCountingAvailable()`. So the premise holds: **floors is unreachable through
+official Expo tooling.**
+
+Two related notes from the same source. `ios/PedometerModule.swift:94-103` is the
+one module in `expo-sensors` that stops on `OnAppEntersBackground` and restarts on
+foreground — harmless for a query-at-run-end design, and the reason the Expo docs
+themselves recommend the historical query over `watchStepCount` for background step
+tracking. And `ios/BarometerModule.swift:26-33` carries an iOS 17.4 workaround
+(`CMSensorRecorder().recordAccelerometer(forDuration: 0.1)`) for a bug where the
+motion permission prompt fails to appear when only the altimeter is used — a
+liability any hand-written altimeter module inherits, and one more reason not to
+re-implement the Barometer.
+
+**F11. There is no upstream demand and no pending PR. `[VERIFIED]`** A GitHub API
+search of `expo/expo` for `floorsAscended` returns **0** issues and **0** code
+matches (2026-08-03). Contributing floors upstream is therefore an option in
+principle, but with no existing thread to ride and a release cadence outside our
+control it does not de-risk anything on our timeline.
+
+**F12. Permission-wise floors is free once the barometer ships. `[VERIFIED for
+the primitives, INFERRED for the conclusion]`** Both `CMPedometer` and
+`CMAltimeter` sit behind CoreMotion's single `NSMotionUsageDescription` —
+`expo-sensors`' config plugin sets exactly that one key for every sensor module
+(`plugin/src/withSensors.ts:29`), and `CMPedometer.authorizationStatus` exists from
+iOS 11 (`CMPedometer.h:262-268`). Since ADR 0015's barometer slice must request
+motion access anyway, adding floors would add **no new prompt**. The key needs no
+config plugin of our own either: `app.json`'s `ios.infoPlist` already carries
+custom keys (`ITSAppUsesNonExemptEncryption`), so a local module can declare its
+plist requirement there.
+
+### D. The custom-module mechanics (CNG-safe, but not free)
+
+**F13. A local Expo module is the CNG-correct path and needs no `app.json` entry.
+`[VERIFIED]`** `npx create-expo-module@latest --local` creates `modules/<name>/`
+with `ios/`, `src/` and `expo-module.config.json`
+([Expo docs](https://docs.expo.dev/modules/get-started/), fetched 2026-08-03), and
+`expo-modules-autolinking@57.0.9` defaults `nativeModulesDir` to `./modules` at the
+app root and prepends it to the search paths
+(`build/commands/autolinkingOptions.js:172`, `build/autolinking/findModules.js:41-42`).
+Nothing is written into `ios/`, so `expo prebuild --clean` is unaffected. This repo
+has no `modules/` directory and no first-party Swift today — it would be the first.
+
+**F14. It changes the native fingerprint, so that release cannot ship OTA.
+`[VERIFIED]`** `@expo/fingerprint@0.20.6` runs `expo-modules-autolinking resolve -p
+apple --json` and hashes **every resolved module's podspec directory as a `dir`
+source** plus the whole autolinking config
+(`build/sourcer/Expo.js:279-305`). Combined with F13, a local module's entire
+directory is a fingerprint input: adding it — and every later edit to its Swift —
+changes `runtimeVersion` and forces a native build under ADR 0012's gate. Ongoing
+cost, not one-off.
+
+### E. Rejected outright — verified dead ends
+
+**F15. `CMRecordedPressureData` has exactly one public consumer, and it is
+research-only. `[VERIFIED]` — corrects the Watch doc's C4.** A grep across the
+whole iPhoneOS26.5 SDK (not just CoreMotion, which is what C4 searched) finds the
+type referenced in `SensorKit.framework/Headers/SRSensors.h:216-230`:
+`SRSensorAmbientPressure` (iOS 15.4+), whose *"Fetches from this stream return
+objects of type `NSArray<CMRecordedPressureData *> *`"*. So an API returning
+recorded pressure **does** exist — a genuine, continuously-recorded barometric
+history, exactly the backfill ADR 0015 wants.
+
+It is unobtainable. SensorKit requires
+[`com.apple.developer.sensorkit.reader.allow`](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.sensorkit.reader.allow):
+*"The necessary entitlement to access sensor data that's required by your app's
+**preapproved research study**… the system closes your app if its code signature
+lacks this entitlement. To attain it, submit your research study to Apple…"*
+(fetched 2026-08-03). Apple grants it per study, per app, and the distribution
+tier requires an IRB/Ethics Committee approval letter
+([researchandcare.org](https://www.researchandcare.org/resources/accessing-sensorkit-data/)).
+A free C25K app is not a research study. **Blocked** — but worth recording
+precisely, because "the type exists and nothing returns it" was the previous
+conclusion and it was wrong in a way that could have sent someone hunting.
+
+**F16. `CMSensorRecorder` records accelerometer only. `[VERIFIED]`**
+`recordAccelerometerForDuration:` / `accelerometerDataFromDate:toDate:`, 12 h at
+50 Hz, 3 days retained (`CMSensorRecorder.h:66-84`). No pressure, no altitude.
+(`expo-sensors` calls it purely as the F10 permission-prompt hack.)
+
+**F17. `CMOdometer` carries exactly what we want and has no public manager.
+`[VERIFIED]`** `CMOdometerData` — *"an encapsulated odometer update for
+workouts"* — exposes `deltaAltitude` ("change in altitude above mean sea level…
+in meters"), `verticalAccuracy`, `slope` and `maxAbsSlope`
+(`CMOdometer.h`, iOS 17+). The header declares **only the data class**; the
+manager symbols (`CMOdometer`, `CMOdometerSuitabilityManager`) appear in
+`CoreMotion.tbd` but in no public header. Private API — unusable, and App Review
+would reject it.
+
+**F18. The adjacent finding worth more than floors: `CMAltimeter` has an absolute
+mode `expo-sensors` doesn't bridge. `[VERIFIED]`**
+`startAbsoluteAltitudeUpdatesToQueue:withHandler:` (iOS 15+, `CMAltimeter.h:88-105`)
+yields `CMAbsoluteAltitudeData` with `altitude` (metres relative to sea level),
+`accuracy` **and** `precision` (`CMAbsoluteAltitude.h`). `expo-sensors`' Barometer
+calls only `startRelativeAltitudeUpdates` (F10), so this is invisible to the app
+today. It is on-device, needs no DEM and no network — which softens ADR 0015 item
+1/item 6's assumption that absolute elevation requires an off-device source, and
+gives a per-sample `accuracy`/`precision` the current relative stream does not.
+It still has **no history API**, so it does not solve backfill. Recorded here
+because it is the strongest candidate payload for a custom CoreMotion module, and
+it surfaced while answering this question.
+
+---
+
+## Options
+
+### Option A — Local Expo module over `CMPedometer`, floors read at run end
+
+`modules/run-floors/` with a Swift module exposing one async function that calls
+`queryPedometerData(from: startedAt, to: endedAt)` and resolves
+`{ floorsAscended, floorsDescended, available }`. Called once from the Elevation
+port's iOS adapter at finalize; no live subscription, so no marginal battery cost
+beyond a query against a history the system collects anyway (F6). Multiply by 3 m
+to get metres, or display "N floors" verbatim.
+
+Trade-offs: buildable in well under a day and architecturally clean (an adapter
+detail, not a new port). But it stakes a user-visible number on a stair
+classifier (F1/F2) — expected ~0 on the runs this app is for. Displaying "0
+floors" after a hilly 5K is worse than displaying nothing; converting 0 floors to
+"0 m gained" is actively wrong. Introduces the repo's first owned Swift and a
+permanent fingerprint input (F13/F14). Cannot produce the chart line (F9).
+
+### Option B — Read `HKQuantityTypeIdentifierFlightsClimbed` from HealthKit
+
+No custom native code: `@kingstinct/react-native-healthkit@14.0.2` already types
+`HKQuantityTypeIdentifierFlightsClimbed` (unit `count`, iOS 8+) and ships the
+query surface (`queryQuantitySamples`). Sum the samples over the run window.
+
+Trade-offs: zero native cost and zero fingerprint change — and it inherits *every*
+semantic problem in Option A, because it is the same underlying quantity. Worse, it
+reverses a deliberate scope decision: the integration is write-only, `toRead` is
+never passed (ledger §3.2), and `plugins/with-healthkit-write-only.js` exists
+specifically to strip the read purpose string so the app doesn't claim access it
+never uses. Adopting it means re-adding `NSHealthShareUsageDescription`, a second
+authorization prompt, a new privacy-label surface, and an ADR 0011 amendment — to
+obtain a number Option A gets without touching Health at all. Also weaker data: it
+reads whatever any source wrote (iPhone, a Watch, a third-party app), so
+attribution and de-duplication become our problem.
+
+### Option C — Do not adopt floors; keep ADR 0015, redirect the module budget
+
+Change nothing now. Let the barometer slice proceed as ADR 0015 decided, closing
+item 7 with the ~1-hour device spike the Watch research already scoped, and
+implement the amendment's gap story with the barometer's own sample timestamps
+(F7) rather than a second sensor. If a custom CoreMotion module is written at all,
+write it for F18's absolute-altitude surface — a metre-valued, per-sample stream
+with `accuracy`/`precision` that feeds the existing reducer unchanged — not for
+floors.
+
+Trade-offs: leaves the suspension gap open. That is honest: **nothing available to
+a non-research app closes it** (F7, F15, F16, F17), so the choice is between
+declining to report a total across a gap and reporting a wrong one. Costs nothing
+and forfeits nothing real.
+
+## Comparison
+
+| | A — local `CMPedometer` module | B — HealthKit `flightsClimbed` read | C — no floors; keep ADR 0015 |
+|---|---|---|---|
+| Feasibility | `Feasible` — ~150 lines Swift, autolinked, CNG-safe (F13) | `Feasible-with-caveats` — no native code, but reverses ADR 0011's write-only scope | `Feasible` — no work; the barometer slice is already decided |
+| Fit for purpose | **Fails** — stair classifier, not vertical gain (F1/F2); no series (F9); cross-check carries no signal (F8) | **Fails** — same quantity, same failure | n/a — the barometer is the fit source |
+| Local-first | `Fully local` | `Fully local` | `Fully local` |
+| Battery / power | ~zero: one historical query at finalize, no subscription (F6) | ~zero: one HealthKit query | unchanged (the barometer subscription ADR 0015 already prices) |
+| Platform reach | iOS-only (`CMPedometer`); Android equivalent unresearched — deferred by ADR 0020 | iOS-only (HealthKit) | iOS-only, as ADR 0015 already assumes |
+| Cost | first `modules/` dir + first owned Swift; permanent fingerprint input, no OTA for that release (F14) | zero native; but a read prompt, privacy-label surface, ADR 0011 amendment, attribution/de-dup work | zero |
+| Maintenance / tooling | needs an explicit official-tooling exception, priced like ADR 0010 / ADR 0024 | rides the installed library; widens the permission surface permanently | nothing new |
+
+**Not listed as an option, deliberately:** SensorKit's `SRSensorAmbientPressure`
+(F15) — the one API that would genuinely solve backfill — is entitlement-blocked
+for anything that is not an Apple-approved research study, and `CMOdometer` (F17)
+is private. Both are rejected alternatives, not choices. Contributing floors
+upstream to `expo-sensors` (F11) is possible but de-risks nothing and would still
+deliver the unfit quantity.
+
+## Feasibility assessment
+
+**`Feasible`.** Everything the idea mechanically requires is available and
+supported. `floorsAscended` / `floorsDescended` exist on every barometer-equipped
+iPhone, gated by `isFloorCountingAvailable` (F1); they are readable both live and
+retrospectively over 7 days from a system-wide history (F6); a local Expo module in
+`modules/` is the officially documented way to add Swift under Continuous Native
+Generation, is autolinked with no config change, and survives
+`prebuild --clean` (F13); the Info.plist key needs no config plugin of ours (F12);
+and no new permission prompt appears once the barometer slice has asked for motion
+access. Effort is well under a day. The platform floor is irrelevant —
+`CMPedometer` is iOS 8+ against our 17.0 target.
+
+The real costs are ongoing rather than blocking: the repo acquires its first owned
+Swift and its first `modules/` directory, which the official-tooling preference
+requires pricing as an explicit exception the way ADR 0010 prices react-native-maps
+and ADR 0024 prices victory-native; and the module directory becomes a permanent
+`@expo/fingerprint` input, so its introduction and every later edit forces a native
+build instead of an OTA update (F14).
+
+**Feasibility is not the constraint here, and rating it `Feasible` should not be
+read as encouragement.** The idea fails on a different axis the two lenses do not
+cover: fitness for purpose. Apple's own documentation says floors counts stairs and
+excludes assisted and non-stair ascent (F1); a running app's gain is overwhelmingly
+non-stair; so the buildable thing measures the wrong quantity. Both claimed
+benefits collapse on that: the cross-check is not independent and expects
+disagreement (F8), and the backfill backfills something else (F7).
+
+## Local-first assessment
+
+**`Fully local`.** CoreMotion computes floors on-device from the barometer and
+motion sensors; `queryPedometerData` reads a local, system-maintained history. No
+network call, no account, no key, no third party, no data leaving the phone, and
+nothing new in the App Privacy label — the same posture ADR 0015 already has, and
+the strongest lens for this idea. Option B is also fully local but widens the
+on-device privacy surface (a Health *read* authorization the app does not otherwise
+need — ledger §3.2), which is a local-first *quality* regression even though it
+keeps the verdict.
+
+Worth stating for the record: F15's SensorKit path would also have been fully local
+— its blocker is Apple's entitlement policy, not the local-first line.
+
+## Recommendation
+
+**Option C.** Do not expose floors. Keep ADR 0015's barometer-first decision
+exactly as written, close its open item 7 with the device spike already scoped, and
+implement the amendment's gap requirement from the barometer stream's own timestamps
+against `runs.startedAt`/`endedAt` — declining to report a total across a detected
+gap, as the amendment asks.
+
+The reasoning in one line: **floors is Apple's stair count, not Apple's elevation
+gain — and Apple says so** (F1), reinforcing it by modelling workout ascent as a
+separate metre-valued quantity (F5). Neither motivation survives that. As a
+cross-check it is not sensor-independent and disagreement is its designed
+behaviour, so no reading could ever indict our reducer (F8). As a gap-filler it
+recovers stair floors, which an outdoor run does not accumulate (F7). And it
+produces two integers where the deferred feature needs a series (F9). The
+quantization everyone worries about (3 m) is the *least* of it (F3).
+
+The finding worth carrying forward instead is F18: `CMAltimeter`'s absolute-altitude
+mode (iOS 15+) is real, on-device, metre-valued, carries per-sample `accuracy` and
+`precision`, feeds `src/domain/elevation.ts` unchanged — and is invisible through
+`expo-sensors`. If the barometer slice ever justifies owning Swift, that is the
+payload, not floors.
+
+> This is an assessment, not a decision to build. A build commitment belongs in an
+> ADR.
+
+## Open questions / next steps
+
+- **The one cheap measurement that would settle F2** (the only `[INFERRED]` claim
+  the recommendation rests on): during the barometer device spike ADR 0015 item 7
+  already requires, also call `queryPedometerData` over the run window and log
+  `floorsAscended`/`floorsDescended` beside the barometer's metres. Two outdoor
+  runs — one flat, one with a real climb — either confirm floors reads ~0 on a
+  non-stair ascent or overturn this recommendation. It is minutes of extra work
+  inside a spike that is happening anyway, and it needs no local module: it can be
+  a scratch-branch patch to `expo-sensors`' `PedometerModule.swift` in
+  `node_modules`, never committed.
+- **ADR 0015's amendment should absorb F15**, replacing "no public API returns a
+  `CMRecordedPressureData`" with the accurate and more useful "one does —
+  SensorKit's `SRSensorAmbientPressure` — and it is gated behind a research-study
+  entitlement we cannot obtain." Same conclusion, correct reason, and it stops the
+  next person re-searching CoreMotion. (The Watch research's C4 should get the same
+  correction.)
+- **Whether F18's absolute-altitude mode is worth a custom module at all** is a
+  separate question this doc does not answer. It would need: measured
+  `accuracy`/`precision` on device, whether it delivers under ADR 0008's heartbeat,
+  its cadence ("whenever a change in elevation is detected", vs relative's "every
+  few seconds"), and whether the extra fidelity changes any displayed figure enough
+  to justify owning Swift plus a permanent fingerprint input. If yes, that is its
+  own research doc and then an ADR 0015 amendment.
+- **If floors were ever wanted for its own sake** — "you climbed 4 flights" as a
+  distinct stat rather than an elevation proxy — that is a different feature with a
+  different honesty bar, and Option A is the right shape for it. Nothing in this
+  doc argues against that; it argues only that floors is not elevation.
+- **Android** (deferred, ADR 0020): no equivalent was researched. Any future
+  Android pass would need its own source; do not assume parity.
+
+---
+
+## Sources
+
+**Local Xcode SDK** (`iPhoneOS26.5.sdk`, read 2026-08-03):
+`CoreMotion/CMPedometer.h`, `CMAltimeter.h`, `CMAltitude.h`, `CMAbsoluteAltitude.h`,
+`CMAmbientPressure.h`, `CMRecordedPressureData.h`, `CMSensorRecorder.h`,
+`CMOdometer.h`, `CoreMotion.tbd`; `SensorKit/SRSensors.h`;
+`HealthKit/HKMetadata.h`.
+
+**Apple documentation** (fetched 2026-08-03):
+[`floorsAscended`](https://developer.apple.com/documentation/coremotion/cmpedometerdata/floorsascended) ·
+[`floorsDescended`](https://developer.apple.com/documentation/coremotion/cmpedometerdata/floorsdescended) ·
+[`flightsClimbed`](https://developer.apple.com/documentation/healthkit/hkquantitytypeidentifier/flightsclimbed) ·
+[`com.apple.developer.sensorkit.reader.allow`](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.sensorkit.reader.allow) ·
+[Accessing SensorKit Data](https://www.researchandcare.org/resources/accessing-sensorkit-data/) ·
+[Developer Forums 748101](https://developer.apple.com/forums/thread/748101)
+
+**Expo / packages** (read 2026-08-03):
+[Pedometer, SDK 57](https://docs.expo.dev/versions/v57.0.0/sdk/pedometer/) ·
+[Expo Modules — get started](https://docs.expo.dev/modules/get-started/) ·
+`expo-sensors@57.0.2` published tarball (`ios/PedometerModule.swift`,
+`ios/BarometerModule.swift`, `src/Pedometer.ts`, `plugin/src/withSensors.ts`,
+`expo-module.config.json`) · `expo-modules-autolinking@57.0.9` ·
+`@expo/fingerprint@0.20.6` · `@kingstinct/react-native-healthkit@14.0.2`
+generated types · GitHub API search of `expo/expo` for `floorsAscended`
+(0 issues, 0 code matches)
+
+**This repo:** `AGENTS.md` · ADRs 0003, 0008, 0010, 0011, 0012, 0015, 0020, 0024 ·
+[healthkit capability ledger](../../healthkit-capability-ledger.md) §2.2, §3.2 ·
+[Apple Watch companion research](2026-08-03-apple-watch-companion.md) C1–C5 ·
+[run elevation & pace design](../specs/2026-08-02-run-elevation-and-pace-chart-design.md)
+§3.5, §3.6, §4.2 · `src/domain/elevation.ts` · `src/db/schema.ts`

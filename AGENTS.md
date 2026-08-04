@@ -138,7 +138,15 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   cheat sheet documents for every other permission (they map to
   `simctl privacy grant|revoke location[-always]`, and an unknown value fails
   the flow before it launches). `inuse` is the one that matches what the app
-  actually requests (When-In-Use, ADR 0008).
+  actually requests (When-In-Use, ADR 0008). **`motion: allow` must ride alongside
+  it** in every `permissions:` block: the barometer needs Motion & Fitness
+  (ADR 0015) and iOS raises that dialog when the altimeter first starts, mid-run.
+  A system alert is **not app state**, so `clearState` does not dismiss it — the
+  first flow to trigger it strands every later flow behind it, which reads as
+  13/13 failing on their opening assertion rather than as one permission gap.
+  Adding a permission the app requests means auditing every `permissions:` block:
+  today that is `helpers/launch-and-onboard.yaml` plus the five tests that launch
+  without it.
 - **Compressed plan:** the `e2e-simulator` build sets `EXPO_PUBLIC_E2E=1`,
   which makes the seconds-long compressed plan reachable (`src/services/e2e.ts`)
   and default-on, so a full session finishes in seconds with no toggle

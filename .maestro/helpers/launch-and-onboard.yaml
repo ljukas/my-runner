@@ -3,8 +3,13 @@ appId: se.lukaslindqvist.runbro.e2e
 # E2E build launches straight to the app (no dev launcher). Clear state for a fresh install
 # and pre-grant location, so neither the primer's prompt nor the just-in-time ask at first
 # run start can raise a system dialog the flow would hang on. Ends on the plan list.
+#
+# why motion too: the barometer needs Motion & Fitness (ADR 0015), and iOS raises that dialog
+# when the altimeter first starts — mid-run. A system alert is not app state, so `clearState`
+# does NOT dismiss it: one flow triggering it strands every later flow behind it.
 - launchApp:
     clearState: true
     permissions:
       location: inuse
+      motion: allow
 - runFlow: complete-onboarding.yaml

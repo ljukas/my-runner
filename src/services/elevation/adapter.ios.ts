@@ -1,6 +1,7 @@
 import { Barometer, Pedometer } from 'expo-sensors';
 
-import type { AltitudeReading, ElevationSource, MotionPermissionStatus } from './port';
+import type { AltitudeReading, ElevationSource } from './port';
+import { toAltitudeReading, toMotionPermissionStatus } from './reading';
 
 // why one module-scope subscription with a JS fan-out: expo-sensors starts the native altimeter in
 // `OnStartObserving` (first listener added) and STOPS it in `OnStopObserving` (last removed). A
@@ -10,11 +11,6 @@ import type { AltitudeReading, ElevationSource, MotionPermissionStatus } from '.
 let subscription: { remove: () => void } | null = null;
 let epoch = 0;
 const listeners = new Set<(reading: AltitudeReading) => void>();
-
-function toStatus(granted: boolean, canAskAgain: boolean): MotionPermissionStatus {
-  if (granted) return 'granted';
-  return canAskAgain ? 'undetermined' : 'denied';
-}
 
 // why Pedometer and not Barometer: `BarometerModule.swift` declares no permission functions, so
 // `DeviceSensor` falls through to a hardcoded `{ granted: true }` and never prompts. Pedometer
@@ -31,12 +27,12 @@ export const elevationSource: ElevationSource = {
 
   async requestPermission() {
     const { granted, canAskAgain } = await Pedometer.requestPermissionsAsync();
-    return toStatus(granted, canAskAgain);
+    return toMotionPermissionStatus(granted, canAskAgain);
   },
 
   async getPermissionStatus() {
     const { granted, canAskAgain } = await Pedometer.getPermissionsAsync();
-    return toStatus(granted, canAskAgain);
+    return toMotionPermissionStatus(granted, canAskAgain);
   },
 
   async start() {
@@ -44,18 +40,9 @@ export const elevationSource: ElevationSource = {
     epoch += 1;
     const readingEpoch = epoch;
     subscription = Barometer.addListener((measurement) => {
-      if (!Number.isFinite(measurement.pressure)) return;
-      const relative = measurement.relativeAltitude;
-      listeners.forEach((listener) => {
-        listener({
-          at: Date.now(),
-          sensorTimestampS: Number.isFinite(measurement.timestamp) ? measurement.timestamp : null,
-          pressureHpa: measurement.pressure,
-          relativeAltitudeM:
-            typeof relative === 'number' && Number.isFinite(relative) ? relative : null,
-          epoch: readingEpoch,
-        });
-      });
+      const reading = toAltitudeReading(measurement, Date.now(), readingEpoch);
+      if (!reading) return;
+      listeners.forEach((listener) => listener(reading));
     });
   },
 

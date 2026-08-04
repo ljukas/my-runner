@@ -11,6 +11,8 @@ export const runs = sqliteTable('runs', {
   distanceM: real('distance_m'),
   summaryPolyline: text('summary_polyline'),
   healthkitSaved: integer('healthkit_saved', { mode: 'boolean' }).notNull().default(false),
+  eventLogJson: text('event_log_json'),
+  motionPermission: text('motion_permission'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
@@ -52,11 +54,52 @@ export const runPoints = sqliteTable(
     lng: real('lng').notNull(),
     altitude: real('altitude'),
     accuracy: real('accuracy'),
+    altitudeAccuracy: real('altitude_accuracy'),
     speed: real('speed'),
     segmentSeq: integer('segment_seq').notNull(),
   },
   (table) => [primaryKey({ columns: [table.runId, table.seq] })],
 );
+
+/**
+ * Raw barometer readings at the sensor's own cadence — product data, not diagnostics:
+ * the render slice folds these through `domain/elevation.ts` (ADR 0015 item 5).
+ *
+ * why no primary key, unlike `run_points`: `restore()` rebuilds the point `seq` counter and
+ * nothing rebuilds this one, so a `(run_id, seq)` PK made a resumed run's first flush throw
+ * UNIQUE — and because that insert shares the GPS transaction, the throw rolled back the GPS
+ * points too, for the rest of the run. `seq` is a plain ordering column; nothing joins on it.
+ * Exempt from ADR 0004 §5's UUID + timestamps + soft-delete rule for the same reason
+ * `run_points` is: append-only rows whose own `at` is their temporal record.
+ */
+export const runAltitudeSamples = sqliteTable('run_altitude_samples', {
+  runId: text('run_id')
+    .notNull()
+    .references(() => runs.id),
+  seq: integer('seq').notNull(),
+  at: text('at').notNull(),
+  /** CoreMotion's boot-relative clock. Paired with `at` it separates a sampling gap from a JS-scheduling one. */
+  sensorTimestampS: real('sensor_timestamp_s'),
+  pressureHpa: real('pressure_hpa').notNull(),
+  relativeAltitudeM: real('relative_altitude_m'),
+  epoch: integer('epoch').notNull(),
+  segmentSeq: integer('segment_seq').notNull(),
+});
+
+/**
+ * Field-log entries for one run. `kind` is plain text, never a Drizzle enum: an enum would
+ * force a migration for every new signal, which is the one thing this table exists to avoid.
+ * Same PK and ADR 0004 §5 exemptions as `run_altitude_samples` above.
+ */
+export const runLog = sqliteTable('run_log', {
+  runId: text('run_id')
+    .notNull()
+    .references(() => runs.id),
+  seq: integer('seq').notNull(),
+  at: text('at').notNull(),
+  kind: text('kind').notNull(),
+  detailJson: text('detail_json'),
+});
 
 /**
  * The in-flight run's crash-recovery snapshot: event log + sessionKey + cue and
@@ -80,3 +123,5 @@ export const activeRunSnapshot = sqliteTable(
 /** A stored run row and one of its segment rows — the shapes the summary reads. */
 export type Run = typeof runs.$inferSelect;
 export type RunSegment = typeof runSegments.$inferSelect;
+export type AltitudeSampleRow = typeof runAltitudeSamples.$inferSelect;
+export type RunLogRow = typeof runLog.$inferSelect;

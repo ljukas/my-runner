@@ -43,8 +43,8 @@ jobs:
       # run reports every failure instead of stopping at the first. The
       # `!cancelled()` is what buys that: a bare `if` is implicitly ANDed with
       # success(), which silently skips these once any earlier step fails (a
-      # lint failure used to hide the expo-doctor result entirely). Prefer it
-      # over always() so cancelling a run still stops the job.
+      # lint failure used to hide every check after it). Prefer it over
+      # always() so cancelling a run still stops the job.
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
@@ -60,6 +60,8 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun test
 
-      - name: Expo doctor
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: bunx expo-doctor
+      # expo-doctor deliberately does NOT run here. Its expected-version table
+      # is fetched from api.expo.dev, so an upstream SDK patch turns a green PR
+      # red with no repo change — and the only way to go green is to bump native
+      # packages, which changes the fingerprint and costs the next release its
+      # OTA eligibility (ADR 0012). It lives in dependency-drift.yml instead.

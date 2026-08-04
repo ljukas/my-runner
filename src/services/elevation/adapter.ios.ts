@@ -37,6 +37,13 @@ export const elevationSource: ElevationSource = {
 
   async start() {
     if (subscription) return;
+    // why the availability gate lives here, not at the call site (ADR 0015 item 2's feature
+    // detection): subscribing on hardware without a barometer yields no readings AND still raises
+    // the Motion & Fitness prompt, because expo-sensors' `OnStartObserving` runs a
+    // `CMSensorRecorder` workaround whenever authorization is undetermined. Every simulator is such
+    // hardware, so an ungated subscribe asks for a permission the device cannot serve — and strands
+    // the E2E suite behind a system alert `clearState` does not dismiss.
+    if (!(await elevationSource.isAvailable())) return;
     epoch += 1;
     const readingEpoch = epoch;
     subscription = Barometer.addListener((measurement) => {

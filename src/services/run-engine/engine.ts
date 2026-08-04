@@ -725,9 +725,13 @@ export class RunEngine {
     else this.cue.release();
     this.scheduler.stop();
     // why above tracker.stop(): after that stop the process can be suspended mid-write (ADR 0008).
-    // Both reads are bounded, so holding the keepalive for them costs at most NATIVE_TIMEOUT_MS.
-    await this.capturePedometerSteps(this.events[0].at, endAt);
-    record.motionPermission = await this.readMotionPermission();
+    // Concurrent because each is separately bounded and neither reads the other's result, so the
+    // keepalive is held for one NATIVE_TIMEOUT_MS rather than two.
+    const [, motionPermission] = await Promise.all([
+      this.capturePedometerSteps(this.events[0].at, endAt),
+      this.readMotionPermission(),
+    ]);
+    record.motionPermission = motionPermission;
     this.queueTracker(() => this.tracker.stop(), 'stop');
     this.queueElevation(() => this.elevation.stop(), 'stop');
     await this.completeRun(record, this.runGeneration);
@@ -901,7 +905,19 @@ export class RunEngine {
 
   // KNOWN GAP (important, pre-existing, not fixed in the barometer slice): unbounded, unlike
   // queueElevation, so an op that never settles strands the stop() that ends background location —
-  // battery drain, not a lost run. Fix is one line: wrap `op()` in `withTimeout`.
+  // battery drain, not a lost run.
+  //
+  // A bare `withTimeout(op())` is NOT the fix and would be worse than the gap: `tracker.start()`
+  // awaits real native promises, so a start() abandoned at the timeout can still resolve *after*
+  // the stop() queued behind it lands — restoring the very out-of-order landing this chain exists
+  // to prevent, and this time with a run that records no GPS track at all. A correct fix has to
+  // re-assert the desired state after a timeout (or check a generation inside the op), and needs a
+  // device pass to confirm it against real CoreLocation timing. Its own slice, not a one-liner.
+  //
+  // The asymmetry is why this is the chain that matters: `elevationSource.start()`/`stop()` await
+  // nothing native (`Barometer.addListener` and `subscription.remove()` are synchronous), so
+  // queueElevation's timeout cannot fire against the shipped adapter — the bounded chain is the one
+  // that never stalls, and the one that genuinely can is unbounded.
   private queueTracker(op: () => Promise<void>, label: string): void {
     this.trackerOps = this.trackerOps
       .then(op)

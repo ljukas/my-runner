@@ -1,4 +1,4 @@
-import { asc, eq, max } from 'drizzle-orm';
+import { asc, count, eq, max } from 'drizzle-orm';
 
 import type { ExportAltitudeSample, ExportLogEntry } from '@/domain/run-export';
 import { db } from './client';
@@ -18,11 +18,18 @@ export function loadRunLog(runId: string): ExportLogEntry[] {
   return db.select().from(runLog).where(eq(runLog.runId, runId)).orderBy(asc(runLog.seq)).all();
 }
 
+/**
+ * Two integers, aggregated in SQLite rather than by loading rows: this runs synchronously in the
+ * summary's render phase for every run, and a 30-minute run holds ~3600 of them.
+ */
 export function loadRunCounts(runId: string): { points: number; samples: number } {
-  return {
-    points: db.select().from(runPoints).where(eq(runPoints.runId, runId)).all().length,
-    samples: loadAltitudeSamples(runId).length,
-  };
+  const points = db.select({ n: count() }).from(runPoints).where(eq(runPoints.runId, runId)).get();
+  const samples = db
+    .select({ n: count() })
+    .from(runAltitudeSamples)
+    .where(eq(runAltitudeSamples.runId, runId))
+    .get();
+  return { points: points?.n ?? 0, samples: samples?.n ?? 0 };
 }
 
 /**

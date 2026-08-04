@@ -16,7 +16,12 @@ import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
 import { parseSnapshotState } from './resumable';
 import type { PendingEntry, PendingSample } from './run-log';
-import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
+import type {
+  BufferedRunPoint,
+  CompletedRunRecord,
+  RunLifecyclePersistence,
+  StepCounter,
+} from './types';
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
 function makeFakeCue() {
@@ -146,6 +151,7 @@ function makeEngine(
     deferStartRun?: boolean;
     failStartRunTimes?: number;
     elevation?: ElevationSource;
+    stepCounter?: StepCounter;
   } = {},
 ) {
   let now = 1_000_000;
@@ -223,12 +229,21 @@ function makeEngine(
 
   const fakeCue = makeFakeCue();
   const fakeBarometer = fakeElevation();
+  let stepCounterReturn: number | null = 0;
+  const stepCounterCalls: { start: Date; end: Date }[] = [];
+  const stepCounter: StepCounter =
+    options.stepCounter ??
+    (async (start, end) => {
+      stepCounterCalls.push({ start, end });
+      return stepCounterReturn;
+    });
   const engine = new RunEngine({
     persistence,
     runStore,
     tracker,
     cue: fakeCue.cue,
     elevation: options.elevation ?? fakeBarometer.source,
+    stepCounter,
     clock: () => now,
     createScheduler,
   });
@@ -237,6 +252,8 @@ function makeEngine(
     calls,
     elevationCalls: fakeBarometer.calls,
     emitReading: fakeBarometer.emit,
+    stepCounterCalls,
+    setStepCounterReturn: (v: number | null) => (stepCounterReturn = v),
     saved,
     finalized,
     flushes,
@@ -1602,5 +1619,103 @@ describe('barometer capture (spec §6)', () => {
     await flush();
     expect(h.flushedSamples().map((s) => s.at)).toEqual([FIX_START + 2000]);
     expect(h.flushedSamples()[0].seq).toBe(0);
+  });
+});
+
+describe('finalize-time capture (spec §5.2, §6.3)', () => {
+  function eventsOf(record: CompletedRunRecord): { type: string; at: number }[] {
+    return JSON.parse(record.eventLogJson!) as { type: string; at: number }[];
+  }
+
+  test('the event log — including pause/resume timestamps — survives into the finalizeRun path', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.tick(30);
+    h.engine.pause();
+    h.advance(10); // paused; wall clock moves, active elapsed does not
+    h.engine.resume();
+    h.tick(50); // 30 + 50 active seconds > total 75 → completes, capped
+    await flush();
+    expect(h.calls).toContain('finalizeRun');
+    expect(h.calls).not.toContain('saveRun');
+    const events = eventsOf(h.finalized[0].record);
+    expect(events.map((e) => e.type)).toEqual(['start', 'pause', 'resume', 'end']);
+    expect(events[0].at).toBe(FIX_START);
+    expect(events[1].at).toBe(FIX_START + 30_000);
+    expect(events[2].at).toBe(FIX_START + 40_000);
+  });
+
+  test('the event log survives finalize through the saveRun fallback path too — same shape, no active row', async () => {
+    const h = makeEngine({ failStartRunTimes: Number.POSITIVE_INFINITY });
+    await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(30);
+      h.engine.pause();
+      h.engine.resume();
+      h.tick(50);
+      await flush();
+    });
+    expect(h.calls).toContain('saveRun');
+    expect(h.calls).not.toContain('finalizeRun');
+    const events = eventsOf(h.saved[0]);
+    expect(events.map((e) => e.type)).toEqual(['start', 'pause', 'resume', 'end']);
+    expect(events[1].at).toBe(FIX_START + 30_000);
+    expect(events[2].at).toBe(FIX_START + 30_000); // resumed on the same tick it paused
+  });
+
+  test('the step count is queried with Date objects spanning the run, and noted into the log', async () => {
+    const h = makeEngine();
+    h.setStepCounterReturn(123);
+    h.engine.start(SESSION);
+    h.tick(80); // completes; the wall clock ran the full 80s even though elapsed caps at 75
+    await flush();
+    expect(h.stepCounterCalls).toHaveLength(1);
+    const { start, end } = h.stepCounterCalls[0];
+    expect(start).toBeInstanceOf(Date);
+    expect(end).toBeInstanceOf(Date);
+    expect(start.getTime()).toBe(FIX_START);
+    expect(end.getTime()).toBe(FIX_START + 80_000);
+    expect(
+      h
+        .flushedEntries()
+        .some((e) => e.kind === 'pedometer' && e.detailJson === JSON.stringify({ steps: 123 })),
+    ).toBe(true);
+  });
+
+  test('a step-count read failure cannot fail the run', async () => {
+    const h = makeEngine({
+      stepCounter: () => Promise.reject(new Error('motion denied')),
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(h.saved).toHaveLength(1);
+  });
+
+  test("the finalized record carries this run's motion permission", async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.tick(80);
+    await flush();
+    expect(h.finalized[0].record.motionPermission).toBe('granted');
+  });
+
+  test('a motion-permission read failure cannot fail the run, and leaves the field absent', async () => {
+    const broken = fakeElevation();
+    const h = makeEngine({
+      elevation: { ...broken.source, getPermissionStatus: () => Promise.reject(new Error('nope')) },
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(h.finalized[0].record.motionPermission).toBeUndefined();
   });
 });

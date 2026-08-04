@@ -3,6 +3,14 @@ import type { SegmentKind } from '@/domain/plan';
 /** Wall-clock time source, epoch milliseconds (ADR 0007: wall clock only). */
 export type Clock = () => number;
 
+/**
+ * One-shot pedometer read for `[start, end)`; null when unavailable (no permission, no hardware, or
+ * a platform error — never throws). A function, not a fuller port, because finalize needs only this
+ * one call: engine.ts must not import `expo-sensors` itself (ADR 0003; it also breaks `bun test`'s
+ * parser), so the composition root supplies the real implementation.
+ */
+export type StepCounter = (start: Date, end: Date) => Promise<number | null>;
+
 export interface RunEvent {
   type: 'start' | 'pause' | 'resume' | 'skip' | 'end';
   at: number;
@@ -63,6 +71,9 @@ export interface CompletedRunRecord {
   segments: CompletedSegmentRecord[];
   /** Live-cached smoothed total; finalize re-derives from `run_points`, never this (ADR 0021 §3). */
   distanceM?: number;
+  /** The event log, persisted because `active_run_snapshot` is cleared at finalize and it would otherwise be destroyed (spec §5.2). */
+  eventLogJson?: string;
+  motionPermission?: string;
 }
 
 /** Persistence port (ADR 0003) — the engine never touches the DB directly. */

@@ -1,4 +1,5 @@
 import * as Battery from 'expo-battery';
+import { Pedometer } from 'expo-sensors';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 
@@ -17,6 +18,7 @@ import type { RunSnapshotState } from '@/services/run-store/port';
 import { isTimelineExhausted, RunEngine } from './engine';
 import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
+import type { StepCounter } from './types';
 
 export { endCountsAsCompleted } from './engine';
 
@@ -39,6 +41,19 @@ const elevationWithSensorLog: ElevationSource = {
   },
 };
 
+// why wrapped rather than passed raw: getStepCountAsync performs no permission check of its own —
+// it rejects when Motion & Fitness isn't authorized — and a finalize that throws is a run that
+// never gets saved (spec §6.3).
+const stepCounter: StepCounter = async (start, end) => {
+  try {
+    const { steps } = await Pedometer.getStepCountAsync(start, end);
+    return steps;
+  } catch (error) {
+    console.warn('[run-engine] step count read failed', error);
+    return null;
+  }
+};
+
 export const runEngine = new RunEngine({
   // why not `(runId) => void syncRunToHealth(runId)`: that discards the real promise, so fireSync's
   // own `Promise.resolve(sync(runId)).catch(...)` would await `undefined` and any rejection from
@@ -49,6 +64,7 @@ export const runEngine = new RunEngine({
   runStore: dbRunStore,
   tracker: locationTracker,
   elevation: elevationWithSensorLog,
+  stepCounter,
 });
 
 // Module scope, never a React effect, and imported from the app entry rather than a route: iOS

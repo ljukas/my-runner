@@ -15,7 +15,11 @@ import {
 import { paceSecPerKm } from '@/domain/run-stats';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import type { CueService } from '@/services/cue-service/port';
-import type { AltitudeReading, ElevationSource } from '@/services/elevation';
+import type {
+  AltitudeReading,
+  ElevationSource,
+  MotionPermissionStatus,
+} from '@/services/elevation';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import {
@@ -32,6 +36,7 @@ import type {
   RunEvent,
   RunLifecyclePersistence,
   RunSnapshot,
+  StepCounter,
 } from './types';
 
 const IDLE_SNAPSHOT: RunSnapshot = {
@@ -177,6 +182,7 @@ export class RunEngine {
   private readonly runStore: RunStore;
   private readonly tracker: LocationTracker;
   private readonly elevation: ElevationSource;
+  private readonly stepCounter: StepCounter;
   private readonly scheduler: PointBatchScheduler;
 
   private session: PlanSession | null = null;
@@ -232,6 +238,7 @@ export class RunEngine {
     runStore: RunStore;
     tracker: LocationTracker;
     elevation: ElevationSource;
+    stepCounter: StepCounter;
     clock?: Clock;
     createScheduler?: (flush: () => void) => PointBatchScheduler;
   }) {
@@ -240,6 +247,7 @@ export class RunEngine {
     this.runStore = deps.runStore;
     this.tracker = deps.tracker;
     this.elevation = deps.elevation;
+    this.stepCounter = deps.stepCounter;
     this.clock = deps.clock ?? Date.now;
     const createScheduler =
       deps.createScheduler ??
@@ -497,6 +505,30 @@ export class RunEngine {
     }
   };
 
+  // why Date, not the record's own ISO strings: getStepCountAsync throws on a string argument
+  // (no .getTime), and the injected stepCounter's own signature takes Date so that mistake can't
+  // happen at this call site either.
+  private async capturePedometerSteps(startedAt: number, endedAt: number): Promise<void> {
+    try {
+      const steps = await this.stepCounter(new Date(startedAt), new Date(endedAt));
+      this.note('pedometer', { steps });
+    } catch (error) {
+      console.warn('[run-engine] step count unavailable; the run is unaffected', error);
+    }
+  }
+
+  // why the port and not the last `sensor` note: that note is buffered instrumentation the flush
+  // cadence may already have taken and sent, so it is not reliably still readable here; the port
+  // this run already holds gives the same answer without depending on flush timing.
+  private async readMotionPermission(): Promise<MotionPermissionStatus | undefined> {
+    try {
+      return await this.elevation.getPermissionStatus();
+    } catch (error) {
+      console.warn('[run-engine] motion permission unavailable; the run is unaffected', error);
+      return undefined;
+    }
+  }
+
   // Same smoother the finalize re-fold re-runs over run_points, so live distance == re-derived (ADR 0021 §3):
   // the integer-ms timestamp survives the ISO round-trip, and the full accuracy-passed stream is buffered (no re-gate — the smoother owns velocity).
   private ingestFix(fix: LocationFix, segmentSeq: number): void {
@@ -629,6 +661,9 @@ export class RunEngine {
           ),
           wasSkipped: segment.wasSkipped,
         })),
+      // active_run_snapshot (the only other home for this) is cleared once finalize succeeds, and
+      // snapshotState strips `end` — so this is the run's last chance to keep it (spec §5.2).
+      eventLogJson: JSON.stringify(this.events),
     };
 
     this.status = kind;
@@ -641,6 +676,11 @@ export class RunEngine {
     this.scheduler.stop();
     this.queueTracker(() => this.tracker.stop(), 'stop');
     this.queueElevation(() => this.elevation.stop(), 'stop');
+    // Queried here rather than above: both are awaited I/O, and nothing above this line is
+    // sensor-dependent, so this is the latest point that still lands before completeRun's drain
+    // (spec §6.3) without delaying the status flip or the completion cue a runner is waiting on.
+    await this.capturePedometerSteps(this.events[0].at, endAt);
+    record.motionPermission = await this.readMotionPermission();
     await this.completeRun(record, this.runGeneration);
   }
 

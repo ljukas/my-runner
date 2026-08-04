@@ -26,21 +26,38 @@ import type { StepCounter } from './types';
 
 export { endCountsAsCompleted } from './engine';
 
+// why memoized, and consulted before every CoreMotion touch: iOS raises the Motion & Fitness prompt
+// on the first Pedometer call while authorization is undetermined, and on hardware with no barometer
+// there is nothing that prompt could serve — no reading can ever arrive (ADR 0015 item 2's feature
+// detection). Every simulator is such hardware, so an ungated read strands the whole Maestro suite
+// behind a system alert `clearState` cannot dismiss. The answer cannot change within a process.
+let barometerAvailable: Promise<boolean> | null = null;
+function hasBarometer(): Promise<boolean> {
+  return (barometerAvailable ??= elevationSource.isAvailable().catch(() => false));
+}
+
 // why wrap start() rather than note from the engine: this is the only seam that fires exactly once
 // per run start/restore (engine.ts's queueElevation) without engine.ts importing anything to log it
 // (spec §6.1).
 const elevationWithSensorLog: ElevationSource = {
   ...elevationSource,
+  // why gated: this is a Pedometer call, so reading it on barometer-less hardware raises the prompt
+  // for a capability that device does not have. `available: false` in the `sensor` row already says
+  // why an export has no samples, so nothing diagnostic is lost by not asking.
+  async getPermissionStatus() {
+    return (await hasBarometer()) ? elevationSource.getPermissionStatus() : 'undetermined';
+  },
   start() {
     // why nothing here is awaited: a permission read that never settles would strand the engine's
     // elevation op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
     // only have to belong to this run, not precede the start. Accepted consequence: in the
     // millisecond-wide reset()+start() window between two runs, either note can land in the
     // neighbouring run's log — both are process-level facts, so a mislabelled row misstates nothing.
-    void Promise.all([elevationSource.isAvailable(), elevationSource.getPermissionStatus()])
-      .then(([available, permission]) =>
-        runEngine.note('sensor', { available, permission, processToken: PROCESS_TOKEN }),
-      )
+    void hasBarometer()
+      .then(async (available) => {
+        const permission = available ? await elevationSource.getPermissionStatus() : null;
+        runEngine.note('sensor', { available, permission, processToken: PROCESS_TOKEN });
+      })
       .catch((error) => console.warn('[run-engine] sensor note failed', error));
     // why here and not at module load: the engine clears the log on every start()/restore(), so a
     // one-shot read at import is always wiped before a run exists. Low Power Mode throttles
@@ -58,6 +75,10 @@ const elevationWithSensorLog: ElevationSource = {
 // it rejects when Motion & Fitness isn't authorized — and a finalize that throws is a run that
 // never gets saved (spec §6.3).
 const stepCounter: StepCounter = async (start, end) => {
+  // why gated on the barometer: the step count exists only to accompany a barometer capture, it
+  // shares the one Motion & Fitness authorization CMAltimeter needs, and hardware without a
+  // barometer has no pedometer worth asking either — so the only effect of asking is the prompt.
+  if (!(await hasBarometer())) return null;
   try {
     const { steps } = await Pedometer.getStepCountAsync(start, end);
     return steps;

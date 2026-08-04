@@ -143,6 +143,25 @@ isolates them.
 
 ---
 
+## Reading the exports: two fields that lie if taken at face value
+
+Both are raw sensor values the app deliberately does not clean up, because a
+clamped invalid reading is indistinguishable from a real one.
+
+- **A negative `speedMps` means "unknown", not "moving backwards".**
+  CoreLocation reports a negative `speed` whenever it cannot determine one, the
+  same way it reports a negative `altitudeAccuracyM` for an invalid altitude. The
+  doorstep brackets above are found by looking for the 90-second stationary
+  windows, so a filter like `abs(speedMps) < 0.5` would classify a
+  perfectly-still sample reporting `-1` as moving and lose the bracket. Treat
+  `speedMps < 0` as missing, and locate the brackets from **lat/lng displacement
+  between consecutive points** instead.
+- **`anySamplesRecorded: false` in the header does not mean "no barometer".** It
+  means this run recorded no altitude sample, for any reason — including denied
+  Motion & Fitness. The run's real hardware answer is its `sensor` row in the
+  `## log` section, which carries `available`, `permission` and a process token.
+  Check that row before concluding a capture is unusable.
+
 ## What "done" looks like
 
 Six exported files in `field-data/`, the log table below filled in, and the

@@ -387,7 +387,9 @@ the upgrade run.
 signal, defeating the table's purpose. Kinds are typed in `run-log.ts`.
 
 Initial kinds: `tick`, `fix_batch`, `fix_rejected`, `lifecycle`, `battery`,
-`cue`, `sensor`, `permission`, `pedometer`, `samples_dropped`.
+`cue`, `sensor`, `pedometer`, `samples_dropped`. (A `permission` kind was listed in
+revision 2 and never emitted — the value lives in `sensor`'s payload, and a query
+filtering on a kind nothing writes silently returns nothing.)
 
 **ADR 0004 §5 exemption, claimed explicitly.** That ADR requires TEXT UUID
 primary keys plus `created_at`/`updated_at`/`deleted_at` on *every* table. Both
@@ -476,6 +478,17 @@ One property that licenses reading a gap as evidence at all:
 **time-driven**, not change-driven (contrast `startAbsoluteAltitudeUpdates`,
 which fires *"whenever a change in elevation is detected"*). So on this API,
 silence means something stopped, not that altitude was constant.
+
+**A permanent limit, recorded so no future gate tries to close it: "JS thread
+busy" and "process OS-suspended" cannot be separated from this export.** A thread
+cannot observe its own non-scheduling, so both produce the identical signature —
+silence in `tick`, `fix_batch` and the altitude stream, bounded only by whatever
+`lifecycle` rows happened to fire before and after. No amount of additional
+logging fixes this, because every additional signal would have to be emitted by
+the same thread that is not running. The gap distribution §13's gap policy needs
+is therefore a distribution of *"nothing was recorded"* intervals, whatever their
+cause; an attribution would need an out-of-process observer this app deliberately
+does not have (no backend, no analytics).
 
 ### 6.2 The instrument must be incapable of harming a run
 
@@ -580,6 +593,16 @@ lossless, and `domain/run-export.ts`'s test asserts round-trip equality. A
 well-intentioned `toFixed(1)` would otherwise silently cost the slice its
 purpose.
 
+**`speedMps` carries a negative invalid sentinel, exactly like
+`altitudeAccuracyM`.** CoreLocation reports a **negative** `speed` when it cannot
+determine one, and the app stores the raw value (never clamped — a clamp would
+destroy the signal, §5.2). Any analysis must treat `speedMps < 0` as *unknown*,
+never as motion: §8.2 uses GPS speed to locate the 90-second doorstep stationary
+windows, so a naive `abs(speedMps) < threshold` would read a genuinely stationary
+sample reporting `-1` as moving — in the exact brackets the whole drift
+measurement rests on. Prefer lat/lng displacement between consecutive points for
+locating the brackets, and use `speedMps` only where it is `>= 0`.
+
 **Parse invariants**, stated because they are load-bearing and unwritten
 otherwise: `detailJson` is *always* `JSON.stringify` output and never
 hand-assembled (so embedded newlines are escaped as `\n` and a `##` inside a
@@ -592,9 +615,27 @@ user's nickname for it, e.g. "Lukas's iPhone"; `expo-device` is deliberately
 not installed for this one field, and `Constants.platform?.ios?.model` is
 vestigial and dead at runtime on this SDK, so there is no zero-dependency
 hardware-model source), iOS version, app version, runtime/update id,
-barometer availability, motion-permission status, timezone offset, per-section
-row counts, and the drop counters. It does **not** carry a "requested update
-interval": that would log a value provably without effect (§1).
+`anySamplesRecorded`, motion-permission status, timezone offset, per-section
+row counts, and a `dropped` total.
+
+**`anySamplesRecorded`, not `barometerAvailable`.** The field is
+`samples.length > 0`, which is equally false when the device has no barometer,
+when Motion & Fitness was denied, when the subscription threw, and when the run
+ended before the first reading — and it is wrong in the case that matters most, a
+denied-permission run on a barometer-equipped phone. The run's *real*
+`isAvailable()` result is persisted per run in its `sensor` log row, alongside the
+permission status and the process token, so the honest name plus that row carry
+strictly more than a mislabelled boolean would.
+
+**`dropped` sits beside `counts`, not inside it**, because the `# end` trailer is
+defined as the sum of the five section counts and a drop count folded in would
+make a complete file read as truncated. It is derived from the `samples_dropped`
+rows' running `total` and is a **lower bound**: the counter is itself a log row
+subject to the same cap it reports, and a saturated buffer restates the total
+periodically rather than once per evicted row (`run-log.ts`).
+
+The header does **not** carry a "requested update interval": that would log a
+value provably without effect (§1).
 
 `domain/run-export.ts` is a **pure** function from loaded rows to that string,
 tested under `bun test`. All I/O lives in `services/run-export.ts`.

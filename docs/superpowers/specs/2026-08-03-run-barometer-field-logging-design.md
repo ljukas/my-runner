@@ -556,7 +556,14 @@ seq,at,kind,detailJson
 
 ## events
 at,type
+
+# end <total>
 ```
+
+The `# end <total>` trailer is the final line, `<total>` being the sum of the
+five section counts. A write interrupted mid-file never reaches it, so its
+presence — not just the header's counts, which a truncated file still opens
+with — is what lets a reader tell a complete export from one cut short.
 
 **Precision is load-bearing and therefore mandated, not left to taste:**
 

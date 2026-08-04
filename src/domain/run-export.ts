@@ -77,36 +77,42 @@ export interface RunExportInput {
   events: readonly ExportEvent[];
 }
 
-// why String and never toFixed: shortest-round-trip is lossless, while 1 dp on pressure imposes a
-// 0.83 m altitude quantum — the barometer's whole precision advantage over GPS (spec §7.1).
+// why String, never toFixed: shortest round-trip is lossless except -0 → "0"; 1 dp on pressure
+// costs 0.83 m of altitude — the barometer's edge over GPS (spec §7.1).
 function num(value: number | null | undefined): string {
   return value === null || value === undefined ? '' : String(value);
 }
 
 function csv(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
 function section(name: string, columns: string, rows: readonly string[]): string[] {
   return [`## ${name}`, columns, ...rows, ''];
 }
 
-/** One run as a `#` magic line, a single-line JSON header, then CSV sections (spec §7.1). Ends with exactly one newline. */
+/**
+ * One run as a `#` magic line, a single-line JSON header, then CSV sections, then a `# end <total>`
+ * trailer (spec §7.1) — a truncated write stops mid-file and never reaches it, so its presence is
+ * what lets a reader tell a complete export from one cut short. Ends with exactly one newline.
+ */
 export function toRunExport(input: RunExportInput): string {
   const { run, segments, points, samples, log, events } = input;
+
+  const counts = {
+    segments: segments.length,
+    points: points.length,
+    altitude: samples.length,
+    log: log.length,
+    events: events.length,
+  };
 
   const header = {
     schema: RUN_EXPORT_SCHEMA,
     exportedAt: input.exportedAt,
     run,
     device: input.device,
-    counts: {
-      segments: segments.length,
-      points: points.length,
-      altitude: samples.length,
-      log: log.length,
-      events: events.length,
-    },
+    counts,
   };
 
   const lines = [
@@ -169,6 +175,7 @@ export function toRunExport(input: RunExportInput): string {
       'at,type',
       events.map((e) => [e.at, csv(e.type)].join(',')),
     ),
+    `# end ${Object.values(counts).reduce((a, b) => a + b, 0)}`,
   ];
 
   return `${lines.join('\n').trimEnd()}\n`;

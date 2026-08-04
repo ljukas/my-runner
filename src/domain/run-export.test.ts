@@ -73,18 +73,65 @@ describe('toRunExport', () => {
     expect(header.counts).toEqual({ segments: 1, points: 1, altitude: 1, log: 1, events: 1 });
   });
 
-  test('emits every section header even when a section is empty', () => {
+  test('emits every section header even when a section is empty, with no row leaked into its body', () => {
     const text = toRunExport(input({ samples: [], points: [] }));
-    for (const name of ['segments', 'points', 'altitude', 'log', 'events']) {
-      expect(text).toContain(`## ${name}`);
-    }
+    const pointsBody = text
+      .slice(text.indexOf('## points'), text.indexOf('## altitude'))
+      .split('\n')
+      .filter(Boolean);
+    const altitudeBody = text
+      .slice(text.indexOf('## altitude'), text.indexOf('## log'))
+      .split('\n')
+      .filter(Boolean);
+    expect(pointsBody).toEqual([
+      '## points',
+      'seq,at,lat,lng,altitudeM,accuracyM,altitudeAccuracyM,speedMps,segmentSeq',
+    ]);
+    expect(altitudeBody).toEqual([
+      '## altitude',
+      'seq,at,sensorTimestampS,pressureHpa,relativeAltitudeM,epoch,segmentSeq',
+    ]);
   });
 
   test('numbers round-trip exactly — toFixed anywhere here would cost 0.83 m per 1 dp of pressure', () => {
-    const text = toRunExport(input());
-    expect(text).toContain('1013.257');
-    expect(text).toContain('59.329323');
-    expect(text).toContain('12345.678');
+    // Precision exceeds any plausible fixed-decimal count a toFixed(n) could coincidentally match,
+    // and each assertion is the complete CSV row, not a substring a rounded value could also satisfy.
+    const text = toRunExport(
+      input({
+        points: [
+          {
+            seq: 0,
+            at: '2026-08-04T09:00:01.000Z',
+            lat: 59.32932312345,
+            lng: 18.068581,
+            altitudeM: 12.25,
+            accuracyM: 5,
+            altitudeAccuracyM: -1,
+            speedMps: 2.1,
+            segmentSeq: 0,
+          },
+        ],
+        samples: [
+          {
+            seq: 0,
+            at: '2026-08-04T09:00:02.000Z',
+            sensorTimestampS: 12345.678901234,
+            pressureHpa: 1013.2570000000001,
+            relativeAltitudeM: 0,
+            epoch: 1,
+            segmentSeq: 0,
+          },
+        ],
+      }),
+    );
+    const pointsSection = text.slice(text.indexOf('## points'), text.indexOf('## altitude'));
+    const altitudeSection = text.slice(text.indexOf('## altitude'), text.indexOf('## log'));
+    expect(pointsSection).toContain(
+      '0,2026-08-04T09:00:01.000Z,59.32932312345,18.068581,12.25,5,-1,2.1,0',
+    );
+    expect(altitudeSection).toContain(
+      '0,2026-08-04T09:00:02.000Z,12345.678901234,1013.2570000000001,0,1,0',
+    );
   });
 
   test('a null number becomes an empty field, not the string "null"', () => {
@@ -122,9 +169,26 @@ describe('toRunExport', () => {
     expect(body).toContain('""note""');
   });
 
+  test('quotes a field containing a lone carriage return', () => {
+    const text = toRunExport(
+      input({ log: [{ seq: 0, at: 'x', kind: 'sensor\rboom', detailJson: null }] }),
+    );
+    const body = text.slice(text.indexOf('## log'), text.indexOf('## events'));
+    expect(body).toContain('"sensor\rboom"');
+  });
+
   test('ends with exactly one newline', () => {
     const text = toRunExport(input());
     expect(text.endsWith('\n')).toBe(true);
     expect(text.endsWith('\n\n')).toBe(false);
+  });
+
+  test('ends with a # end trailer whose total equals the summed header counts', () => {
+    const text = toRunExport(input());
+    const lines = text.split('\n');
+    const header = JSON.parse(lines[1]) as { counts: Record<string, number> };
+    const expectedTotal = Object.values(header.counts).reduce((a, b) => a + b, 0);
+    expect(lines.at(-2)).toBe(`# end ${expectedTotal}`);
+    expect(lines.at(-1)).toBe('');
   });
 });

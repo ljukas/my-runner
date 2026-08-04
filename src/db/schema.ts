@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
+// db/queries.test.ts hand-rolls this table's CREATE TABLE DDL — keep it in sync when adding a column.
 export const runs = sqliteTable('runs', {
   id: text('id').primaryKey(),
   sessionKey: text('session_key').notNull(),
@@ -69,8 +70,9 @@ export const runPoints = sqliteTable(
  * nothing rebuilds this one, so a `(run_id, seq)` PK made a resumed run's first flush throw
  * UNIQUE — and because that insert shares the GPS transaction, the throw rolled back the GPS
  * points too, for the rest of the run. `seq` is a plain ordering column; nothing joins on it.
- * Exempt from ADR 0004 §5's UUID + timestamps + soft-delete rule for the same reason
- * `run_points` is: append-only rows whose own `at` is their temporal record.
+ * `run_points` is precedent only for skipping ADR 0004 §5's UUID + timestamps + soft-delete
+ * convention (append-only rows whose own `at` is their temporal record) — dropping the primary
+ * key too is this table's own separate call, for the reason above.
  */
 export const runAltitudeSamples = sqliteTable('run_altitude_samples', {
   runId: text('run_id')

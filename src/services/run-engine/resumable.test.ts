@@ -64,6 +64,29 @@ describe('parseSnapshotState', () => {
       parseSnapshotState({ ...STATE, lastAcceptedFix: { lat: 'x' } })?.lastAcceptedFix,
     ).toBeNull();
   });
+
+  describe('lastAcceptedFix.altitudeAccuracy — three-state passthrough', () => {
+    test('a negative number survives verbatim (CoreLocation: negative means altitude invalid)', () => {
+      const raw = { ...STATE, lastAcceptedFix: { ...STATE.lastAcceptedFix, altitudeAccuracy: -1 } };
+      const parsed = parseSnapshotState(JSON.parse(JSON.stringify(raw)));
+      expect(parsed?.lastAcceptedFix?.altitudeAccuracy).toBe(-1);
+    });
+
+    test('an explicit null survives as null', () => {
+      const raw = {
+        ...STATE,
+        lastAcceptedFix: { ...STATE.lastAcceptedFix, altitudeAccuracy: null },
+      };
+      const parsed = parseSnapshotState(JSON.parse(JSON.stringify(raw)));
+      expect(parsed?.lastAcceptedFix?.altitudeAccuracy).toBeNull();
+    });
+
+    test('an absent field stays absent, not coerced to null', () => {
+      // STATE.lastAcceptedFix carries no altitudeAccuracy key — an older snapshot's shape.
+      const parsed = parseSnapshotState(JSON.parse(JSON.stringify(STATE)));
+      expect(parsed?.lastAcceptedFix?.altitudeAccuracy).toBeUndefined();
+    });
+  });
 });
 
 describe('isSnapshotFresh', () => {

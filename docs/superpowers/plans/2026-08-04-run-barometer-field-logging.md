@@ -1663,3 +1663,166 @@ The code is only half the slice. Once Task 13 is green:
 **Placeholder scan.** No TBDs. Two tasks intentionally delegate to a file the implementer must read first rather than restating it: Task 6 Step 3 (`use-location-permission.ts` as the template) and Task 12 Step 3 (`plan.ts`'s session types). Both name the exact file and what to mirror. Task 9 Step 1's four test bodies are described rather than written, because they must reuse the existing engine harness in `engine.test.ts`; the assertions are specified precisely.
 
 **Type consistency.** `AltitudeReading` fields (`at`, `sensorTimestampS`, `pressureHpa`, `relativeAltitudeM`, `epoch`) are identical in Task 6's port, Task 7's `sample()`, and Task 1's column names. `ExportAltitudeSample` (Task 3) matches `AltitudeSampleRow` (Task 1) field-for-field, which is what lets `loadAltitudeSamples` return it unmapped in Task 5. `flush`'s five-parameter arity is consistent across Tasks 8, 9 and the test fake. `isFieldTestRun` is used by the same name in Tasks 9 and 12.
+
+---
+
+## What was verified, and how
+
+Written retrospectively at the close of the slice's last fix round. The shipped documents — this plan,
+[ADR 0015's 2026-08-04 amendment](../../adr/0015-run-elevation-on-device-barometer.md#amendment-2026-08-04),
+[the capture protocol](../../field-test-capture-protocol.md), AGENTS.md — assert conclusions whose
+receipts lived only in the slice's git-ignored working ledger, which is deleted when the slice closes.
+This section is those receipts: what was proven, by what method, and which claims rest on a simulator
+and therefore still await hardware.
+
+**Standing method.** Five gates, each reviewed by **two adversarial reviewers** given independent
+context and different angles, then one fix round, then a scoped re-review instructed to *re-prove* the
+headline finding rather than trust the fix report. Every new guard was neutralised and its covering
+test watched to fail, then restored and re-confirmed green. Counterfactuals not expressible as a test
+(a `toFixed` implementation, a never-settling native promise, a reverted call ordering) were executed
+against an `rsync`'d scratch copy of the tree. Final state: **478 tests**, `tsc --noEmit`, `expo lint`
+clean; `expo-doctor` 19/20 with one pre-existing patch-version drift across several Expo packages that
+predates the slice.
+
+**The simulator boundary, stated once.** Every device pass ran on an iPhone 17 Pro **simulator**
+(iOS 26.5), which has **no barometer and no pedometer**. No real barometer reading has ever been
+recorded by this app, no delivery cadence has been measured, and every `## altitude` section of every
+export produced during the slice was empty by construction. What the simulator did prove is the harness
+*around* the sensor. Everything about the sensor itself rests on unit tests over the pure reading mapper
+plus a direct reading of installed `expo-sensors` source — never on a mock of it (ADR 0003 item 7).
+
+### Gate A — schema, vertical accuracy, the pure serializer
+
+- **The migration is additive** (2 `CREATE TABLE` + 3 nullable `ADD COLUMN`, no table rebuild): read from
+  the generated SQL and cross-checked against `0002_snapshot.json`. Never applied to a device database
+  holding real runs — inspection, not execution.
+- **The export is lossless**: an actual RFC 4180 round-trip parse over adversarial values, not eyeballing.
+- **`toFixed` is genuinely absent, and the guardrail against it is real.** The first precision test was
+  theatre — replaying its assertions against a `toFixed(3)`/`toFixed(6)` stub *passed*, because
+  `1013.257`/`59.329323` are exactly what `toFixed` emits. Rewritten, it fails under that stub; the
+  re-reviewer reproduced the counterfactual independently in a scratch copy (6 pass/2 fail, then 8/8).
+- **A truncated export is detectable**: the `# end <total>` trailer exists because a truncated file
+  otherwise opens with its original, now-false header counts. Spec §7.1 was updated to match.
+- `altitudeAccuracy`'s three states (number / explicit `null` / absent) traced by hand through `parseFix`.
+
+### Gate B — native dependencies, the plugin, the export service
+
+- **`NSMotionUsageDescription` reaches the built app end to end**: `expo config --type introspect`
+  resolves the string *and* `ios/RunBrodev/Info.plist` on disk carries it. Backed by a real native build
+  that launched with `ExpoSensors`/`ExpoSharing`/`ExpoBattery` linked and no native-module crash.
+- **The export carries stored `seq`, not array indices**: the regression fixture is deliberately
+  non-contiguous (`[5, 9, 12]`), so a positional index cannot satisfy it; the re-reviewer confirmed the
+  pre-fix code fails it. This matters because spec §6.2 reads a `seq` *gap* as drop evidence.
+- **`expo-file-system`'s `write()` is genuinely synchronous** (a plain `Function`, not `AsyncFunction`,
+  in installed source) — so there is no file-vs-share-sheet race.
+- **Not fixable, and documented at the site**: `Sharing.shareAsync` resolves identically on cancel and on
+  success (`SharingModule.swift` calls `promise.resolve(nil)` unconditionally), so `'shared'` means "the
+  sheet appeared and was dismissed", never "the file left the device".
+- **Simulator**: a real recorded run (1710 fixes, 2.76 km) exported; header populated; trailer count
+  matching; share sheet opened; the file read back off disk.
+
+### Gate C — the elevation port and adapter, the buffers, the flush
+
+- **The single-transaction design's atomicity is proven against real SQLite.** The transaction body was
+  extracted to `src/services/run-store/flush-transaction.ts` (driver-agnostic, no `expo-sqlite` import)
+  and tested against `bun:sqlite` by forcing a `NOT NULL` failure mid-transaction: `run_points`,
+  `run_altitude_samples`, `run_log` and `active_run_snapshot` all roll back together. The reviewer read
+  both drizzle drivers' session sources and confirmed identical commit-on-synchronous-return semantics,
+  that the rollback is SQLite engine behaviour rather than a JS reimplementation, and that the shipped
+  `index.ts` genuinely delegates to the extracted body (one definition, one call site, no parallel copy).
+  This is the first real evidence for the property the whole design rests on; no mock could have produced it.
+- Worst-case transaction (500 points + 500 samples + 500 entries + snapshot) **measured at 0.31 ms**.
+- **Any `seq` gap now means a drop, uniformly**: validation drops were changed to consume a `seq`, and an
+  interleaved valid→NaN→valid sequence was proven to yield `[0, 2]` with `droppedCount` 1.
+- **`relativeAltitude: 0` — the first reading of every session — is guarded, load-bearingly**: the test
+  fails under a `relative || null` simplification (10 pass/1 fail).
+- `PROCESS_TOKEN` distinct across five real process launches, computed once.
+- **Three adapter behaviours are correct *by inspection only*** and were deliberately not unit-tested
+  (ADR 0003 item 7 forbids mocking Expo SDK internals): `start()` idempotence not bumping `epoch`, `epoch`
+  incrementing across a real stop→start, and the last JS unsubscribe not stopping the native
+  subscription. They are carried as device checks in the protocol doc's capture 1 — where the third is
+  recorded as **not observable from any export at all**, since the engine subscribes once for its
+  lifetime and never unsubscribes.
+
+### Gate D — engine wiring, composition root, finalize (highest risk)
+
+- **The slice's one Critical was proven with a real never-settling-promise harness**, not argued:
+  `finalize()` awaited two native reads whose `expo-sensors` implementation can drop the promise (neither
+  resolve nor reject), which `try`/`catch` cannot see. With `nativeTimeoutMs=50` the run saved after
+  111 ms; with the timeout neutralised `savedRunId` was still `null` after 300 ms. Unbounded, that path
+  left the row `'active'`, the run screen with no route out, and (via ADR 0023's `runCompleted`) the
+  week uncredited.
+- **The most useful methodological receipt in the slice: an ordering test that never awaited the
+  ordering.** The first test for ADR 0008's keepalive window passed under *both* orderings, because
+  `queueTracker` defers by a microtask so both observed zero stops. Rebuilt to hop a real timer, the
+  reverted ordering fails (`stopsWhenRead` 0 → 1). Self-caught, unprompted. Treat "the test passes" as
+  meaningless until the mutation has been run.
+- **Cap eviction now records the drop**, and a 40,000-item restore (10× the cap) stayed bounded at ≤1 ms
+  with no recursion. The header's `dropped` is honestly a **lower bound** (4099 vs 4100 at saturation),
+  because the surviving note's total predates that push's own increment.
+- **The barometer is stopped on every run exit**, enumerated and executed: normal completion, end-early,
+  skip-last, `reset()`, `abandon()` (two stops, idempotent), a refused restore (never started), crash
+  (process death), force-quit, and two runs in one session, correctly ordered.
+- **`note()` cannot throw for any detail**: executed with a self-referential object, a `BigInt`, and a
+  throwing getter.
+- JS-thread cost measured, not assumed: restore 0.004 ms, `takeEntries(500)` ~0.001 ms, `note()`'s
+  `stringify` 0.00008 ms.
+- **Simulator**: two compressed Week-4 sessions with `tick`/`sensor`/`fix_batch` rows in both, and
+  `lifecycle` inactive→background→active after backgrounding mid-run; a Week 4 Day 3 run with a real
+  ~18 s pause exported as start/pause/resume/end with `activeDurationS` proving the pause cost no active
+  time; both finalize paths confirmed twice (unit tests plus a live patch of `finalizeRun` read back from
+  the actual SQLite row). The pedometer genuinely failed on the simulator and was absorbed without
+  failing the run — real proof of that guard rather than a simulated one.
+- 19 mutations in Task 9, all caught; Task 11's four traps each planted and reverted; 9 more in the fix
+  round, each verified caught.
+- **Known open issue, deliberately not fixed here**: `queueTracker` is still unbounded — the same
+  non-settlement class as the Critical above, pre-existing since the GPS slice. It cannot lose a run
+  (finalize does not await that chain) but it can strand the `stop()` that ends background location,
+  which is real battery drain and ADR 0008's own concern. Recorded at the site in
+  `src/services/run-engine/engine.ts`; the fix is one line (`withTimeout` around `op()`, as
+  `queueElevation` already does).
+
+### Gate E — field-test capture mode, and the closing docs
+
+- **No cue escapes a capture, by construction.** Engine-level tests cover both `start()` and `restore()`,
+  and it is the *pair* that is load-bearing — suppressed for a capture, still announced for a plan
+  session — so a mutation that silences everything is caught too. Reverting `cuesSuppressed` to `false`
+  fails 2 tests. The fix round moved the resume announcement *into* the engine for this reason: the
+  resume screen used to call `cueService.announce('resuming')` directly, past the flag, and was silent
+  for captures only by accident. Restoring that bypass fails the field-test restore test.
+- **No Apple Health write, at three independent layers**: the composition-root gate on the automatic
+  sync, the summary's manual "Save to Apple Health" button (found only because an implementer clicked
+  through the summary), and — from the fix round — `isHealthWritable` inside `syncRunToHealth` itself, so
+  a future resync or backfill caller inherits the invariant instead of having to remember it.
+  **Simulator**: `healthkit_saved = 0` read out of the on-device SQLite file, not inferred from an absent
+  UI row.
+- **No plan progress**: the Plan screen was captured before and after a capture at the same scroll
+  position and is identical (same checkmarks, durations and week tallies) — measured, not inferred from
+  the code. Independently, no streak, personal-best or plan cursor exists in this codebase to corrupt
+  (ADR 0023 is still Proposed; there is no `session_completions` table).
+- **Reviewer-verified closed**: `'field-test'` cannot match `getSession`/`nextSessionKey`/`parseSessionKey`
+  on any path; `sessionTitle` falls through to the raw key without crashing; a capture's run survives in a
+  build *without* the flag (Log, summary and export never consult it); production never sets it.
+- **A crash mid-capture no longer orphans a row.** `detectResumableRun` used to take its `!session` branch
+  for a capture (no plan day claims its key), clearing the snapshot but never finalizing the run — leaving
+  a permanently `'active'` row, invisible to every view, with orphaned points/samples/log children and no
+  delete-run UI to reach them. It now finalizes as `partial`, the same treatment a stale real session gets.
+- **Simulator**: two consecutive captures in one launch both start — the Settings button was previously a
+  one-shot per app launch, which silently defeated the protocol's own second-capture `epoch` check.
+
+### What still awaits real hardware
+
+Nothing below has been measured; each is a first for the owner's captures.
+
+1. **Any barometer reading at all, and the delivery cadence.** ADR 0015's "every few seconds" is
+   `CMAltimeter`'s header wording, not a measurement, and it is what decides whether the reducer's
+   31-sample median window spans ~31 seconds or over two minutes.
+2. **Background delivery** while pocketed and screen-locked for 30+ minutes under ADR 0008's location
+   heartbeat — ADR 0015's item 7, which stays **open**.
+3. **The three Gate C adapter behaviours** above (two checkable from the exports, one not checkable at all).
+4. **Motion & Fitness actually prompting and resolving.** On the simulator `getPermissionStatus()` and
+   `requestPermission()` never settled at all — which is why the Settings row bounds both at 2 s, and why
+   that bound has never been exercised against a resolving prompt.
+5. **Pedometer step counts** (no `CMPedometer` on a simulator; every capture's `pedometer` row so far is a
+   recorded failure).
+6. **Any gain/loss total**, because nothing computes one yet — deliberately, until the tuning exists.

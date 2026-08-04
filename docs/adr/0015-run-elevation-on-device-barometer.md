@@ -227,22 +227,34 @@ one.
 
 Written at the close of the run-barometer-field-logging slice, which built the
 capture path this ADR's item 7 called for — barometer readings and per-run
-diagnostics recorded during a real run, on real hardware, written in the run's
-own database transaction, exportable as one text file. **Elevation is still not
-rendered anywhere** — `src/domain/elevation.ts` remains unconsumed. What follows
-is what that slice settled, so it does not have to be rediscovered when the
-render slice picks the tuning back up.
+diagnostics recorded during a run, in the same database transaction as that
+run's GPS points, exportable as one text file. **Elevation is still not
+rendered anywhere** — `src/domain/elevation.ts` remains unconsumed.
 
-**Item 7's spike is discharged — by field logging, not a spike screen.** The
+**Every verification in that slice ran on the iOS simulator, which has no
+barometer.** That proves the harness, not the sensor: the capture path was
+driven end to end on the simulator (a capture starts, records, finalizes, is
+labelled distinctly in the Log, and exports a file), and the sample buffering,
+the shared flush transaction and the export format are covered by `bun test`.
+What it cannot prove is anything only the hardware produces — **no real
+barometer reading has ever been recorded by this app, and its delivery cadence
+has never been measured.** The first real-hardware execution is the owner's
+captures per [`docs/field-test-capture-protocol.md`](../field-test-capture-protocol.md).
+What follows is what that slice settled, so it does not have to be rediscovered
+when the render slice picks the tuning back up.
+
+**Item 7's spike is superseded — by field logging, not a spike screen.** The
 original plan (§7) was a throwaway screen exercising the barometer in isolation.
 That was replaced with the opposite of a spike: instrumentation inside the real
-app, capturing real runs. This is the stronger form of the same evidence,
+app, capturing real runs. That is the stronger form of the same evidence,
 because a spike held in the hand while looking at a screen measures none of the
 conditions that decide whether background delivery works — pocketed, screen
 locked, 30+ minutes, a phone that has been carried and jostled, real CoreMotion
-hardware rather than a simulator that has none. Item 7 is closed as "the harness
-to answer it exists and has been run on real hardware," not as "the answer is
-known" — the answer is what [`docs/field-test-capture-protocol.md`](../field-test-capture-protocol.md)'s
+hardware rather than a simulator that has none. **Item 7 nevertheless stays
+open.** What the slice delivered is the harness to answer it, built and verified
+on the simulator; it has never run on a device, so neither background delivery
+nor cadence is answered yet. The answer is what
+[`docs/field-test-capture-protocol.md`](../field-test-capture-protocol.md)'s
 captures will produce.
 
 **Item 5's storage landed differently than either ADR text proposed.** Not
@@ -265,7 +277,7 @@ contradicting what the docs and this ADR's own prose imply:**
 |---|---|---|
 | `Barometer` exposes permission checks | It doesn't. `BarometerModule.swift`'s `definition()` registers only `isAvailableAsync` and `setUpdateInterval` — no `getPermissionsAsync`/`requestPermissionsAsync`. `DeviceSensor.getPermissionsAsync()` falls back to a hardcoded `{ granted: true, canAskAgain: true, ... }` (`defaultPermissionsResponse`) whenever `this._nativeModule.getPermissionsAsync` is `undefined` — so `Barometer.getPermissionsAsync()` silently reports granted and **never prompts**. The real requester is `Pedometer`: `PedometerModule.swift` registers both `AsyncFunction("getPermissionsAsync")` and `AsyncFunction("requestPermissionsAsync")`, which is what actually surfaces the Motion & Fitness dialog. | `node_modules/expo-sensors/ios/BarometerModule.swift`, `ios/PedometerModule.swift`, `src/DeviceSensor.ts` |
 | `setUpdateInterval` tunes delivery cadence | It's a no-op on iOS: `AsyncFunction("setUpdateInterval") { (_: Double) in /* Nothing we can do */ }`. `CMAltimeter` has no interval knob at all — cadence is whatever CoreMotion decides ("every few seconds", sparser than 1 Hz). This is a **hard constraint on the reducer's window sizing, not a tuning parameter available to the app.** | `node_modules/expo-sensors/ios/BarometerModule.swift` |
-| `BarometerMeasurement` lacks a per-sample timestamp | It has one: `{ pressure: number; relativeAltitude?: number; timestamp: number }` — `timestamp` is `CMLogItem.timestamp`, CoreMotion's boot-relative monotonic clock, in seconds, always present. `relativeAltitude` is the one that's optional. Both facts matter for the same reason: this ADR's reducer (§4.2) was tuned and measured against 1 Hz GPS; at "every few seconds," a 31-sample median window spans **over two minutes** of wall-clock time, not the ~31 seconds the original tuning assumed. | `node_modules/expo-sensors/build/Barometer.d.ts` |
+| `BarometerMeasurement` lacks a per-sample timestamp | It has one: `{ pressure: number; relativeAltitude?: number; timestamp: number }` — `timestamp` is `CMLogItem.timestamp`, CoreMotion's boot-relative monotonic clock, in seconds, always present. `relativeAltitude` is the one that's optional. Both facts matter for the same reason: this ADR's reducer (§4.2) was tuned and measured against 1 Hz GPS; at "every few seconds," a 31-sample median window spans **over two minutes** of wall-clock time, not the ~31 seconds the original tuning assumed — a figure that follows from `CMAltimeter`'s header wording, not from a measurement, since the real interval is one of the first things capture 1 produces. | `node_modules/expo-sensors/build/Barometer.d.ts` |
 
 **The rebase detector is `pressureHpa` continuity, not the epoch counter.**
 `adapter.ios.ts` maintains `epoch` as a JS module-scope counter, bumped only

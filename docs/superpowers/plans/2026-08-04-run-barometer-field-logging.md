@@ -1013,11 +1013,14 @@ describe('RunLog', () => {
     expect(log.pendingSamples[0].epoch).toBe(4);
   });
 
-  test('caps the buffer by dropping the OLDEST instrumentation, and logs the drop', () => {
+  test('caps the buffer by dropping the OLDEST instrumentation, and counts each drop', () => {
     const log = new RunLog();
     for (let i = 0; i < MAX_LOG_BUFFER + 5; i += 1) log.sample(reading({ at: i }), 0, 0);
     expect(log.pendingSamples).toHaveLength(MAX_LOG_BUFFER);
+    // why the oldest: a cap drop must never cost the newest data, and `at` proves which end went.
     expect(log.pendingSamples[0].at).toBeGreaterThan(0);
+    // the count is what the export header reports, so it has to be observable (spec §6.2).
+    expect(log.droppedCount).toBe(5);
   });
 
   test('take() removes what it hands out so a successful flush cannot double-write', () => {
@@ -1113,6 +1116,11 @@ export class RunLog {
 
   get pendingEntries(): readonly PendingEntry[] {
     return this.entries;
+  }
+
+  /** why exposed: the export header reports total drops, and a cap drop cannot `note()` from inside `push` without recursing. */
+  get droppedCount(): number {
+    return this.dropped;
   }
 
   restoreFrom({ sampleSeq, entrySeq }: { sampleSeq: number; entrySeq: number }): void {
@@ -1361,7 +1369,12 @@ Expected: FAIL — the constructor rejects the `elevation` dep.
 10. In `ingestFix`, on an accuracy-filter rejection, `this.log.note('fix_rejected', { at: fix.timestamp, accuracy: fix.accuracy, altitudeAccuracy: fix.altitudeAccuracy ?? null })`.
 11. Add `note(kind: RunLogKind, detail: unknown): void` as a public method delegating to `this.log.note`.
 12. Widen `drainPendingPoints`'s loop condition (~line 645) to `while (attempt < MAX_TAIL_FLUSHES && (this.pendingPoints.length > 0 || this.log.pendingSamples.length > 0 || this.log.pendingEntries.length > 0))` — otherwise every finalize-time entry is dropped, because the loop currently only runs when GPS points are pending.
-13. Add `snapshotState`'s `logSeq` watermarks so a resume can continue them.
+13. Add `snapshotState`'s `logSeq` watermarks so a resume can continue them. **Both legs, or the
+    watermark is inert:** `resumable.ts`'s `parseSnapshotState` rebuilds `RunSnapshotState` field by
+    field, so it must copy `logSeq` through as well — tolerating its absence exactly the way
+    `lastAcceptedFix` does, since a snapshot written by the pre-slice build has no such field. Writing
+    the watermark without parsing it back yields `undefined` on every resume, which is
+    indistinguishable from never having written it.
 14. Centralize cue firing: add `private announce(cue: …)` that early-returns when `this.cuesSuppressed` is true, and replace direct `this.cue.announce(...)` calls with it. Set `cuesSuppressed` in `start()`/`restore()` from the session key (Task 12 supplies the predicate; until then it is always false).
 
 - [ ] **Step 4: Run the tests**

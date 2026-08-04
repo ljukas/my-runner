@@ -301,17 +301,23 @@ describe('toRunExport', () => {
     const text = toRunExport(
       input({ samples: [{ seq: 0, at: 'x', sensorTimestampS: null, pressureHpa: 1013, relativeAltitudeM: null, epoch: 1, segmentSeq: 0 }] }),
     );
-    expect(text).toContain('0,x,,1013,,1,0');
-    expect(text).not.toContain('null');
+    // why scoped to the section: the JSON header legitimately serializes `"updateId":null`, so a
+    // whole-file assertion would test the header's shape rather than the CSV's null handling.
+    const section = text.slice(text.indexOf('## altitude'), text.indexOf('## log'));
+    expect(section).toContain('0,x,,1013,,1,0');
+    expect(section).not.toContain('null');
   });
 
   test('escapes a detail payload containing a comma, a quote, a newline and a section marker', () => {
     const detailJson = JSON.stringify({ note: 'a,b "q"\n## points' });
     const text = toRunExport(input({ log: [{ seq: 0, at: 'x', kind: 'cue', detailJson }] }));
-    const body = text.slice(text.indexOf('## log'));
+    // why sliced to just this section: the log section is followed by `## events`, so slicing to
+    // end-of-file would count that real header and prove nothing about forgery.
+    const body = text.slice(text.indexOf('## log'), text.indexOf('## events'));
     // JSON.stringify escapes the newline as two characters, so the payload cannot forge a section.
     expect(body.split('\n').filter((l) => l.startsWith('## ')).length).toBe(1);
-    expect(body).toContain('""q""');
+    // the JSON key's own quotes are real quotes, so CSV escaping doubles them.
+    expect(body).toContain('""note""');
   });
 
   test('ends with exactly one newline', () => {

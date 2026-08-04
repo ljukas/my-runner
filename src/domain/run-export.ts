@@ -4,7 +4,7 @@ export const RUN_EXPORT_MAGIC = 'runbro-export/1';
 export const RUN_EXPORT_SCHEMA = 1;
 
 export interface RunExportDevice {
-  model: string;
+  deviceName: string;
   osVersion: string;
   appVersion: string;
   updateId: string | null;

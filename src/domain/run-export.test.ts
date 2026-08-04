@@ -6,7 +6,7 @@ function input(overrides: Partial<RunExportInput> = {}): RunExportInput {
   return {
     exportedAt: '2026-08-04T10:00:00.000Z',
     device: {
-      model: 'iPhone15,2',
+      deviceName: "Lukas's iPhone",
       osVersion: '26.5',
       appVersion: '0.1.0',
       updateId: null,
@@ -71,6 +71,13 @@ describe('toRunExport', () => {
     expect(lines[0]).toBe(`# ${RUN_EXPORT_MAGIC}`);
     const header = JSON.parse(lines[1]) as { counts: Record<string, number> };
     expect(header.counts).toEqual({ segments: 1, points: 1, altitude: 1, log: 1, events: 1 });
+  });
+
+  test('the device header carries a name, not a hardware model field', () => {
+    const lines = toRunExport(input()).split('\n');
+    const header = JSON.parse(lines[1]) as { device: Record<string, unknown> };
+    expect(header.device.deviceName).toBe("Lukas's iPhone");
+    expect(header.device).not.toHaveProperty('model');
   });
 
   test('emits every section header even when a section is empty, with no row leaked into its body', () => {

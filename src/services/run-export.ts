@@ -2,12 +2,13 @@ import { and, asc, eq } from 'drizzle-orm';
 import Constants from 'expo-constants';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { updateId } from 'expo-updates';
 import { Platform } from 'react-native';
 
 import { db } from '@/db/client';
 import { loadAltitudeSamples, loadRunLog } from '@/db/run-log';
-import { loadRunFixes } from '@/db/run-points';
-import { runNotDeleted } from '@/db/queries';
+import { loadBufferedRunPoints } from '@/db/run-points';
+import { runIsResult } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
 import { toRunExport, type ExportEvent, type ExportPoint } from '@/domain/run-export';
 
@@ -18,15 +19,16 @@ function fileName(runId: string, startedAt: string): string {
 
 /**
  * Writes one run's full data to the cache and opens the system share sheet. Never throws —
- * the caller shows the outcome. Not reachable while a run is live: the reads are synchronous
- * and would stall the heartbeat (spec §7.2).
+ * the caller shows the outcome. Not reachable while a run is live — enforced here via
+ * `runIsResult`, not just the navigation graph — because the reads are synchronous and would
+ * stall the heartbeat (spec §7.2).
  */
 export async function exportRun(runId: string): Promise<'shared' | 'unavailable' | 'failed'> {
   try {
     const run = db
       .select()
       .from(runs)
-      .where(and(eq(runs.id, runId), runNotDeleted))
+      .where(and(eq(runs.id, runId), runIsResult))
       .all()[0];
     if (!run) return 'unavailable';
 
@@ -37,8 +39,8 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
       .orderBy(asc(runSegments.seq))
       .all();
 
-    const points: ExportPoint[] = loadRunFixes(runId).map((fix, index) => ({
-      seq: index,
+    const points: ExportPoint[] = loadBufferedRunPoints(runId).map((fix) => ({
+      seq: fix.seq,
       at: new Date(fix.timestamp).toISOString(),
       lat: fix.lat,
       lng: fix.lng,
@@ -48,6 +50,8 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
       speedMps: fix.speed,
       segmentSeq: fix.segmentSeq,
     }));
+
+    const samples = loadAltitudeSamples(runId);
 
     let events: ExportEvent[] = [];
     if (run.eventLogJson) {
@@ -62,11 +66,11 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
       exportedAt: new Date().toISOString(),
       device: {
         // expo-device is deliberately not installed for one header field (Task 5 brief).
-        model: Constants.deviceName ?? 'unknown',
+        deviceName: Constants.deviceName ?? 'unknown',
         osVersion: String(Platform.Version),
         appVersion: Constants.expoConfig?.version ?? 'unknown',
-        updateId: Constants.expoConfig?.extra?.updateId ?? null,
-        barometerAvailable: loadAltitudeSamples(runId).length > 0,
+        updateId,
+        barometerAvailable: samples.length > 0,
         motionPermission: run.motionPermission,
         timezoneOffsetMin: new Date().getTimezoneOffset(),
       },
@@ -88,7 +92,7 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
         wasSkipped: s.wasSkipped,
       })),
       points,
-      samples: loadAltitudeSamples(runId),
+      samples,
       log: loadRunLog(runId),
       events,
     });
@@ -100,6 +104,10 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
     file.write(text);
 
     if (!(await Sharing.isAvailableAsync())) return 'unavailable';
+    // why: on iOS, expo-sharing's completion handler resolves the same way on Cancel as on a
+    // completed AirDrop (SharingModule.swift ignores UIActivityViewController's `completed` flag)
+    // — 'shared' below means only that the share sheet was presented, never that the file actually
+    // left the device. Do not build a success indicator on this resolution.
     await Sharing.shareAsync(file.uri, { UTI: 'public.plain-text', mimeType: 'text/plain' });
     return 'shared';
   } catch (error) {

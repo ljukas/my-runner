@@ -587,7 +587,11 @@ field cannot forge a section header); the header JSON is stringified without
 indentation; the file ends with exactly one `\n`. The export test covers
 `detailJson` containing `,`, `"`, `\n` and `##`.
 
-The header carries device model, iOS version, app version, runtime/update id,
+The header carries the device's name (`RunExportDevice.deviceName` — the
+user's nickname for it, e.g. "Lukas's iPhone"; `expo-device` is deliberately
+not installed for this one field, and `Constants.platform?.ios?.model` is
+vestigial and dead at runtime on this SDK, so there is no zero-dependency
+hardware-model source), iOS version, app version, runtime/update id,
 barometer availability, motion-permission status, timezone offset, per-section
 row counts, and the drop counters. It does **not** carry a "requested update
 interval": that would log a value provably without effect (§1).

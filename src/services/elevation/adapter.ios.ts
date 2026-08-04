@@ -42,7 +42,9 @@ export const elevationSource: ElevationSource = {
     subscription = Barometer.addListener((measurement) => {
       const reading = toAltitudeReading(measurement, Date.now(), readingEpoch);
       if (!reading) return;
-      listeners.forEach((listener) => listener(reading));
+      // why a snapshot: a listener added from inside another listener's callback must not be
+      // visited in this same delivery — iterating the live Set would do exactly that.
+      Array.from(listeners).forEach((listener) => listener(reading));
     });
   },
 

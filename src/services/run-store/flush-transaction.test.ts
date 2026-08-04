@@ -162,4 +162,55 @@ describe('writeFlush atomicity', () => {
     expect(db.select().from(runLog).all()).toHaveLength(1);
     expect(db.select().from(activeRunSnapshot).all()).toHaveLength(1);
   });
+
+  test('a non-finite `at` on a sample or entry is skipped, not thrown, so the rest of the flush still commits', () => {
+    const db = makeDb();
+    const goodSample: PendingSample = { ...SAMPLE, seq: 0 };
+    const badSample: PendingSample = { ...SAMPLE, seq: 1, at: Number.NaN };
+    const goodEntry: PendingEntry = { ...ENTRY, seq: 0 };
+    const badEntry: PendingEntry = { ...ENTRY, seq: 1, at: Number.POSITIVE_INFINITY };
+    expect(() =>
+      db.transaction((tx) =>
+        writeFlush(
+          tx,
+          'run-1',
+          [POINT],
+          [goodSample, badSample],
+          [goodEntry, badEntry],
+          JSON.stringify({ sessionKey: 'w1d1' }),
+          '2026-08-04T09:00:00.000Z',
+        ),
+      ),
+    ).not.toThrow();
+    // the GPS track is unaffected by the skip.
+    expect(db.select().from(runPoints).all()).toHaveLength(1);
+    const samples = db.select().from(runAltitudeSamples).all();
+    expect(samples).toHaveLength(1);
+    expect(samples[0].seq).toBe(0); // seq 1 stays absent — the gap is the drop's evidence.
+    const entries = db.select().from(runLog).all();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].seq).toBe(0);
+    expect(db.select().from(activeRunSnapshot).all()).toHaveLength(1);
+  });
+
+  test('a batch wider than the bind-parameter-safe chunk size is still written in full', () => {
+    const db = makeDb();
+    const samples: PendingSample[] = Array.from({ length: 501 }, (_, i) => ({
+      ...SAMPLE,
+      seq: i,
+      at: SAMPLE.at + i,
+    }));
+    db.transaction((tx) =>
+      writeFlush(
+        tx,
+        'run-1',
+        [],
+        samples,
+        [],
+        JSON.stringify({ sessionKey: 'w1d1' }),
+        '2026-08-04T09:00:00.000Z',
+      ),
+    );
+    expect(db.select().from(runAltitudeSamples).all()).toHaveLength(501);
+  });
 });

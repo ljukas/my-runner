@@ -41,8 +41,9 @@ export interface PendingEntry {
 }
 
 /**
- * The run's instrumentation buffers. Owns `seq` so a drop is visible as a gap rather than as a
- * clean stretch indistinguishable from a suspension (spec §6.2).
+ * The run's instrumentation buffers. Owns `seq` so any drop — a validation failure or a cap
+ * eviction — always leaves a gap in the sequence, never a clean stretch indistinguishable from a
+ * suspension (spec §6.2).
  */
 export class RunLog {
   private samples: PendingSample[] = [];
@@ -83,6 +84,9 @@ export class RunLog {
 
   sample(reading: AltitudeReading, segmentSeq: number, epochBase: number): void {
     if (!Number.isFinite(reading.pressureHpa)) {
+      // why: consume the seq here too, so a validation drop leaves the same seq-gap evidence a
+      // cap eviction does — any gap uniformly means "a reading was dropped here" (see class docstring).
+      this.nextSampleSeq += 1;
       this.dropped += 1;
       this.note('samples_dropped', { reason: 'nonfinite', total: this.dropped });
       return;
@@ -106,6 +110,16 @@ export class RunLog {
     return this.entries.splice(0, limit);
   }
 
+  /** Puts a rejected flush's samples back ahead of anything buffered meanwhile, `seq` untouched. */
+  restoreSamples(items: PendingSample[]): void {
+    this.samples = this.restore(this.samples, items);
+  }
+
+  /** Puts a rejected flush's entries back ahead of anything buffered meanwhile, `seq` untouched. */
+  restoreEntries(items: PendingEntry[]): void {
+    this.entries = this.restore(this.entries, items);
+  }
+
   reset(): void {
     this.samples = [];
     this.entries = [];
@@ -120,5 +134,18 @@ export class RunLog {
       target.splice(0, target.length - MAX_LOG_BUFFER);
       this.dropped += 1;
     }
+  }
+
+  // why front: a rejected flush's rows must be retried ahead of anything buffered while it was in
+  // flight, per RunStore.flush's re-send contract (run-store/port.ts); the cap still applies, so
+  // restoring past it drops from the oldest end exactly like `push` does.
+  private restore<T>(target: T[], items: T[]): T[] {
+    const merged = items.concat(target);
+    if (merged.length > MAX_LOG_BUFFER) {
+      const excess = merged.length - MAX_LOG_BUFFER;
+      this.dropped += excess;
+      return merged.slice(excess);
+    }
+    return merged;
   }
 }

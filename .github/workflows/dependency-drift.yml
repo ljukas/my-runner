@@ -1,0 +1,100 @@
+# Dependabot-style drift detection: expo-doctor as a maintenance signal, not a
+# merge gate. It was removed from ci.yml because its expected-version table is
+# fetched from api.expo.dev at run time, so an upstream SDK patch reddens a PR
+# that changed nothing — and going green means bumping native packages, which
+# changes the fingerprint and drops the next release from OTA to a store build
+# (ADR 0012). Here that same information arrives as an issue you batch.
+name: Dependency drift
+
+on:
+  schedule:
+    # Mondays 06:00 UTC. Note GitHub disables scheduled workflows after 60 days
+    # of repo inactivity — re-enable from the Actions tab if the repo goes quiet.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: dependency-drift
+  cancel-in-progress: false
+
+jobs:
+  expo-doctor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      LABEL: dependency-drift
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # expo-doctor inspects the installed tree, so it needs a real install.
+      - name: Install dependencies (frozen)
+        run: bun ci
+
+      # Unpinned on purpose: off the merge path, a newer doctor bringing new
+      # checks is the signal we want rather than a surprise that blocks a PR.
+      # pipefail is required — without it `tee` supplies the exit code and drift
+      # always reads as success.
+      - name: Run expo-doctor
+        id: doctor
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bunx expo-doctor 2>&1 | tee "$RUNNER_TEMP/doctor.log"
+
+      - name: Ensure the drift label exists
+        run: gh label create "$LABEL" --color BFD4F2 --description "expo-doctor dependency drift" --force
+
+      - name: Open or update the drift issue
+        if: steps.doctor.outcome == 'failure'
+        run: |
+          {
+            cat <<'EOF'
+          `expo-doctor` reports drift against the installed Expo SDK.
+
+          **Before bumping anything, check which packages are native.** A package with
+          an `ios/` directory is a fingerprint source, so bumping it costs the next
+          release its OTA eligibility and routes it through build → approval → store
+          submit (ADR 0012). JS-only packages are free. Batch the native ones into a
+          deliberate deps PR, ideally alongside a change that is going native anyway.
+
+          Confirm the fingerprint impact before merging — capture the hash, install the
+          bumps, then compare:
+
+          ```
+          bunx expo-updates fingerprint:generate --platform ios | jq -r .hash
+          ```
+
+          EOF
+            echo '```'
+            cat "$RUNNER_TEMP/doctor.log"
+            echo '```'
+            echo
+            echo "_[Workflow run]($RUN_URL) — this issue is updated in place each week, and closed automatically when doctor is clean._"
+          } > "$RUNNER_TEMP/body.md"
+
+          NUM=$(gh issue list --state open --label "$LABEL" --json number -q '.[0].number // empty')
+          if [ -n "$NUM" ]; then
+            gh issue edit "$NUM" --body-file "$RUNNER_TEMP/body.md"
+            echo "Updated #$NUM"
+          else
+            gh issue create --title "Dependency drift detected by expo-doctor" \
+              --label "$LABEL" --body-file "$RUNNER_TEMP/body.md"
+          fi
+
+      - name: Close the drift issue
+        if: steps.doctor.outcome == 'success'
+        run: |
+          NUM=$(gh issue list --state open --label "$LABEL" --json number -q '.[0].number // empty')
+          if [ -n "$NUM" ]; then
+            gh issue close "$NUM" --comment "expo-doctor is clean again — closing. See $RUN_URL."
+          fi

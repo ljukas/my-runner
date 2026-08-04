@@ -24,10 +24,22 @@ This project uses **Bun** as its package manager and script runner — `bun.lock
 - `bun run typecheck` — `tsc --noEmit`. Depends on two **gitignored generated files**: `expo-env.d.ts` and `.expo/types/router.d.ts` (typed routes). In a fresh clone or worktree it fails (`TS2882` on `@/global.css`, then route-typing errors) until you start the dev server once — `bun expo start` on any free port, kill it as soon as `.expo/types/router.d.ts` appears. Never copy `.expo/types/router.d.ts` from another checkout: it encodes that branch's route files and produces misleading type errors on this one.
 - `bun run db:generate` — regenerates Drizzle migrations after editing `src/db/schema.ts` (commit the generated output)
 - `bun run e2e` — run the full Maestro E2E suite against the `e2e-simulator` build on a booted simulator (`bun run e2e:onboarding` / `bun run e2e:session` for tagged subsets; `bun run e2e:build` to produce the `e2e-simulator` app via `eas build --local`, into `build/`). See "E2E tests (Maestro)" below.
+- `bunx expo-doctor` — SDK/dependency alignment and config sanity. **Deliberately not a CI check** and deliberately not a `package.json` script (adding one would change the native fingerprint). Run it by hand when bumping native dependencies or upgrading the SDK, and treat its version-drift finding as a batching decision, not a chore — see "Dependency drift" below.
 
-`.github/workflows/ci.yml` (the `checks` job) runs typecheck, lint, unit tests and expo-doctor on every PR. Each gates on the install step rather than on its predecessor, so one run reports every failure instead of stopping at the first.
+`.github/workflows/ci.yml` (the `checks` job) runs typecheck, lint and unit tests on every PR. Each gates on the install step rather than on its predecessor, so one run reports every failure instead of stopping at the first.
 
 The `/ios` folder is gitignored — it is generated via prebuild (Continuous Native Generation). `platforms: ["ios"]` in app.json means no `android/` project is generated (iOS-only atm). Never edit native projects directly; configure everything through `app.json` and config plugins.
+
+# Dependency drift
+
+`expo-doctor` is **not** in `checks`, by design. Its expected-version table is fetched from `api.expo.dev` at run time, so an upstream SDK patch reddens a PR that changed nothing — and the only way back to green is bumping native packages, which changes the fingerprint and costs the next release its OTA eligibility (ADR 0012). It runs weekly in `.github/workflows/dependency-drift.yml` instead, which opens/updates a single `dependency-drift` issue and closes it when doctor is clean; `workflow_dispatch` triggers it on demand.
+
+When acting on a drift report, sort the packages first — this is the whole point of the split:
+
+- **A package with an `ios/` directory is a fingerprint source** (verified: the hashed set is each autolinked module's native dir, plus the autolinking configs, `expoConfig`, `react-native`'s `package.json`, and `packageJson:scripts`). Bumping one forces the next release through build → approval → store submit.
+- **JS-only packages are free** — `clsx`, `tailwind-merge`, `drizzle-orm`, `victory-native`, `uniwind` and friends are not hashed at all.
+- Compare hashes before and after with `bunx expo-updates fingerprint:generate --platform ios | jq -r .hash`.
+- `expo.install.exclude` in `package.json` pins a package against the check, and is itself fingerprint-neutral (only the `scripts` field is hashed).
 
 # Skills & MCP — what to load when
 

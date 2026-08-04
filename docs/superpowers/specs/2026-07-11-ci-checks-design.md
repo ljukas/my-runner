@@ -1,7 +1,20 @@
 # CI checks GitHub Action — design
 
 Date: 2026-07-11
-Status: Approved design, pending implementation
+Status: Implemented, amended 2026-08-04
+
+> **Amendment 2026-08-04 — expo-doctor removed from `checks`.** The
+> "expo-doctor needs network" risk below fired, via the SDK-version check rather
+> than the directory check it anticipated: expected versions are fetched from
+> `api.expo.dev`, so six Expo patch releases turned a green branch red with no
+> repo change (PR #54 failed on this step alone). The pre-registered mitigation —
+> split doctor out of the required job — was taken one step further: it now runs
+> weekly in `.github/workflows/dependency-drift.yml` as a Dependabot-style
+> notifier. Rationale: satisfying the check means bumping native packages, which
+> changes the fingerprint and drops the next release from OTA to a store build
+> ([ADR 0012](../../adr/0012-release-please-fingerprint-gated-releases.md)), so a
+> per-PR gate converted Expo's upstream patch cadence into forced native
+> releases. Steps 1–5 below are unchanged; step 6 no longer applies.
 
 ## Goal
 
@@ -70,10 +83,14 @@ and is enforced as a **required status check** via the repo's existing
 
 ## Known risks
 
-- **expo-doctor needs network** (npm registry + React Native Directory) and
+- ~~**expo-doctor needs network** (npm registry + React Native Directory) and
   can newly warn when directory data changes, not code. Mitigation if it ever
   bites: `expo.doctor.reactNativeDirectoryCheck.exclude` in package.json, or
-  split doctor into its own non-required job.
+  split doctor into its own non-required job.~~ **Fired 2026-08-04** — see the
+  amendment at the top. Worth keeping as the record of a correctly-predicted
+  risk: the failure mode was right, the specific check was not, and the reason
+  the mitigation had to go further than "non-required job" was the fingerprint
+  coupling, which this spec predates.
 - `expo customize tsconfig.json` rewrites `tsconfig.json` (strips comments) —
   harmless in a throwaway CI checkout
   ([expo#32326](https://github.com/expo/expo/issues/32326)).

@@ -50,3 +50,6 @@ build-*.tar.gz
 
 # Claude Code session worktrees
 .claude/worktrees/
+
+# Field-test exports: they contain the runner's home coordinates (start and finish of every run)
+/field-data/

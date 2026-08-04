@@ -143,7 +143,7 @@ src/services/elevation/adapter.ios.ts   # expo-sensors Barometer, one permanent 
 src/services/elevation/index.ts
 src/services/elevation/use-motion-permission.ts   # via Pedometer (§6.3)
 
-src/services/run-engine/run-log.ts      # typed entry constructors + buffers + seq
+src/services/run-engine/run-log.ts      # buffers + seq + a generic note(kind, detail) (§3.2)
 src/services/run-engine/engine.ts       # wiring only
 src/services/run-engine/index.ts        # composition root: onFix/AppState/battery -> engine.note
 
@@ -186,9 +186,16 @@ dropout would have manufactured a fake altitude gap.
 existing patterns contain the additions:
 
 - **Buffering and entry construction live in a sibling module.** `run-log.ts`
-  owns the buffers, the `seq` counters, and typed constructors, so `engine.ts`
-  calls `this.log.lifecycle(state)` rather than assembling JSON inline —
-  mirroring `point-batch-scheduler.ts`, already a separate 56-line file.
+  owns the buffers and the `seq` counters, so `engine.ts` hands over a kind and a
+  payload rather than assembling JSON inline — mirroring
+  `point-batch-scheduler.ts`, already a separate 56-line file. **What shipped is
+  one generic `note(kind, detail: unknown)`**, not the per-kind typed
+  constructors (`this.log.lifecycle(state)`) this section described: `kind` is
+  already plain text by §5.1's own argument, and a constructor per kind would
+  reintroduce the per-signal edit the generic table exists to avoid. The
+  consequence is real and belongs in the protocol's reading material — a kind's
+  payload shape is unenforced, and two kinds already carry two shapes each
+  (`battery` with and without `level`, `pedometer` with and without `timedOut`).
 - **Platform listeners live in the composition root.** `run-engine/index.ts`
   already starts the location tracker and owns the `onFix` callback; it
   subscribes `AppState` and `expo-battery` there and pipes everything into a
@@ -323,8 +330,15 @@ Corrected:
   after the new `start()`". A fire-and-forget `void start()` inherits that race
   in the harmful direction: a finalize `stop()` landing before a `start()` leaves
   the barometer running with the app backgrounded, indefinitely.
-- Add a Motion analogue of `retryTracking()` (`run-engine/index.ts:135`), so a
-  grant made mid-run via Settings starts capture for that run.
+- ~~Add a Motion analogue of `retryTracking()` (`run-engine/index.ts:135`), so a
+  grant made mid-run via Settings starts capture for that run.~~ **Dropped in
+  implementation, deliberately.** `retryMotion()` was written and then deleted:
+  a correct version would have had no caller, because the affordance that would
+  call it — a Settings-grant prompt on the run screen — belongs to the render
+  slice, where elevation is user-visible enough to justify asking. Shipping an
+  uncalled retry seam is the dead code §12's file list would otherwise imply.
+  Mid-run grants therefore do not start capture for the run in progress; the
+  next run picks the grant up at its own `start()`.
 
 ## 5. Storage
 
@@ -432,7 +446,7 @@ adds well under 30 MB.
 |---|---|---|---|
 | Altitude readings | `ElevationSource` | sensor-driven | `run_altitude_samples` |
 | **Aliveness tick** | one row per flush (the self-re-arming 5 s cadence) | 5 s | `run_log` `tick` |
-| **Delivered fix batches** | `locationTracker.onFix` in the composition root | per callback | `run_log` `fix_batch` |
+| **Delivered fixes, receipt-stamped** | `locationTracker.onFix` in the composition root | per fix (§6.1) | `run_log` `fix_batch` |
 | Accuracy-filter rejections | `engine.ingestFix` | rare | `run_log` `fix_rejected` |
 | Foreground/background | `AppState` (composition root) | on change | `run_log` `lifecycle` |
 | Low-power mode + battery | `expo-battery` (composition root) | start + on change | `run_log` `battery` |
@@ -460,12 +474,25 @@ It does not, for three independently fatal reasons:
 3. **A locked 30-minute run yields one `lifecycle` row.** Suspension is invisible
    to `AppState` by construction: no JS runs to observe it.
 
-So two signals are added. **`fix_batch`** is the primary trace — one row per
-`onFix` callback carrying `{ receivedAt, count, firstAt, lastAt }`, hooked in the
+So two signals are added. **`fix_batch`** is the primary trace, hooked in the
 composition root, the only place every delivered fix is visible. It is the
 strongest aliveness evidence available because the callback runs headlessly under
 ADR 0008's heartbeat. **`tick`** rides the existing flush cadence — no new timer —
 giving a 5 s heartbeat of `Date.now()` values.
+
+**Shipped shape, corrected against the code:** `{ receivedAt, fixAt }`, **one row
+per fix** — not the `{ receivedAt, count, firstAt, lastAt }` per-batch row
+revisions 1–3 described. The location adapter already unbundles
+`data.locations` before the composition root sees it, so `onFix` fires per fix
+and a batch summary is not assemblable there. This is strictly *more*
+information — every fix's determination time paired with its own receipt time —
+and the primary research question, receipt-time gaps, is preserved exactly. The
+consequence for §8.4: **batch identity is not a stored field.** It is recoverable
+as a clustering heuristic — fixes sharing an equal `receivedAt` were one native
+delivery — which is sound because `Date.now()` is read once per synchronous
+callback, but it is an inference, not a record. Row count is ~1 per fix, i.e.
+~1800 for a 30-minute run, which §5.4's `30–1800` range already brackets at its
+top end and §13 flags for downsampling once the tuning closes.
 
 Also corrected: revision 1 conflated two rejections. `accuracyFilter` rejection
 *is* inside `ingestFix` (`engine.ts:463`), but `smoothFix`'s velocity-gate
@@ -672,9 +699,14 @@ transform plain text.
 
 A plain `Card` row at the bottom of the run summary, below `HealthStatusRow`,
 following `health-status-row.tsx` as its template: title "Export run data",
-subtitle carrying the counts (`1,284 GPS fixes · 412 altitude samples`). Per
-ADR 0013 §2 the `testID` goes on the actually-tappable element — an
-`Island.Button`, since the summary screen composes only.
+subtitle carrying the counts (`1,284 GPS fixes · 412 altitude samples`). The
+tappable element is an `Island.Button`, since the summary screen composes only.
+
+**No `testID` is set, and that is the shipped decision.** ADR 0013 §2 governs
+*where* an id goes when there is one — on the tappable element, and the island
+primitives keep the prop for that — but ADR 0016 governs *whether*: an id exists
+only for as long as a Maestro flow uses it, and no flow targets this row. The
+same rule retires §14's `testID` note.
 
 Those counts are the **only** in-app confirmation that capture worked, checkable
 before a 30-minute run's data is trusted. They must be read **imperatively**, not
@@ -749,8 +781,8 @@ because it is followed on a phone in a stairwell, not read from a spec.
 
 | # | Capture | What it uniquely answers | Cost |
 |---|---|---|---|
-| 1 | **Stationary, 15 min, phone flat on a table, run active** | jitter σ and drift against a *certain* zero; resamplable to n=50 | no running |
-| 2 | **Stairwell, 5× up and down, riser measured with a tape** | the positive magnitude reference — the only term that punishes over-smoothing | ~10 min |
+| 1 | **Stationary, 40–45 min, phone flat on a table, run active** | jitter σ and drift against a *certain* zero; resamplable to n=50 | no running |
+| 2 | **Stairwell, ≥10× up and down, riser measured with a tape** | the positive magnitude reference — the only term that punishes over-smoothing | ~30 min |
 | 3 | **Genuinely flat closed loop, phone pocketed** | phantom gain under real running motion | one run |
 | 4 | **Same route as #3, different day/weather** | run-to-run variance; the only repeatability estimate | one run |
 | 5 | **Hilly closed loop with a deliberate 5 min pause and one screen-on stretch** | rebase-at-pause, ≥3 `lifecycle` rows, the gap distribution | one run |
@@ -773,12 +805,19 @@ what converts drift from a confound into a measured covariate (§2.1).
 2. One native `preview` build with the three new modules; install.
 3. Grant Motion & Fitness at the first run's start (§6.3).
 4. **Capture #1 doubles as the validation run** — export it, AirDrop it, verify
-   the pipeline end-to-end here *before* trusting a real run to it. Its 15 minutes
-   is why it can serve both purposes: at a 10 s cadence a 31-sample window needs
+   the pipeline end-to-end here *before* trusting a real run to it. Its length is
+   why it can serve both purposes: at a 10 s cadence a 31-sample window needs
    310 s just to fill, so the 5-minute walk revision 1 proposed could have
    returned all-nulls and read as a bug.
-5. Captures 2–6.
-6. Analysis (§8.4), then the render slice.
+5. **Capture #1 also gates capture #2**, and §8.6's cadence histogram is the gate:
+   the median inter-sample interval measured here is what converts "5× the widest
+   candidate window" into a duration, and capture #2 must be sized in samples
+   rather than minutes or its own median window spends over half the recording
+   filling — returning ~half the tape-measured truth and making the sweep punish
+   `w31` for warm-up truncation instead of over-smoothing. The protocol carries
+   the arithmetic and the ≥150-sample floor.
+6. Captures 2–6.
+7. Analysis (§8.4), then the render slice.
 
 ### 8.4 What the analysis derives
 
@@ -929,6 +968,15 @@ new port actually reach:
 
 ## 13. Deferred to the render slice
 
+- **Downsample or gate `fix_batch`.** At one row per fix it is ~1800 of the
+  ~2200 `run_log` rows a run writes, it is **not** gated on
+  `EXPO_PUBLIC_FIELD_TEST` (so every real run pays it), there is no retention
+  policy, and §8.0 records that there is no delete-run UI to prune with. That is
+  correct *while* the tuning is open — receipt-time gaps are the primary research
+  question and they need every run, not just captures. Once §8.4's analysis
+  lands, this must be downsampled (keep the gaps, drop the dense runs), gated
+  behind the field-test flag, or given a retention cutoff. Recorded here so it
+  is a decision rather than something that becomes permanent by inattention.
 - **The gap policy.** ADR 0015 requires that a total spanning a suspension gap be
   *declined* rather than under-reported, since `CMAltimeter` cannot backfill. The
   threshold stays undesigned deliberately: it should come from the observed gap
@@ -965,7 +1013,8 @@ new port actually reach:
   `ElevationState` is still **never snapshotted**.
 - **ADR 0013** — `run-export-row.tsx` is a domain component at
   `src/components/` root binding a service, templated on
-  `health-status-row.tsx`, with `testID` on the tappable element.
+  `health-status-row.tsx`. No `testID` is set (§7.3): ADR 0016 gates ids on a
+  Maestro flow using them, and none does.
 - **ADR 0021** — unaffected; the smoother is unchanged.
 
 ## 15. Review history

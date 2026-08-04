@@ -14,6 +14,7 @@ import type {
   ElevationSource,
   MotionPermissionStatus,
 } from '@/services/elevation';
+import { FIELD_TEST_SESSION_KEY } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
@@ -1844,5 +1845,61 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
     // retries belong to points, and none are pending.
     expect(h.calls.filter((c) => c === 'flush')).toHaveLength(2);
     expect(h.calls).toContain('finalizeRun');
+  });
+});
+
+describe('field-test cue suppression (spec §8.0)', () => {
+  test('start() suppresses every cue for a field-test session', () => {
+    const { engine, cues, tick } = makeEngine();
+    engine.start({
+      key: FIELD_TEST_SESSION_KEY,
+      week: 0,
+      day: 0,
+      segments: [{ kind: 'walk', seconds: 3600 }],
+    });
+    tick(10);
+    expect(cues).toEqual([]);
+  });
+
+  test('start() still announces cues for an ordinary plan session', () => {
+    const { engine, cues } = makeEngine();
+    engine.start(SESSION); // w1d1 — not a field-test key
+    expect(cues).toEqual(['warmupStart']);
+  });
+
+  test('restore() also suppresses cues for a field-test session', () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 15_000); // 15s elapsed → past the 10s warmup, into the walk segment
+    const restored = h.engine.restore({
+      runId: 'run-1',
+      session: {
+        key: FIELD_TEST_SESSION_KEY,
+        week: 0,
+        day: 0,
+        segments: [
+          { kind: 'warmup', seconds: 10 },
+          { kind: 'walk', seconds: 3600 },
+        ],
+      },
+      state: stateAtStart({ sessionKey: FIELD_TEST_SESSION_KEY }),
+      points: [],
+    });
+    expect(restored).toBe(true);
+    expect(h.engine.getSnapshot().segmentIndex).toBe(1); // the transition that would announce startWalk
+    expect(h.cues).toEqual([]);
+  });
+
+  test('restore() does not suppress cues for an ordinary plan session', () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 15_000);
+    const restored = h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart(),
+      points: [],
+    });
+    expect(restored).toBe(true);
+    expect(h.engine.getSnapshot().segmentIndex).toBe(1);
+    expect(h.cues).toContain('startRun');
   });
 });

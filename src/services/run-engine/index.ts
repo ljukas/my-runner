@@ -1,16 +1,20 @@
+import { eq } from 'drizzle-orm';
 import * as Battery from 'expo-battery';
 import { Pedometer } from 'expo-sensors';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 
 import { findActiveRun } from '@/db/active-run';
+import { db } from '@/db/client';
 import { loadLogResumeWatermarks } from '@/db/run-log';
 import { loadBufferedRunPoints } from '@/db/run-points';
 import { dbRunPersistence } from '@/db/save-run';
+import { runs } from '@/db/schema';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
 import { elevationSource, type ElevationSource } from '@/services/elevation';
+import { skipForFieldTest } from '@/services/field-test';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
@@ -61,12 +65,19 @@ const stepCounter: StepCounter = async (start, end) => {
   }
 };
 
+// `withHealthSync`'s sync callback only carries a runId (ADR 0011 §4), so a field-test skip has to
+// re-derive the session key here rather than through the decorator's signature (spec §8.0).
+function sessionKeyOfRun(runId: string): string | undefined {
+  return db.select({ sessionKey: runs.sessionKey }).from(runs).where(eq(runs.id, runId)).get()
+    ?.sessionKey;
+}
+
 export const runEngine = new RunEngine({
   // why not `(runId) => void syncRunToHealth(runId)`: that discards the real promise, so fireSync's
   // own `Promise.resolve(sync(runId)).catch(...)` would await `undefined` and any rejection from
   // syncRunToHealth would become an unhandled rejection instead of a logged warning. Pass the
   // function straight through so its promise reaches fireSync.
-  persistence: withHealthSync(dbRunPersistence, syncRunToHealth),
+  persistence: withHealthSync(dbRunPersistence, skipForFieldTest(sessionKeyOfRun, syncRunToHealth)),
   cue: cueService,
   runStore: dbRunStore,
   tracker: locationTracker,

@@ -3,8 +3,10 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 
+import { FieldTestRow } from '@/components/field-test-row';
 import { Island } from '@/components/island';
 import { SettingsToggle } from '@/components/settings-toggle';
+import { isFieldTestBuild } from '@/services/field-test';
 import {
   openHealthApp,
   requestWriteAccess,
@@ -115,6 +117,21 @@ export default function SettingsScreen() {
           <Section title="Developer">
             <SettingsToggle label="Compressed Plan" settingKey="useCompressedPlan" />
             <Button label="Reset Onboarding" onPress={() => resetAndRestart(router)} />
+          </Section>
+        ) : null}
+
+        {isFieldTestBuild() ? (
+          <Section
+            title="Field test"
+            footer={
+              <Text>
+                Starts an untracked capture for the barometer field tests
+                (docs/field-test-capture-protocol.md). No cues, no plan progress, no Apple Health
+                write.
+              </Text>
+            }
+          >
+            <FieldTestRow />
           </Section>
         ) : null}
       </Form>

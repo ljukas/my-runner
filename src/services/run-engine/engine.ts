@@ -20,6 +20,7 @@ import type {
   ElevationSource,
   MotionPermissionStatus,
 } from '@/services/elevation';
+import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import {
@@ -246,7 +247,7 @@ export class RunEngine {
   private log = new RunLog();
   /** Offsets the adapter's per-process epoch past what this run already stored (spec §4.2). */
   private elevationEpochBase = 0;
-  /** A field-test capture must not coach (spec §8.0). Always false until capture mode ships. */
+  /** A field-test capture must not coach (spec §8.0); set from the session key in start()/rebuild(). */
   private cuesSuppressed = false;
 
   // `run_points` FK-references the `'active'` row, so nothing can be written before startRun resolves.
@@ -310,7 +311,7 @@ export class RunEngine {
     this.plannedTotalS = sessionTotalSeconds(session);
     // The final run is announced as "last run", not a generic "start running".
     this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
-    this.cuesSuppressed = false;
+    this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = 0;
     this.resetIngestState();
     this.openRunRow(session.key, this.events[0].at);
@@ -639,7 +640,7 @@ export class RunEngine {
     this.halfwayFired = state.halfwayFired;
     this.plannedTotalS = sessionTotalSeconds(session);
     this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
-    this.cuesSuppressed = false;
+    this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = logResume?.epochBase ?? 0;
     this.resetIngestState();
     // why the snapshot wins: it counts the rows this run minted, including any lost with the

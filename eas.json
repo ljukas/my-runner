@@ -13,7 +13,8 @@
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "env": { "EXPO_PUBLIC_FIELD_TEST": "1" }
     },
     "e2e-simulator": {
       "extends": "preview",

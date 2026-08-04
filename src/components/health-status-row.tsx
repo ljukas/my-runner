@@ -5,6 +5,7 @@ import { Island } from '@/components/island';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
+import { isFieldTestRun } from '@/services/field-test';
 import {
   isHealthSyncFailure,
   requestWriteAccess,
@@ -24,6 +25,11 @@ export function HealthStatusRow({ run }: { run: Run }) {
   // why a ref, not just `saving`: guards the tap synchronously, before React has re-rendered the
   // button with `disabled` set — same idiom as onboarding-step-screen's async-CTA guard.
   const busy = useRef(false);
+
+  // A field-test capture must never reach Apple Health (spec §8.0) — the composition root only
+  // gates the auto-sync on finish, so this manual retry needs its own guard too, or the row would
+  // be the one path left to defeat it.
+  if (isFieldTestRun(run.sessionKey)) return null;
 
   if (run.healthkitSaved) {
     return (

@@ -1,0 +1,130 @@
+import { describe, expect, test } from 'bun:test';
+
+import { RUN_EXPORT_MAGIC, toRunExport, type RunExportInput } from './run-export';
+
+function input(overrides: Partial<RunExportInput> = {}): RunExportInput {
+  return {
+    exportedAt: '2026-08-04T10:00:00.000Z',
+    device: {
+      model: 'iPhone15,2',
+      osVersion: '26.5',
+      appVersion: '0.1.0',
+      updateId: null,
+      barometerAvailable: true,
+      motionPermission: 'granted',
+      timezoneOffsetMin: -120,
+    },
+    run: {
+      id: 'run-1',
+      sessionKey: 'w1d1',
+      status: 'completed',
+      startedAt: '2026-08-04T09:00:00.000Z',
+      endedAt: '2026-08-04T09:30:00.000Z',
+      activeDurationS: 1800,
+      distanceM: 2760.5,
+    },
+    segments: [
+      {
+        seq: 0,
+        kind: 'warmup',
+        plannedDurationS: 300,
+        actualDurationS: 301,
+        distanceM: 400,
+        wasSkipped: false,
+      },
+    ],
+    points: [
+      {
+        seq: 0,
+        at: '2026-08-04T09:00:01.000Z',
+        lat: 59.329323,
+        lng: 18.068581,
+        altitudeM: 12.25,
+        accuracyM: 5,
+        altitudeAccuracyM: -1,
+        speedMps: 2.1,
+        segmentSeq: 0,
+      },
+    ],
+    samples: [
+      {
+        seq: 0,
+        at: '2026-08-04T09:00:02.000Z',
+        sensorTimestampS: 12345.678,
+        pressureHpa: 1013.257,
+        relativeAltitudeM: 0,
+        epoch: 1,
+        segmentSeq: 0,
+      },
+    ],
+    log: [
+      { seq: 0, at: '2026-08-04T09:00:00.500Z', kind: 'sensor', detailJson: '{"available":true}' },
+    ],
+    events: [{ at: 1_000_000, type: 'start' }],
+    ...overrides,
+  };
+}
+
+describe('toRunExport', () => {
+  test('opens with the magic line and a single-line JSON header carrying counts', () => {
+    const lines = toRunExport(input()).split('\n');
+    expect(lines[0]).toBe(`# ${RUN_EXPORT_MAGIC}`);
+    const header = JSON.parse(lines[1]) as { counts: Record<string, number> };
+    expect(header.counts).toEqual({ segments: 1, points: 1, altitude: 1, log: 1, events: 1 });
+  });
+
+  test('emits every section header even when a section is empty', () => {
+    const text = toRunExport(input({ samples: [], points: [] }));
+    for (const name of ['segments', 'points', 'altitude', 'log', 'events']) {
+      expect(text).toContain(`## ${name}`);
+    }
+  });
+
+  test('numbers round-trip exactly — toFixed anywhere here would cost 0.83 m per 1 dp of pressure', () => {
+    const text = toRunExport(input());
+    expect(text).toContain('1013.257');
+    expect(text).toContain('59.329323');
+    expect(text).toContain('12345.678');
+  });
+
+  test('a null number becomes an empty field, not the string "null"', () => {
+    const text = toRunExport(
+      input({
+        samples: [
+          {
+            seq: 0,
+            at: 'x',
+            sensorTimestampS: null,
+            pressureHpa: 1013,
+            relativeAltitudeM: null,
+            epoch: 1,
+            segmentSeq: 0,
+          },
+        ],
+      }),
+    );
+    // why scoped to the section: the JSON header legitimately serializes `"updateId":null`, so a
+    // whole-file assertion would test the header's shape rather than the CSV's null handling.
+    const section = text.slice(text.indexOf('## altitude'), text.indexOf('## log'));
+    expect(section).toContain('0,x,,1013,,1,0');
+    expect(section).not.toContain('null');
+  });
+
+  test('escapes a detail payload containing a comma, a quote, a newline and a section marker', () => {
+    const detailJson = JSON.stringify({ note: 'a,b "q"\n## points' });
+    const text = toRunExport(input({ log: [{ seq: 0, at: 'x', kind: 'cue', detailJson }] }));
+    // why sliced to just this section: the log section is followed by `## events`, so slicing to
+    // end-of-file would count that real header and prove nothing about forgery.
+    const body = text.slice(text.indexOf('## log'), text.indexOf('## events'));
+    // JSON.stringify escapes the newline as two characters, so the payload cannot forge a section.
+    expect(body.split('\n').filter((l) => l.startsWith('## ')).length).toBe(1);
+    // the JSON key's own quotes are real quotes, so CSV escaping doubles them.
+    expect(body).toContain('""note""');
+  });
+
+  test('ends with exactly one newline', () => {
+    const text = toRunExport(input());
+    expect(text.endsWith('\n')).toBe(true);
+    expect(text.endsWith('\n\n')).toBe(false);
+  });
+});

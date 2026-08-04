@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { PlanSession } from '@/domain/plan';
 import {
   FIELD_TEST_SESSION_KEY,
   fieldTestSession,
   isFieldTestRun,
+  resumeDispositionOf,
   skipForFieldTest,
 } from './field-test';
 
@@ -28,6 +30,45 @@ describe('field test', () => {
     const session = fieldTestSession();
     expect(session.key).toBe(FIELD_TEST_SESSION_KEY);
     expect(isFieldTestRun(session.key)).toBe(true);
+  });
+});
+
+describe('resumeDispositionOf (crash recovery, spec §8.0)', () => {
+  const W1D1: PlanSession = {
+    key: 'w1d1',
+    week: 1,
+    day: 1,
+    segments: [{ kind: 'warmup', seconds: 300 }],
+  };
+  const plan = (key: string) => (key === W1D1.key ? W1D1 : undefined);
+
+  // Load-bearing regression: without this branch the capture's snapshot resolves to nothing, and the
+  // launch discards it — leaving the `'active'` row, its points, samples and log permanently orphaned
+  // with no delete-run UI to reach them.
+  test("a capture's snapshot resolves to its own session, so its interrupted run can be finalized", () => {
+    const disposition = resumeDispositionOf(FIELD_TEST_SESSION_KEY, plan);
+    expect(disposition?.session).toEqual(fieldTestSession());
+  });
+
+  test('a capture is never offered back to the runner — it is finalized as partial instead', () => {
+    expect(resumeDispositionOf(FIELD_TEST_SESSION_KEY, plan)?.offerable).toBe(false);
+  });
+
+  test('the capture branch never consults the plan (no plan day claims its key)', () => {
+    let lookups = 0;
+    resumeDispositionOf(FIELD_TEST_SESSION_KEY, (key) => {
+      lookups++;
+      return plan(key);
+    });
+    expect(lookups).toBe(0);
+  });
+
+  test('a plan day resolves to its plan session and is offered as before', () => {
+    expect(resumeDispositionOf('w1d1', plan)).toEqual({ session: W1D1, offerable: true });
+  });
+
+  test('a key neither the plan nor a capture claims is nothing to settle', () => {
+    expect(resumeDispositionOf('w99d9', plan)).toBeNull();
   });
 });
 

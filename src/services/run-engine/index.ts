@@ -14,7 +14,7 @@ import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
 import { elevationSource, type ElevationSource } from '@/services/elevation';
-import { skipForFieldTest } from '@/services/field-test';
+import { resumeDispositionOf, skipForFieldTest } from '@/services/field-test';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
@@ -34,7 +34,9 @@ const elevationWithSensorLog: ElevationSource = {
   start() {
     // why nothing here is awaited: a permission read that never settles would strand the engine's
     // elevation op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
-    // only have to belong to this run, not precede the start.
+    // only have to belong to this run, not precede the start. Accepted consequence: in the
+    // millisecond-wide reset()+start() window between two runs, either note can land in the
+    // neighbouring run's log — both are process-level facts, so a mislabelled row misstates nothing.
     void Promise.all([elevationSource.isAvailable(), elevationSource.getPermissionStatus()])
       .then(([available, permission]) =>
         runEngine.note('sensor', { available, permission, processToken: PROCESS_TOKEN }),
@@ -176,12 +178,15 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       active !== null &&
       active.sessionKey === state.sessionKey &&
       Date.parse(active.startedAt) === state.events[0].at;
-    const session = state ? getSession(activePlan(), state.sessionKey) : undefined;
-    if (!state || !active || !session || !tiedToRow) {
+    const disposition = state
+      ? resumeDispositionOf(state.sessionKey, (key) => getSession(activePlan(), key))
+      : null;
+    if (!state || !active || !disposition || !tiedToRow) {
       await clearSnapshot();
       return stopIdleTracking();
     }
 
+    const { session, offerable } = disposition;
     const now = Date.now();
     const candidate: ResumableRun = {
       runId: active.id,
@@ -190,6 +195,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       aliveUntil: snapshotAliveUntil(loaded.updatedAt, now),
     };
     if (
+      !offerable ||
       !isSnapshotFresh(loaded.updatedAt, session, now) ||
       isTimelineExhausted(session, state.events, now)
     ) {

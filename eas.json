@@ -20,7 +20,11 @@
       "extends": "preview",
       "ios": { "simulator": true },
       "autoIncrement": false,
-      "env": { "EXPO_PUBLIC_E2E": "1", "APP_VARIANT": "e2e" }
+      "env": {
+        "EXPO_PUBLIC_E2E": "1",
+        "APP_VARIANT": "e2e",
+        "EXPO_PUBLIC_FIELD_TEST": "0"
+      }
     },
     "production": {
       "autoIncrement": true,

@@ -379,6 +379,10 @@ export class RunEngine {
     this.queueElevation(() => this.elevation.start(), 'start');
     this.refresh();
     this.armFlush();
+    // why here and not on the resume screen that offers this: announcing through the engine is what
+    // puts it behind `cuesSuppressed`, so a capture stays silent by construction (spec §8.0). Last,
+    // so it still follows any segment cue `refresh()` just fired — the screen's order.
+    this.announce('resuming');
     return true;
   }
 
@@ -895,6 +899,11 @@ export class RunEngine {
     this.emit();
   }
 
+  // KNOWN GAP (important, pre-existing since the GPS slice — deliberately not fixed here): unlike
+  // queueElevation below, this chain is unbounded, so a tracker op that never *settles* strands every
+  // later op behind it — including the stop() that ends background location, which then runs for the
+  // process's lifetime and drains the battery ADR 0008 exists to protect. It cannot lose a run
+  // (finalize does not await this chain). The fix is the same one line: wrap `op()` in `withTimeout`.
   private queueTracker(op: () => Promise<void>, label: string): void {
     this.trackerOps = this.trackerOps
       .then(op)

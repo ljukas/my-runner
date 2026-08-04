@@ -31,6 +31,24 @@ export function fieldTestSession(): PlanSession {
 }
 
 /**
+ * How an interrupted run's snapshot is settled at launch, or null when there is nothing
+ * identifiable to settle (discard the snapshot). A capture claims no plan day, so the plan lookup
+ * cannot resolve it — yet its `'active'` row is as real as any run's, and nothing else would ever
+ * close it: no view lists an active row and there is no delete-run UI. `offerable: false` means
+ * finalize it as `partial` without asking, because a capture spliced across two sensor epochs is
+ * not the continuous measurement the protocol asks for. `planSession` is injected so this stays
+ * free of `@/services/active-plan` and unit-testable, as `skipForFieldTest` below is.
+ */
+export function resumeDispositionOf(
+  sessionKey: string,
+  planSession: (key: string) => PlanSession | undefined,
+): { session: PlanSession; offerable: boolean } | null {
+  if (isFieldTestRun(sessionKey)) return { session: fieldTestSession(), offerable: false };
+  const session = planSession(sessionKey);
+  return session ? { session, offerable: true } : null;
+}
+
+/**
  * Wraps a Health-sync callback so a field-test capture is never written to Apple Health (spec
  * §8.0) — the app has no way to undo it. `sessionKeyOf` is injected (rather than reading the DB
  * here) so this stays free of `@/db` and unit-testable; the composition root supplies the real

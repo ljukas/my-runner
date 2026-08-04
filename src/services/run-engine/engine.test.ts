@@ -1262,9 +1262,9 @@ describe('resume (T14, ADR 0021 §3)', () => {
       state: stateAtStart({ lastAnnouncedIndex: 1, halfwayFired: true }),
       points: [],
     });
-    expect(h.cues).toEqual([]);
+    expect(h.cues).toEqual(['resuming']); // the restore's own announcement, and nothing re-announced
     h.tick(20); // 40s: into the walk, and past halfway (37.5s)
-    expect(h.cues).toEqual(['startWalk']);
+    expect(h.cues).toEqual(['resuming', 'startWalk']);
   });
 
   test('restore refuses a run whose timeline expired while the app was dead', () => {
@@ -1886,6 +1886,8 @@ describe('field-test cue suppression (spec §8.0)', () => {
     });
     expect(restored).toBe(true);
     expect(h.engine.getSnapshot().segmentIndex).toBe(1); // the transition that would announce startWalk
+    // Empty covers the resume announcement too: it is the engine's, so the flag reaches it — the
+    // resume screen used to announce it itself, past the flag entirely.
     expect(h.cues).toEqual([]);
   });
 
@@ -1901,5 +1903,6 @@ describe('field-test cue suppression (spec §8.0)', () => {
     expect(restored).toBe(true);
     expect(h.engine.getSnapshot().segmentIndex).toBe(1);
     expect(h.cues).toContain('startRun');
+    expect(h.cues).toContain('resuming');
   });
 });

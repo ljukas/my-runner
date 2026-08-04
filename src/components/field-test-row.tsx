@@ -43,28 +43,35 @@ export function FieldTestRow() {
     if (starting.current) return;
     starting.current = true;
     void (async () => {
-      // The just-in-time ask, mirroring session/[key].tsx's location prompt: never cold, and a
-      // denial (or a stall) still starts the capture — the barometer just stays silent for it
-      // (ADR 0015).
       try {
-        const status = await withTimeout(
-          elevationSource.getPermissionStatus(),
-          'undetermined' as const,
-          MOTION_PERMISSION_TIMEOUT_MS,
-        );
-        if (status === 'undetermined') {
-          await withTimeout(
-            elevationSource.requestPermission(),
+        // The just-in-time ask, mirroring session/[key].tsx's location prompt: never cold, and a
+        // denial (or a stall) still starts the capture — the barometer just stays silent for it
+        // (ADR 0015).
+        try {
+          const status = await withTimeout(
+            elevationSource.getPermissionStatus(),
             'undetermined' as const,
             MOTION_PERMISSION_TIMEOUT_MS,
           );
+          if (status === 'undetermined') {
+            await withTimeout(
+              elevationSource.requestPermission(),
+              'undetermined' as const,
+              MOTION_PERMISSION_TIMEOUT_MS,
+            );
+          }
+        } catch (error) {
+          console.warn('[field-test] motion permission ask failed', error);
         }
-      } catch (error) {
-        console.warn('[field-test] motion permission ask failed', error);
+        runEngine.reset();
+        runEngine.start(fieldTestSession());
+        router.replace('/run');
+      } finally {
+        // why released, not latched: `/run` is a fullScreenModal, so Settings stays mounted
+        // underneath and this row never remounts — a latched ref would make every capture after the
+        // first in one launch a silent no-op, including the protocol's second-capture epoch check.
+        starting.current = false;
       }
-      runEngine.reset();
-      runEngine.start(fieldTestSession());
-      router.replace('/run');
     })();
   };
 

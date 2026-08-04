@@ -5,7 +5,6 @@ import { View } from 'react-native';
 import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { sessionTitle } from '@/domain/format';
-import { cueService } from '@/services/cue-service';
 import { discardResumableRun, resumeCrashedRun } from '@/services/run-engine';
 import { clearResumeOffer, peekResumeOffer } from '@/services/run-engine/resume-offer';
 
@@ -22,8 +21,9 @@ export default function ResumeRunScreen() {
     if (busy) return;
     setBusy(true);
     clearResumeOffer();
+    // The engine announces the resume itself, so the cue passes the same suppression gate every
+    // other cue does (spec §8.0).
     if (resume && (await resumeCrashedRun(candidate))) {
-      cueService.announce('resuming');
       router.replace('/run');
       return;
     }

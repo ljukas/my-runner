@@ -9,7 +9,9 @@ Date: 2026-07-13
 Proposed — draft for review. Flip to `Accepted` on approval. Numbered 0015 because
 0014 is taken by the in-flight text-first-Maestro-selectors ADR on another branch.
 **Amended 2026-08-03** with measurements from the run-elevation-and-pace-chart
-slice — see [Amendment (2026-08-03)](#amendment-2026-08-03).
+slice — see [Amendment (2026-08-03)](#amendment-2026-08-03). **Amended 2026-08-04**
+with what the run-barometer-field-logging slice settled — see
+[Amendment (2026-08-04)](#amendment-2026-08-04).
 
 ## Context
 
@@ -220,3 +222,100 @@ distance survives — points are already persisted — but altitude gained durin
 that window is gone permanently. The barometer slice must detect such a gap
 and decline to report a total across it, rather than silently under-reporting
 one.
+
+## Amendment (2026-08-04)
+
+Written at the close of the run-barometer-field-logging slice, which built the
+capture path this ADR's item 7 called for — barometer readings and per-run
+diagnostics recorded during a real run, on real hardware, written in the run's
+own database transaction, exportable as one text file. **Elevation is still not
+rendered anywhere** — `src/domain/elevation.ts` remains unconsumed. What follows
+is what that slice settled, so it does not have to be rediscovered when the
+render slice picks the tuning back up.
+
+**Item 7's spike is discharged — by field logging, not a spike screen.** The
+original plan (§7) was a throwaway screen exercising the barometer in isolation.
+That was replaced with the opposite of a spike: instrumentation inside the real
+app, capturing real runs. This is the stronger form of the same evidence,
+because a spike held in the hand while looking at a screen measures none of the
+conditions that decide whether background delivery works — pocketed, screen
+locked, 30+ minutes, a phone that has been carried and jostled, real CoreMotion
+hardware rather than a simulator that has none. Item 7 is closed as "the harness
+to answer it exists and has been run on real hardware," not as "the answer is
+known" — the answer is what [`docs/field-test-capture-protocol.md`](../field-test-capture-protocol.md)'s
+captures will produce.
+
+**Item 5's storage landed differently than either ADR text proposed.** Not
+`elevation_gain_m`/`elevation_loss_m` summary columns on `runs` (this ADR's
+original §5), and not per-point altitude/pressure columns folded into
+`run_points` (the 2026-08-03 amendment's stated destination). Instead: a
+dedicated `run_altitude_samples` table (`runId`, `seq`, `at`, `sensorTimestampS`,
+`pressureHpa`, `relativeAltitudeM`, `epoch`, `segmentSeq`) plus a generic
+`run_log` table (`runId`, `seq`, `at`, `kind`, `detailJson`) that also carries
+lifecycle, sensor-availability, battery and drop-count entries — not an
+elevation-specific table. Neither table has been given a gain/loss summary
+column, on `runs` or anywhere else, **because no total is computed yet**: the
+reducer this ADR specifies (§4.2) is not wired to this data. Storing a total
+before the tuning exists would mean storing a number nobody has chosen.
+
+**Three API facts, verified from installed `expo-sensors` source, each
+contradicting what the docs and this ADR's own prose imply:**
+
+| Claim | What's actually installed | Where verified |
+|---|---|---|
+| `Barometer` exposes permission checks | It doesn't. `BarometerModule.swift`'s `definition()` registers only `isAvailableAsync` and `setUpdateInterval` — no `getPermissionsAsync`/`requestPermissionsAsync`. `DeviceSensor.getPermissionsAsync()` falls back to a hardcoded `{ granted: true, canAskAgain: true, ... }` (`defaultPermissionsResponse`) whenever `this._nativeModule.getPermissionsAsync` is `undefined` — so `Barometer.getPermissionsAsync()` silently reports granted and **never prompts**. The real requester is `Pedometer`: `PedometerModule.swift` registers both `AsyncFunction("getPermissionsAsync")` and `AsyncFunction("requestPermissionsAsync")`, which is what actually surfaces the Motion & Fitness dialog. | `node_modules/expo-sensors/ios/BarometerModule.swift`, `ios/PedometerModule.swift`, `src/DeviceSensor.ts` |
+| `setUpdateInterval` tunes delivery cadence | It's a no-op on iOS: `AsyncFunction("setUpdateInterval") { (_: Double) in /* Nothing we can do */ }`. `CMAltimeter` has no interval knob at all — cadence is whatever CoreMotion decides ("every few seconds", sparser than 1 Hz). This is a **hard constraint on the reducer's window sizing, not a tuning parameter available to the app.** | `node_modules/expo-sensors/ios/BarometerModule.swift` |
+| `BarometerMeasurement` lacks a per-sample timestamp | It has one: `{ pressure: number; relativeAltitude?: number; timestamp: number }` — `timestamp` is `CMLogItem.timestamp`, CoreMotion's boot-relative monotonic clock, in seconds, always present. `relativeAltitude` is the one that's optional. Both facts matter for the same reason: this ADR's reducer (§4.2) was tuned and measured against 1 Hz GPS; at "every few seconds," a 31-sample median window spans **over two minutes** of wall-clock time, not the ~31 seconds the original tuning assumed. | `node_modules/expo-sensors/build/Barometer.d.ts` |
+
+**The rebase detector is `pressureHpa` continuity, not the epoch counter.**
+`adapter.ios.ts` maintains `epoch` as a JS module-scope counter, bumped only
+inside the adapter's own `start()`/`stop()`. But `expo-sensors`' `OnStartObserving`/
+`OnStopObserving` hooks — which actually start and stop `CMAltimeter`, and are
+exactly where `relativeAltitude` rebases to a fresh zero reference — fire on
+**native listener-count transitions** (0→1 starts it, 1→0 stops it), a mechanism
+owned by Expo Modules Core's event-emitter runtime, not by the adapter calling
+`start()`/`stop()` directly. A restart the adapter did not itself initiate — a
+dev Fast Refresh re-subscribing, or any other code path that touches the native
+listener count — rebases `relativeAltitude` while `epoch` stays exactly where it
+was, because nothing ran the code that increments it. And across a process
+death, the asymmetry runs the other way: `epoch` resets to its initial value in
+the new process (it's a JS variable with no persistence), while barometric
+pressure is a real atmospheric quantity that doesn't reset just because the app
+did — so a genuine process boundary can show as pressure-continuous even though
+the counter restarted. `epoch` is therefore a **corroborating hint** — it lines
+up with a real rebase when the adapter's own lifecycle caused it — but the
+authoritative signal is `pressureHpa` continuity across a `relativeAltitudeM`
+discontinuity: physical pressure cannot jump at a sensor rebase, so a continuous
+`pressureHpa` alongside a discontinuous `relativeAltitudeM` at the same `seq` is
+what actually proves "the reference reset here," independent of which JS code
+path caused it or whether it crossed a process boundary.
+
+**The closure-error magnitudes, and why a horizontally closed loop is not
+barometrically closed.** Every capture in the field-test protocol starts and
+ends at the same doorstep, so GPS reports `net displacement ≈ 0`. That does
+**not** mean the barometer reads the same pressure at both ends — per the design
+spec's [§2.1](../superpowers/specs/2026-08-03-run-barometer-field-logging-design.md#21-the-closed-loop-measures-drift-not-tuning--corrected):
+
+| Source | Magnitude over a 30-minute run |
+|---|---|
+| Synoptic weather drift | 0.4–2.1 m calm, 4.2–8.3 m active, ~12.5 m across a frontal passage |
+| MEMS thermal drift (warm house → cold street → pocket rewarming) | 1.0–2.5 m, monotone during warm-up — mimics a slow climb exactly where the median window is still filling |
+| Indoor↔outdoor envelope ΔP (HVAC, wind stack effect) | 0.4–2.1 m |
+| Vertical position at the doorstep (a flight up/down before starting) | ~3 m per storey |
+
+Realistic closure error is **1–3 m on a calm day, 5–15 m on an active one** —
+against a candidate `hysteresisM` of 1–3 m, i.e. the very parameter being chosen
+is 1–5× smaller than the noise the "closed loop" was meant to cancel. A perfect
+`gain == loss` invariant is not achievable and must not be treated as a
+correctness signal. This is exactly why the protocol mandates a 90-second
+stationary bracket at both the start and the end of every logged run, *inside*
+the run: it converts drift from an unmeasurable confound into a measured,
+subtractable covariate, rather than asking the loop to close on its own.
+
+**One permanent limit, not fixable by more logging:** the export cannot
+distinguish "the JS thread was busy" from "the process was OS-suspended." Both
+produce an identical signature — a gap in delivered samples with no error, no
+event, nothing to log — because a thread cannot observe its own
+non-scheduling: the code that would write "I was blocked" cannot run while it
+is blocked. Any future analysis of a delivery gap has to treat these two causes
+as indistinguishable from the data alone.

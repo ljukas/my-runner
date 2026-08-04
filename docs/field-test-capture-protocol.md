@@ -66,6 +66,41 @@ Why 15 and not 5: at a 10 s delivery cadence a 31-sample median window needs
 310 s just to *fill*. A 5-minute capture could return nothing but nulls and read
 as a bug rather than a result.
 
+**Also do this during capture 1.** Three native-adapter behaviours were left to
+device verification rather than a mocked-SDK unit test (ADR 0003 item 7 forbids
+mocking Expo SDK internals to test an adapter) and have never run against real
+hardware. Two of the three are checkable from the export; the third genuinely
+isn't:
+
+- [ ] **`epoch` stays at exactly one value for the whole capture.** Open the
+      export's `## altitude` section and check every row's `epoch` column is
+      identical from the first sample to the last. `epoch` only changes when
+      the adapter's `start()` actually (re)registers the native listener, and
+      nothing in this app calls `start()` a second time while a run is already
+      active — so a constant `epoch` is the expected signature of "a stray
+      double-`start()` never silently re-armed the sensor mid-run." This can't
+      *prove* the idempotence guard is correct (ordinary use never re-enters
+      `start()` to trigger it), but a jump partway through one capture would
+      prove it broken.
+- [ ] **`epoch` goes up by exactly one across two captures taken in the same
+      app launch.** If convenient, take a second, short field-test capture
+      immediately after this one — *without force-quitting the app in
+      between* — even a one-minute stationary capture is enough. Compare the
+      two exports: the second one's `epoch` column should read exactly one
+      higher than the first's, throughout. (Force-quitting between captures
+      does not test this — a fresh process resets `epoch` to its initial
+      value instead, a different fact recorded in
+      [ADR 0015's 2026-08-04 amendment](adr/0015-run-elevation-on-device-barometer.md#amendment-2026-08-04).)
+- [ ] **Not checkable from any export — recorded here so it isn't forgotten.**
+      Whether unsubscribing the last JS listener leaves the native barometer
+      running cannot be observed this way: the app's run engine subscribes to
+      altitude readings exactly once, for its own lifetime, and never
+      unsubscribes, so no capture can ever exercise that code path. Confirming
+      it needs a dev-tool check instead — during a Metro-connected debug
+      session, call the unsubscribe function `elevationSource.onReading()`
+      returns, then confirm altitude readings are still arriving afterward.
+      That's a future dev-time task, not part of this capture protocol.
+
 ### Capture 2 — Stairwell · **indoors** · ~10 min · the magnitude reference
 
 Ground truth: `steps × riser height`, exact to the centimetre. This is the only

@@ -42,9 +42,8 @@ describe('resumeDispositionOf (crash recovery, spec §8.0)', () => {
   };
   const plan = (key: string) => (key === W1D1.key ? W1D1 : undefined);
 
-  // Load-bearing regression: without this branch the capture's snapshot resolves to nothing, and the
-  // launch discards it — leaving the `'active'` row, its points, samples and log permanently orphaned
-  // with no delete-run UI to reach them.
+  // Load-bearing: without this branch the launch discards the capture's snapshot and orphans its
+  // `'active'` row.
   test("a capture's snapshot resolves to its own session, so its interrupted run can be finalized", () => {
     const disposition = resumeDispositionOf(FIELD_TEST_SESSION_KEY, plan);
     expect(disposition?.session).toEqual(fieldTestSession());

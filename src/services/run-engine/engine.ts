@@ -899,11 +899,9 @@ export class RunEngine {
     this.emit();
   }
 
-  // KNOWN GAP (important, pre-existing since the GPS slice — deliberately not fixed here): unlike
-  // queueElevation below, this chain is unbounded, so a tracker op that never *settles* strands every
-  // later op behind it — including the stop() that ends background location, which then runs for the
-  // process's lifetime and drains the battery ADR 0008 exists to protect. It cannot lose a run
-  // (finalize does not await this chain). The fix is the same one line: wrap `op()` in `withTimeout`.
+  // KNOWN GAP (important, pre-existing, not fixed in the barometer slice): unbounded, unlike
+  // queueElevation, so an op that never settles strands the stop() that ends background location —
+  // battery drain, not a lost run. Fix is one line: wrap `op()` in `withTimeout`.
   private queueTracker(op: () => Promise<void>, label: string): void {
     this.trackerOps = this.trackerOps
       .then(op)

@@ -21,8 +21,7 @@ export default function ResumeRunScreen() {
     if (busy) return;
     setBusy(true);
     clearResumeOffer();
-    // The engine announces the resume itself, so the cue passes the same suppression gate every
-    // other cue does (spec §8.0).
+    // The engine announces the resume itself, behind the cue-suppression flag (spec §8.0).
     if (resume && (await resumeCrashedRun(candidate))) {
       router.replace('/run');
       return;

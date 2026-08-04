@@ -14,8 +14,7 @@ describe('isHealthWritable', () => {
     expect(isHealthWritable(row({ status: 'partial' }))).toBe(true);
   });
 
-  // Load-bearing regression: the backstop for the one write the app cannot undo (spec §8.0). Both
-  // call sites gate too, but only this makes the invariant survive a future retry/backfill caller.
+  // Load-bearing regression: the backstop for the one write the app cannot undo (spec §8.0).
   test('a field-test capture is never writable, whatever its status', () => {
     expect(isHealthWritable(row({ sessionKey: FIELD_TEST_SESSION_KEY }))).toBe(false);
     expect(isHealthWritable(row({ sessionKey: FIELD_TEST_SESSION_KEY, status: 'partial' }))).toBe(

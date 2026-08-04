@@ -31,13 +31,11 @@ export function fieldTestSession(): PlanSession {
 }
 
 /**
- * How an interrupted run's snapshot is settled at launch, or null when there is nothing
- * identifiable to settle (discard the snapshot). A capture claims no plan day, so the plan lookup
- * cannot resolve it — yet its `'active'` row is as real as any run's, and nothing else would ever
- * close it: no view lists an active row and there is no delete-run UI. `offerable: false` means
- * finalize it as `partial` without asking, because a capture spliced across two sensor epochs is
- * not the continuous measurement the protocol asks for. `planSession` is injected so this stays
- * free of `@/services/active-plan` and unit-testable, as `skipForFieldTest` below is.
+ * How an interrupted run's snapshot is settled at launch; null when it names nothing settleable, so
+ * the caller discards it. A capture resolves here rather than through the plan (spec §8.0) because
+ * otherwise nothing would ever close its `'active'` row. `offerable: false` means finalize as
+ * `partial` without asking: a capture spliced across two sensor epochs is not the continuous
+ * measurement the protocol wants.
  */
 export function resumeDispositionOf(
   sessionKey: string,

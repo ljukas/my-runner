@@ -1,4 +1,5 @@
 import type { LocationFix } from '@/domain/geo';
+import type { PendingEntry, PendingSample } from '@/services/run-engine/run-log';
 import type { RunEvent } from '@/services/run-engine/types';
 
 /**
@@ -43,18 +44,26 @@ export interface RunSnapshotState {
    * Null before the first committed fix.
    */
   lastAcceptedFix: LocationFix | null;
+  /** Watermarks so a resumed run's instrumentation `seq` continues instead of restarting (spec §5.1). Absent in snapshots written before this slice. */
+  logSeq?: { sampleSeq: number; entrySeq: number };
 }
 
 export interface RunStore {
   /**
-   * Persist one cadence atomically: batch-insert `points` and upsert the single
-   * (`id = 1`) `active_run_snapshot` row in ONE transaction (spec §5), stamping its
-   * `updated_at` (ISO-8601 UTC). Empty `points` is valid (snapshot still upserted).
-   * Rejects on DB failure so the engine retries the same batch next cadence; being
-   * atomic, a rejected flush commits neither, so points and snapshot never diverge
-   * and the retry re-sends the same `seq`s without duplication.
+   * Persist one cadence atomically: batch-insert `points`, `samples`, and `entries`, and upsert
+   * the single (`id = 1`) `active_run_snapshot` row, all in ONE transaction (spec §5), stamping
+   * its `updated_at` (ISO-8601 UTC). Empty arrays are valid (snapshot still upserted). Rejects on
+   * DB failure so the engine retries the same batch next cadence; being atomic, a rejected flush
+   * commits none of the four writes, so they never diverge and the retry re-sends the same
+   * `seq`s without duplication.
    */
-  flush(runId: string, points: RunPoint[], state: RunSnapshotState): Promise<void>;
+  flush(
+    runId: string,
+    points: RunPoint[],
+    samples: PendingSample[],
+    entries: PendingEntry[],
+    state: RunSnapshotState,
+  ): Promise<void>;
   /**
    * Load the crash-recovery snapshot with the row's `updated_at`, or null when none is
    * stored. The caller gates resumability on `updatedAt` (spec §5), not event-log age:

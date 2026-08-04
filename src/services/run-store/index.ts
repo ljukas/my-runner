@@ -1,43 +1,18 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { activeRunSnapshot, runPoints } from '@/db/schema';
+import { activeRunSnapshot } from '@/db/schema';
+import { SNAPSHOT_ID, writeFlush } from './flush-transaction';
 import type { RunSnapshotState, RunStore } from './port';
 
-const SNAPSHOT_ID = 1;
-
 export const dbRunStore: RunStore = {
-  async flush(runId, points, state) {
+  async flush(runId, points, samples, entries, state) {
     const stateJson = JSON.stringify(state);
     const updatedAt = new Date().toISOString();
 
     // why: the expo-sqlite driver COMMITs the instant this callback returns — an async
     // callback would commit before its awaited writes ran, so both writes use sync `.run()`.
-    db.transaction((tx) => {
-      // drizzle throws on `.values([])`; an empty batch still re-stamps the snapshot.
-      if (points.length > 0) {
-        tx.insert(runPoints)
-          .values(
-            points.map((p) => ({
-              runId,
-              seq: p.seq,
-              timestamp: p.timestamp,
-              lat: p.lat,
-              lng: p.lng,
-              altitude: p.altitude,
-              accuracy: p.accuracy,
-              altitudeAccuracy: p.altitudeAccuracy ?? null,
-              speed: p.speed,
-              segmentSeq: p.segmentSeq,
-            })),
-          )
-          .run();
-      }
-      tx.insert(activeRunSnapshot)
-        .values({ id: SNAPSHOT_ID, stateJson, updatedAt })
-        .onConflictDoUpdate({ target: activeRunSnapshot.id, set: { stateJson, updatedAt } })
-        .run();
-    });
+    db.transaction((tx) => writeFlush(tx, runId, points, samples, entries, stateJson, updatedAt));
   },
 
   async loadSnapshot() {

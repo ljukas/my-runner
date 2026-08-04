@@ -13,6 +13,7 @@ import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
+import type { PendingEntry, PendingSample } from './run-log';
 import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
@@ -111,7 +112,13 @@ function makeEngine(options: { deferStartRun?: boolean; failStartRunTimes?: numb
   const calls: string[] = [];
   const saved: CompletedRunRecord[] = [];
   const finalized: { runId: string; record: CompletedRunRecord }[] = [];
-  const flushes: { runId: string; points: RunPoint[]; state: RunSnapshotState }[] = [];
+  const flushes: {
+    runId: string;
+    points: RunPoint[];
+    samples: PendingSample[];
+    entries: PendingEntry[];
+    state: RunSnapshotState;
+  }[] = [];
   const trackerCalls: string[] = [];
   let startRunFailures = options.failStartRunTimes ?? 0;
   let failSave = false;
@@ -148,11 +155,11 @@ function makeEngine(options: { deferStartRun?: boolean; failStartRunTimes?: numb
   };
 
   const runStore: RunStore = {
-    flush: async (runId, points, state) => {
+    flush: async (runId, points, samples, entries, state) => {
       calls.push('flush');
       if (deferFlush) await new Promise<void>((resolve) => (gateFlush = resolve));
       if (failFlush) throw new Error('flush rejected');
-      flushes.push({ runId, points, state });
+      flushes.push({ runId, points, samples, entries, state });
     },
     loadSnapshot: async () => null,
     clearSnapshot: async () => void calls.push('clearSnapshot'),
@@ -197,6 +204,8 @@ function makeEngine(options: { deferStartRun?: boolean; failStartRunTimes?: numb
     schedulerStops: () => schedulerStops,
     flushedSeqs: () => flushes.flatMap((f) => f.points.map((p) => p.seq)),
     flushedPoints: () => flushes.flatMap((f) => f.points),
+    flushedSamples: () => flushes.flatMap((f) => f.samples),
+    flushedEntries: () => flushes.flatMap((f) => f.entries),
     lastFlush: () => flushes[flushes.length - 1],
     setFailSave: (v: boolean) => (failSave = v),
     setFailFlush: (v: boolean) => (failFlush = v),

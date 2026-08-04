@@ -618,7 +618,8 @@ export class RunEngine {
       // are not handed to the DB under a stale runId.
       batch = this.pendingPoints.slice(0, MAX_FLUSH_POINTS);
       this.pendingPoints = this.pendingPoints.slice(batch.length);
-      await this.runStore.flush(runId, batch.map(toRunPoint), this.snapshotState(session));
+      // why empty: RunLog isn't wired into the engine until a later task, so nothing is buffered yet.
+      await this.runStore.flush(runId, batch.map(toRunPoint), [], [], this.snapshotState(session));
       return true;
     } catch (error) {
       // The retained batch keeps its `seq`s: `run_points` has no ON CONFLICT clause, so a re-sent duplicate would reject forever.

@@ -80,7 +80,7 @@ saveWorkoutSample(
 `insertRouteData` then `finishRoute(with: workout)`. The full route lands in
 Apple Health, exactly as ADR 0011 claimed.
 
-### 3.1 Four limitations, all confirmed in the Swift
+### 3.1 Five limitations, all confirmed in the Swift
 
 1. **Workout events are unwritable.** `workoutEvents: nil` is hardcoded at all
    three `HKWorkout.init` sites (`ios/WorkoutsModule.swift:156,169,184`) — and
@@ -103,6 +103,20 @@ Apple Health, exactly as ADR 0011 claimed.
    the workout total equal to the **last segment**. An explicit `totals.distance`
    overrides it afterwards (`:137-141`). See §5.3 — this is the one failure in
    this design that would be both silent and wrong.
+5. **Quantity-valued workout metadata cannot be written.** The bridge from our
+   metadata map to HealthKit's is `saveWorkoutSample(..., metadata?: AnyMap)` →
+   `anyMapToDictionary` (`ios/Helpers.swift:428`) → `getAnyMapValue`
+   (`ios/QuantityTypeModule.swift:263`), which for an object-valued key returns
+   `anyMap.getObject(key:)` — a raw nested map, never an `HKQuantity`.
+   HealthKit's metadata dictionary accepts only NSString / NSNumber / NSDate /
+   HKQuantity values, so any metadata key whose value should be a quantity (for
+   example `HKMetadataKeyElevationAscended`) is unwritable through this
+   library at any version available to us. This is a class, not one key — 23
+   of 71 metadata keys are quantity-valued, 12 of them workout-applicable.
+   Full evidence, and the deprecated-API root cause it shares with limitation
+   1's unwritable workout events, is in
+   [`docs/healthkit-capability-ledger.md`](../../healthkit-capability-ledger.md)
+   §2.2 and §2.8.
 
 Together, (1)–(3) meant the original per-segment samples were a weak
 consolation prize, not a representation of intervals: (2) in particular means
@@ -160,7 +174,7 @@ Read from `app.plugin.ts`:
   `com.apple.developer.healthkit.background-delivery` entitlement (`:31-33`)
   *and* an AppDelegate modification. `background: false` suppresses both. This
   confirms ADR 0011 §3 and remains load-bearing.
-- **`NSHealthShareUsageDescription` is written unconditionally** (`:44-47`).
+- **`NSHealthShareUsageDescription` is written unconditionally** (`:44-50`).
   There is no opt-out: omit it and the plugin injects
   `"RunBro wants to read your health data"` into Info.plist. Only the *Update*
   description can be suppressed (with `false`). For an app that never reads,

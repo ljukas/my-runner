@@ -5,7 +5,7 @@
 
 import { useColorScheme } from 'react-native';
 
-import { Colors, SegmentColors, StatColors } from '@/constants/theme';
+import { ChartGridColors, Colors, SegmentColors, StatColors } from '@/constants/theme';
 
 export function useTheme() {
   const scheme = useColorScheme();
@@ -22,4 +22,9 @@ export function useSegmentColors() {
 export function useStatColors() {
   const scheme = useColorScheme();
   return StatColors[scheme === 'dark' ? 'dark' : 'light'];
+}
+
+export function useChartGridColor() {
+  const scheme = useColorScheme();
+  return ChartGridColors[scheme === 'dark' ? 'dark' : 'light'];
 }

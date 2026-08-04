@@ -97,6 +97,15 @@ export const StatColors: Record<
   },
 };
 
+/** Chart gridlines, per color scheme. Deliberately far fainter than any data drawn over them —
+ * victory-native's own default and Apple's Swift Charts both sit near 25% of the text color, and
+ * a grid at full `textSecondary` out-contrasted the pace line it exists to measure.
+ * Access via `useChartGridColor()`. */
+export const ChartGridColors: Record<'light' | 'dark', string> = {
+  light: 'hsla(0, 0%, 0%, 0.25)',
+  dark: 'hsla(0, 0%, 100%, 0.25)',
+};
+
 /** Segment-kind SF Symbols for the run screen phase label. Warm-up/cool-down are
  * walking phases in the plan; only the run intervals get the running figure. */
 export const SegmentSymbols: Record<SegmentKind, SFSymbol> = {

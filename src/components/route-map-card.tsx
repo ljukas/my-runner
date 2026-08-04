@@ -5,9 +5,9 @@ import { PixelRatio, View } from 'react-native';
 import { RouteMap } from '@/components/route-map';
 import { RouteUnavailableCard } from '@/components/route-unavailable-card';
 import { Card } from '@/components/ui/card';
-import type { Run, RunSegment } from '@/db/schema';
+import type { Run } from '@/db/schema';
 import { formatDistanceKm } from '@/domain/format';
-import { useRunRoute } from '@/hooks/use-run-route';
+import type { RunTrack } from '@/hooks/use-run-track';
 import { useTheme } from '@/hooks/use-theme';
 import { useLocationPermission } from '@/services/location-tracker';
 
@@ -20,15 +20,13 @@ const CHIP_SYMBOL_POINTS = 14;
  * A finished run's route, camera-fitted and inert; tapping opens the full-screen viewer
  * (ADR 0013 domain component). Falls back to an explanatory card rather than rendering nothing.
  */
-export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment[] }) {
+export function RouteMapCard({ run, track }: { run: Run; track: RunTrack }) {
   const router = useRouter();
   const colors = useTheme();
-  // why: the caller (runs/[runId]/index) only mounts this card once its own live query has loaded.
-  const route = useRunRoute(run.id, segments, true);
   // why: null until the first read resolves, and an unresolved answer must not offer a way out.
   const permission = useLocationPermission();
 
-  if (!route.ready) {
+  if (!track.ready) {
     // why: save-run nulls summaryPolyline iff the run recorded no accepted fixes — the only per-run
     // record of the reason.
     return (
@@ -47,9 +45,9 @@ export function RouteMapCard({ run, segments }: { run: Run; segments: RunSegment
   return (
     <Card surface="card" className="aspect-[3/2] min-h-[100px] overflow-hidden p-0">
       <RouteMap
-        route={route.route}
-        endpoints={route.endpoints}
-        bbox={route.bbox}
+        route={track.route}
+        endpoints={track.endpoints}
+        bbox={track.bbox}
         aspectRatio={CARD_ASPECT_RATIO}
         interactive={false}
         accessibilityLabel={distance ? `Map of your ${distance} route` : 'Map of your route'}

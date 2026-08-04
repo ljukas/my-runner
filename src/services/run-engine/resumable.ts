@@ -41,6 +41,18 @@ function parseFix(value: unknown): LocationFix | null {
   };
 }
 
+// Absent for a snapshot written before this slice, and it must stay absent rather than default to
+// zero: the resumed run would then re-mint `seq`s the run already stored (spec §5.1).
+function parseLogSeq(value: unknown): RunSnapshotState['logSeq'] {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { sampleSeq, entrySeq } = value as { sampleSeq?: unknown; entrySeq?: unknown };
+  if (typeof sampleSeq !== 'number' || !Number.isInteger(sampleSeq) || sampleSeq < 0) {
+    return undefined;
+  }
+  if (typeof entrySeq !== 'number' || !Number.isInteger(entrySeq) || entrySeq < 0) return undefined;
+  return { sampleSeq, entrySeq };
+}
+
 /**
  * Narrows an untrusted `state_json` payload; null for anything the engine could not replay. An
  * `end` event is such a case: the run it belongs to already finished, so there is nothing to recover.
@@ -63,6 +75,7 @@ export function parseSnapshotState(value: unknown): RunSnapshotState | null {
     lastAnnouncedIndex: state.lastAnnouncedIndex,
     halfwayFired: state.halfwayFired,
     lastAcceptedFix: parseFix(state.lastAcceptedFix),
+    logSeq: parseLogSeq(state.logSeq),
   };
 }
 

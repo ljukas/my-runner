@@ -65,6 +65,11 @@ export class RunLog {
     return this.dropped;
   }
 
+  /** The next ids to mint — `restoreFrom`'s inverse, which the run snapshot stores as its watermark. */
+  get watermarks(): { sampleSeq: number; entrySeq: number } {
+    return { sampleSeq: this.nextSampleSeq, entrySeq: this.nextEntrySeq };
+  }
+
   restoreFrom({ sampleSeq, entrySeq }: { sampleSeq: number; entrySeq: number }): void {
     this.nextSampleSeq = sampleSeq;
     this.nextEntrySeq = entrySeq;

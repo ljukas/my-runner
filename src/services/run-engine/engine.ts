@@ -1,4 +1,4 @@
-import { SEGMENT_ENTRY_CUE } from '@/domain/cues';
+import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
 import {
   accuracyFilter,
   createSmootherState,
@@ -15,6 +15,7 @@ import {
 import { paceSecPerKm } from '@/domain/run-stats';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import type { CueService } from '@/services/cue-service/port';
+import type { AltitudeReading, ElevationSource } from '@/services/elevation';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import {
@@ -22,6 +23,7 @@ import {
   POINT_FLUSH_MS,
   type PointBatchScheduler,
 } from './point-batch-scheduler';
+import { RunLog, type PendingEntry, type PendingSample, type RunLogKind } from './run-log';
 import type {
   BufferedRunPoint,
   Clock,
@@ -139,6 +141,12 @@ export interface RunRestoreInput {
   state: RunSnapshotState;
   /** The run's persisted `run_points`, in `seq` order. */
   points: readonly BufferedRunPoint[];
+  /**
+   * This run's already-stored instrumentation watermarks (spec §5.1). `epochBase` is always used;
+   * the two `next*` counters only stand in for a snapshot written before `logSeq` existed, and
+   * omitting them restarts this run's log at zero.
+   */
+  logResume?: { nextSampleSeq: number; nextEntrySeq: number; epochBase: number };
 }
 
 export interface RunAbandonInput extends Omit<RunRestoreInput, 'points'> {
@@ -168,6 +176,7 @@ export class RunEngine {
   private readonly cue: CueService;
   private readonly runStore: RunStore;
   private readonly tracker: LocationTracker;
+  private readonly elevation: ElevationSource;
   private readonly scheduler: PointBatchScheduler;
 
   private session: PlanSession | null = null;
@@ -197,6 +206,13 @@ export class RunEngine {
   private nextSeq = 0;
   private lastAcceptedFix: LocationFix | null = null;
 
+  // Field-log capture (spec §6). Instrumentation only — nothing here may influence the run.
+  private log = new RunLog();
+  /** Offsets the adapter's per-process epoch past what this run already stored (spec §4.2). */
+  private elevationEpochBase = 0;
+  /** A field-test capture must not coach (spec §8.0). Always false until capture mode ships. */
+  private cuesSuppressed = false;
+
   // `run_points` FK-references the `'active'` row, so nothing can be written before startRun resolves.
   private runId: string | null = null;
   private startRunPromise: Promise<string | null> | null = null;
@@ -206,12 +222,16 @@ export class RunEngine {
   // why: reset() + start() fire back-to-back (session screen); unordered, the old stop() can land
   // after the new start() and leave tracking off for the whole run.
   private trackerOps: Promise<unknown> = Promise.resolve();
+  // Same hazard as trackerOps, one sensor over: an unordered stop() landing after a start() would
+  // leave the barometer running with the app backgrounded.
+  private elevationOps: Promise<unknown> = Promise.resolve();
 
   constructor(deps: {
     persistence: RunLifecyclePersistence;
     cue: CueService;
     runStore: RunStore;
     tracker: LocationTracker;
+    elevation: ElevationSource;
     clock?: Clock;
     createScheduler?: (flush: () => void) => PointBatchScheduler;
   }) {
@@ -219,11 +239,19 @@ export class RunEngine {
     this.cue = deps.cue;
     this.runStore = deps.runStore;
     this.tracker = deps.tracker;
+    this.elevation = deps.elevation;
     this.clock = deps.clock ?? Date.now;
     const createScheduler =
       deps.createScheduler ??
       ((flush) => createPointBatchScheduler({ flushMs: POINT_FLUSH_MS, flush }));
     this.scheduler = createScheduler(() => void this.queueFlush());
+    try {
+      // Subscribed for the engine's lifetime: the port's fan-out is JS-side, so staying registered
+      // costs nothing when no run is live and cannot stop the native altimeter (ADR 0015).
+      this.elevation.onReading(this.captureReading);
+    } catch (error) {
+      console.warn('[run-engine] altitude subscription failed; the run is unaffected', error);
+    }
   }
 
   start(session: PlanSession): void {
@@ -240,10 +268,13 @@ export class RunEngine {
     this.plannedTotalS = sessionTotalSeconds(session);
     // The final run is announced as "last run", not a generic "start running".
     this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
+    this.cuesSuppressed = false;
+    this.elevationEpochBase = 0;
     this.resetIngestState();
     this.openRunRow(session.key, this.events[0].at);
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
+    this.queueElevation(() => this.elevation.start(), 'start');
     this.refresh();
     this.armFlush();
   }
@@ -254,7 +285,7 @@ export class RunEngine {
     this.status = 'paused';
     this.refresh();
     this.armFlush();
-    this.cue.announce('paused');
+    this.announce('paused');
   }
 
   resume(): void {
@@ -263,7 +294,7 @@ export class RunEngine {
     this.status = 'running';
     this.refresh();
     this.armFlush();
-    this.cue.announce('resumed');
+    this.announce('resumed');
   }
 
   skipSegment(): void {
@@ -302,6 +333,7 @@ export class RunEngine {
     if (!this.rebuild(input)) return false;
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
+    this.queueElevation(() => this.elevation.start(), 'start');
     this.refresh();
     this.armFlush();
     return true;
@@ -337,6 +369,9 @@ export class RunEngine {
     this.snapshot = IDLE_SNAPSHOT;
     this.cue.release();
     this.queueTracker(() => this.tracker.stop(), 'stop');
+    // why here too: a path to idle that skips finalize would otherwise leave CMAltimeter running
+    // with the app backgrounded, and desync the adapter's idempotence flag from native state.
+    this.queueElevation(() => this.elevation.stop(), 'stop');
     this.emit();
   }
 
@@ -349,6 +384,19 @@ export class RunEngine {
 
   /** Buffered accuracy-passed points awaiting their `run_points` flush (ADR 0021 §3); a shallow copy so array mutation can't reach the engine's buffer. */
   getBufferedPoints = (): readonly BufferedRunPoint[] => this.pendingPoints.slice();
+
+  /**
+   * Records one field-log entry (spec §6). Public because the composition root owns the signals the
+   * engine cannot see — delivered fix batches, app lifecycle, battery, the sensor's own state.
+   * Never throws: instrumentation may not influence a run (spec §6.2).
+   */
+  note(kind: RunLogKind, detail: unknown): void {
+    try {
+      this.log.note(kind, detail);
+    } catch (error) {
+      console.warn('[run-engine] log entry dropped; the run is unaffected', error);
+    }
+  }
 
   // --- derivation ---
 
@@ -415,12 +463,20 @@ export class RunEngine {
   private announceProgress(index: number, kind: SegmentKind, elapsed: number): void {
     if (index !== this.lastAnnouncedIndex) {
       this.lastAnnouncedIndex = index;
-      this.cue.announce(index === this.lastRunIndex ? 'lastRun' : SEGMENT_ENTRY_CUE[kind]);
+      this.announce(index === this.lastRunIndex ? 'lastRun' : SEGMENT_ENTRY_CUE[kind]);
     }
     if (!this.halfwayFired && this.plannedTotalS > 0 && elapsed >= this.plannedTotalS / 2) {
       this.halfwayFired = true;
-      this.cue.announce('halfway');
+      this.announce('halfway');
     }
+  }
+
+  // why a seam: one flag can silence a whole run, and the log records what it would have said
+  // either way (spec §6, §8.0).
+  private announce(cue: CueId): void {
+    this.note('cue', { cue, suppressed: this.cuesSuppressed });
+    if (this.cuesSuppressed) return;
+    this.cue.announce(cue);
   }
 
   private resetIngestState(): void {
@@ -429,14 +485,33 @@ export class RunEngine {
     this.pendingPoints = [];
     this.nextSeq = 0;
     this.lastAcceptedFix = null;
+    // The log's `seq` space is per run, and its rows FK-reference one run's row.
+    this.log.reset();
   }
+
+  private captureReading = (reading: AltitudeReading): void => {
+    try {
+      this.log.sample(reading, this.snapshot.segmentIndex, this.elevationEpochBase);
+    } catch (error) {
+      console.warn('[run-engine] altitude sample dropped; the run is unaffected', error);
+    }
+  };
 
   // Same smoother the finalize re-fold re-runs over run_points, so live distance == re-derived (ADR 0021 §3):
   // the integer-ms timestamp survives the ISO round-trip, and the full accuracy-passed stream is buffered (no re-gate — the smoother owns velocity).
   private ingestFix(fix: LocationFix, segmentSeq: number): void {
     let buffered = false;
     try {
-      if (!accuracyFilter(fix)) return;
+      if (!accuracyFilter(fix)) {
+        // why only here: `smoothFix`'s velocity gate returns no smoothed point but still persists the
+        // fix, so the accuracy filter is the only true rejection (spec §6.1).
+        this.note('fix_rejected', {
+          at: fix.timestamp,
+          accuracy: fix.accuracy,
+          altitudeAccuracy: fix.altitudeAccuracy ?? null,
+        });
+        return;
+      }
       const timestamp = Math.round(fix.timestamp);
       const step = smoothFix(this.smootherState, { ...fix, timestamp });
       const point: BufferedRunPoint = {
@@ -472,7 +547,7 @@ export class RunEngine {
 
   /** Replays the log and re-folds the persisted points into live state; false when the log is unusable. */
   private rebuild(input: RunRestoreInput): boolean {
-    const { runId, session, state, points } = input;
+    const { runId, session, state, points, logResume } = input;
     if (state.events.length === 0 || state.events[0].type !== 'start') return false;
     if (state.sessionKey !== session.key) return false;
 
@@ -487,7 +562,17 @@ export class RunEngine {
     this.halfwayFired = state.halfwayFired;
     this.plannedTotalS = sessionTotalSeconds(session);
     this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
+    this.cuesSuppressed = false;
+    this.elevationEpochBase = logResume?.epochBase ?? 0;
     this.resetIngestState();
+    // why the snapshot wins: it counts the rows this run minted, including any lost with the
+    // unflushed tail, so continuing from it leaves the drop as a `seq` gap instead of a duplicate.
+    this.log.restoreFrom(
+      state.logSeq ?? {
+        sampleSeq: logResume?.nextSampleSeq ?? 0,
+        entrySeq: logResume?.nextEntrySeq ?? 0,
+      },
+    );
     // The `'active'` row already exists — recovery must never open a second one.
     this.runId = runId;
     this.startRunPromise = Promise.resolve(runId);
@@ -551,10 +636,11 @@ export class RunEngine {
     // A completed run speaks its congratulations, then self-releases the audio
     // session when that utterance finishes — calling release() here would cut it
     // off. Ending early has no cue, so tear the session down immediately.
-    if (kind === 'completed') this.cue.announce('complete');
+    if (kind === 'completed') this.announce('complete');
     else this.cue.release();
     this.scheduler.stop();
     this.queueTracker(() => this.tracker.stop(), 'stop');
+    this.queueElevation(() => this.elevation.stop(), 'stop');
     await this.completeRun(record, this.runGeneration);
   }
 
@@ -609,7 +695,12 @@ export class RunEngine {
   private async flushOnce(): Promise<boolean> {
     const generation = this.runGeneration;
     let batch: BufferedRunPoint[] = [];
+    let samples: PendingSample[] = [];
+    let entries: PendingEntry[] = [];
     try {
+      // The aliveness heartbeat (spec §6.1): noted before the batch is claimed, so this attempt's
+      // own tick rides it and a stalled flush cannot silently stop the trace.
+      this.note('tick', null);
       const runId = await this.awaitRunId();
       const session = this.session;
       if (runId === null || session === null) return false;
@@ -618,12 +709,24 @@ export class RunEngine {
       // are not handed to the DB under a stale runId.
       batch = this.pendingPoints.slice(0, MAX_FLUSH_POINTS);
       this.pendingPoints = this.pendingPoints.slice(batch.length);
-      // why empty: RunLog isn't wired into the engine until a later task, so nothing is buffered yet.
-      await this.runStore.flush(runId, batch.map(toRunPoint), [], [], this.snapshotState(session));
+      samples = this.log.takeSamples();
+      entries = this.log.takeEntries();
+      await this.runStore.flush(
+        runId,
+        batch.map(toRunPoint),
+        samples,
+        entries,
+        this.snapshotState(session),
+      );
       return true;
     } catch (error) {
       // The retained batch keeps its `seq`s: `run_points` has no ON CONFLICT clause, so a re-sent duplicate would reject forever.
-      if (generation === this.runGeneration) this.pendingPoints = batch.concat(this.pendingPoints);
+      // Re-minting the log rows' `seq` would erase the gap that marks a genuine drop (run-log.ts).
+      if (generation === this.runGeneration) {
+        this.pendingPoints = batch.concat(this.pendingPoints);
+        this.log.restoreSamples(samples);
+        this.log.restoreEntries(entries);
+      }
       console.warn('[run-engine] point flush failed; batch retained for the next cadence', error);
       return false;
     } finally {
@@ -641,13 +744,24 @@ export class RunEngine {
       lastAnnouncedIndex: this.lastAnnouncedIndex,
       halfwayFired: this.halfwayFired,
       lastAcceptedFix: this.lastAcceptedFix,
+      logSeq: this.log.watermarks,
     };
   }
 
+  // why the log buffers count too: at finalize the points are normally already drained, so gating
+  // on them alone would drop every finalize-time entry — the completion cue, the pedometer read.
   private async drainPendingPoints(): Promise<boolean> {
-    for (let attempt = 0; attempt < MAX_TAIL_FLUSHES && this.pendingPoints.length > 0; attempt++) {
+    for (
+      let attempt = 0;
+      attempt < MAX_TAIL_FLUSHES &&
+      (this.pendingPoints.length > 0 ||
+        this.log.pendingSamples.length > 0 ||
+        this.log.pendingEntries.length > 0);
+      attempt++
+    ) {
       await this.queueFlush();
     }
+    // Points only: the caller's warning is about the run's distance, which instrumentation cannot shorten.
     return this.pendingPoints.length === 0;
   }
 
@@ -704,6 +818,12 @@ export class RunEngine {
     this.trackerOps = this.trackerOps
       .then(op)
       .catch((error) => console.warn(`[run-engine] location ${label} failed`, error));
+  }
+
+  private queueElevation(op: () => Promise<void>, label: string): void {
+    this.elevationOps = this.elevationOps
+      .then(op)
+      .catch((error) => console.warn(`[run-engine] altitude ${label} failed`, error));
   }
 
   private emit(): void {

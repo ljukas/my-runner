@@ -6,6 +6,7 @@ import { dbRunPersistence } from '@/db/save-run';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
+import { elevationSource } from '@/services/elevation';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
@@ -24,6 +25,7 @@ export const runEngine = new RunEngine({
   cue: cueService,
   runStore: dbRunStore,
   tracker: locationTracker,
+  elevation: elevationSource,
 });
 
 // Module scope, never a React effect, and imported from the app entry rather than a route: iOS

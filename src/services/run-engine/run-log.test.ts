@@ -104,6 +104,18 @@ describe('RunLog', () => {
     expect(log.pendingEntries[0].detailJson).toBe('{"state":"background"}');
   });
 
+  test('watermarks report the next ids to mint, unaffected by taking a batch', () => {
+    const log = new RunLog();
+    expect(log.watermarks).toEqual({ sampleSeq: 0, entrySeq: 0 });
+    log.sample(reading(), 0, 0);
+    log.note('tick', null);
+    log.note('tick', null);
+    log.takeSamples();
+    log.takeEntries();
+    // The snapshot stores this so a resume continues the run's own numbering (spec §5.1).
+    expect(log.watermarks).toEqual({ sampleSeq: 1, entrySeq: 2 });
+  });
+
   test('restoreFrom() continues seq past what is already stored', () => {
     const log = new RunLog();
     log.restoreFrom({ sampleSeq: 450, entrySeq: 1800 });

@@ -9,10 +9,12 @@ import {
 } from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
+import type { AltitudeReading, ElevationSource } from '@/services/elevation';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
+import { parseSnapshotState } from './resumable';
 import type { PendingEntry, PendingSample } from './run-log';
 import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
 
@@ -31,6 +33,28 @@ function makeFakeCue() {
     cues,
     prepareCount: () => prepared,
     releaseCount: () => released,
+  };
+}
+
+/** A recording fake barometer: the engine subscribes once, so `emit` is how a reading arrives. */
+function fakeElevation() {
+  const listeners = new Set<(reading: AltitudeReading) => void>();
+  const calls: string[] = [];
+  const source: ElevationSource = {
+    isAvailable: async () => true,
+    requestPermission: async () => 'granted',
+    getPermissionStatus: async () => 'granted',
+    start: async () => void calls.push('start'),
+    stop: async () => void calls.push('stop'),
+    onReading: (cb) => {
+      listeners.add(cb);
+      return () => void listeners.delete(cb);
+    },
+  };
+  return {
+    calls,
+    source,
+    emit: (reading: AltitudeReading) => listeners.forEach((listener) => listener(reading)),
   };
 }
 
@@ -57,6 +81,16 @@ function fixAt(offsetSec: number, lat: number, lng: number, accuracy = 5): Locat
     altitude: 42,
     accuracy,
     speed: 2,
+  };
+}
+
+function readingAt(offsetSec: number, pressureHpa: number): AltitudeReading {
+  return {
+    at: FIX_START + offsetSec * 1000,
+    sensorTimestampS: offsetSec,
+    pressureHpa,
+    relativeAltitudeM: 0,
+    epoch: 1,
   };
 }
 
@@ -107,7 +141,13 @@ async function withoutWarnings(body: () => Promise<void>): Promise<number> {
   return count;
 }
 
-function makeEngine(options: { deferStartRun?: boolean; failStartRunTimes?: number } = {}) {
+function makeEngine(
+  options: {
+    deferStartRun?: boolean;
+    failStartRunTimes?: number;
+    elevation?: ElevationSource;
+  } = {},
+) {
   let now = 1_000_000;
   const calls: string[] = [];
   const saved: CompletedRunRecord[] = [];
@@ -182,17 +222,21 @@ function makeEngine(options: { deferStartRun?: boolean; failStartRunTimes?: numb
   };
 
   const fakeCue = makeFakeCue();
+  const fakeBarometer = fakeElevation();
   const engine = new RunEngine({
     persistence,
     runStore,
     tracker,
     cue: fakeCue.cue,
+    elevation: options.elevation ?? fakeBarometer.source,
     clock: () => now,
     createScheduler,
   });
   return {
     engine,
     calls,
+    elevationCalls: fakeBarometer.calls,
+    emitReading: fakeBarometer.emit,
     saved,
     finalized,
     flushes,
@@ -1331,5 +1375,232 @@ describe('abandon (unresumable in-flight run)', () => {
     expect(h.engine.getSnapshot().status).toBe('running');
     expect(h.engine.getSnapshot().sessionKey).toBe('w1d1');
     expect(h.finalized).toEqual([]);
+  });
+});
+
+describe('barometer capture (spec §6)', () => {
+  test('a reading delivered during a run reaches the flush', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.emitReading(readingAt(1, 1013.25));
+    h.fireFlush();
+    await flush();
+    expect(h.flushedSamples()).toHaveLength(1);
+    expect(h.flushedSamples()[0]).toMatchObject({
+      seq: 0,
+      at: FIX_START + 1000,
+      pressureHpa: 1013.25,
+      segmentSeq: 0, // the warmup the run is in — samples are tagged like points
+    });
+  });
+
+  test('a source that throws on start cannot fail the run', async () => {
+    const broken = fakeElevation();
+    const h = makeEngine({
+      elevation: { ...broken.source, start: () => Promise.reject(new Error('altimeter down')) },
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      WALK_TRACK.forEach(h.feed);
+      h.fireFlush();
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.engine.getSnapshot().status).toBe('running');
+    expect(h.flushedSeqs()).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  test('a source that throws on subscribe cannot stop the engine being built', async () => {
+    const base = fakeElevation();
+    const warnings = await withoutWarnings(async () => {
+      const h = makeEngine({
+        elevation: {
+          ...base.source,
+          onReading: () => {
+            throw new Error('no fan-out');
+          },
+        },
+      });
+      h.engine.start(SESSION);
+      h.tick(80);
+      await flush();
+      expect(h.engine.getSnapshot().status).toBe('completed');
+      expect(h.saved).toHaveLength(1);
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+  });
+
+  test('elevation start/stop are ordered, so a slow stop cannot outlive the next start', async () => {
+    const calls: string[] = [];
+    const base = fakeElevation();
+    const h = makeEngine({
+      elevation: {
+        ...base.source,
+        start: async () => void calls.push('start'),
+        // A real stop() crosses the native bridge; this one only has to settle later than the
+        // following start() is issued.
+        stop: async () => {
+          await Promise.resolve();
+          calls.push('stop');
+        },
+      },
+    });
+    h.engine.start(SESSION);
+    await flush();
+    h.engine.reset();
+    h.engine.start(SESSION); // the session screen's own back-to-back sequence
+    await flush();
+    expect(calls).toEqual(['start', 'stop', 'start']);
+  });
+
+  test('the source is started on restore(), not only on start()', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    expect(
+      h.engine.restore({ runId: 'run-1', session: SESSION, state: stateAtStart(), points: [] }),
+    ).toBe(true);
+    await flush();
+    expect(h.elevationCalls).toEqual(['start']);
+  });
+
+  test('the source is stopped on reset() as well as finalize()', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush();
+    expect(h.elevationCalls).toEqual(['start']);
+    h.tick(80); // timeline exhausted → finalize
+    await flush();
+    expect(h.elevationCalls).toEqual(['start', 'stop']);
+    h.engine.reset();
+    await flush();
+    expect(h.elevationCalls).toEqual(['start', 'stop', 'stop']);
+  });
+
+  test('a failed flush returns its rows with their original seq, never renumbered', async () => {
+    const h = makeEngine();
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      await flush(); // let the flush that follows startRun settle, so the buffers are clean
+      h.emitReading(readingAt(1, 1013)); // seq 0
+      h.emitReading(readingAt(2, Number.NaN)); // consumes seq 1 and is dropped: the gap is real
+      h.emitReading(readingAt(3, 1012)); // seq 2
+      h.setFailFlush(true);
+      h.fireFlush();
+      await flush();
+      h.setFailFlush(false);
+      h.fireFlush();
+      await flush();
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    // Renumbering on retry would yield [3, 4] here and erase the dropped reading's evidence.
+    expect(h.flushedSamples().map((s) => s.seq)).toEqual([0, 2]);
+    const entrySeqs = h.flushedEntries().map((e) => e.seq);
+    expect(entrySeqs).toEqual(entrySeqs.map((_, i) => i));
+  });
+
+  test('a resumed run continues its log seq instead of restarting it', async () => {
+    const live = makeEngine();
+    live.engine.start(SESSION);
+    live.emitReading(readingAt(1, 1013));
+    live.emitReading(readingAt(2, 1012));
+    live.fireFlush();
+    await flush();
+    const written = live.lastFlush().state;
+    expect(written.logSeq?.sampleSeq).toBe(2);
+    // Through the real parser, as the composition root reads it back: without its leg the watermark
+    // is undefined on every resume, indistinguishable from never having been written.
+    const state = parseSnapshotState(JSON.parse(JSON.stringify(written)));
+    expect(state?.logSeq).toEqual(written.logSeq);
+
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    expect(h.engine.restore({ runId: 'run-1', session: SESSION, state: state!, points: [] })).toBe(
+      true,
+    );
+    h.emitReading(readingAt(21, 1011));
+    h.fireFlush();
+    await flush();
+    expect(h.flushedSamples().map((s) => s.seq)).toEqual([2]);
+    expect(h.flushedEntries()[0].seq).toBe(written.logSeq!.entrySeq);
+  });
+
+  test('a pre-slice snapshot resumes from the stored maxima, never from zero', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    h.engine.restore({
+      runId: 'run-1',
+      session: SESSION,
+      state: stateAtStart(), // written before `logSeq` existed
+      points: [],
+      logResume: { nextSampleSeq: 40, nextEntrySeq: 900, epochBase: 3 },
+    });
+    h.emitReading(readingAt(21, 1011));
+    h.fireFlush();
+    await flush();
+    expect(h.flushedSamples()[0]).toMatchObject({ seq: 40, epoch: 4 });
+    expect(h.flushedEntries()[0].seq).toBe(900);
+  });
+
+  test('an entry noted at finalize reaches the store even with no points pending', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush(); // the cadence flush drains first, so only the finalize drain is left to carry it
+    h.tick(80); // completes with no GPS fix ever ingested
+    await flush();
+    expect(h.engine.getBufferedPoints()).toEqual([]);
+    // The completion cue is noted after the last cadence flush, so only the finalize drain can carry it.
+    expect(
+      h.flushedEntries().some((e) => e.kind === 'cue' && e.detailJson?.includes('complete')),
+    ).toBe(true);
+  });
+
+  test("a reading taken in a run's last seconds is drained at finalize", async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush(); // drains the log, so the reading below is the only thing pending
+    h.emitReading(readingAt(11, 1013));
+    h.engine.endEarly(); // no completion cue, so this sample is pending with no entry beside it
+    await flush();
+    expect(h.flushedSamples().map((s) => s.pressureHpa)).toEqual([1013]);
+  });
+
+  test('an accuracy-rejected fix is logged; a velocity-gated one is not, since it is persisted', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.feed(fixAt(2, 59, 18, 60)); // accuracy 60 m → rejected outright
+    h.feed(fixAt(3, 61, 18)); // implausible jump: gated by the smoother, but still buffered
+    h.fireFlush();
+    await flush();
+    const rejected = h.flushedEntries().filter((e) => e.kind === 'fix_rejected');
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].detailJson).toBe(
+      JSON.stringify({ at: FIX_START + 2000, accuracy: 60, altitudeAccuracy: null }),
+    );
+    expect(h.flushedSeqs()).toEqual([0]);
+  });
+
+  test('every flush attempt leaves an aliveness tick, with no GPS fix at all', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush();
+    h.fireFlush();
+    await flush();
+    h.engine.pause();
+    h.fireFlush();
+    await flush();
+    expect(h.flushedEntries().filter((e) => e.kind === 'tick').length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('start() and reset() clear the log, so no row crosses into another run', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    h.emitReading(readingAt(1, 1013));
+    h.engine.reset();
+    h.engine.start(SESSION);
+    h.emitReading(readingAt(2, 1012));
+    h.fireFlush();
+    await flush();
+    expect(h.flushedSamples().map((s) => s.at)).toEqual([FIX_START + 2000]);
+    expect(h.flushedSamples()[0].seq).toBe(0);
   });
 });

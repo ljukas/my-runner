@@ -28,6 +28,8 @@ beforeAll(() => {
       distance_m real,
       summary_polyline text,
       healthkit_saved integer DEFAULT false NOT NULL,
+      event_log_json text,
+      motion_permission text,
       created_at text NOT NULL,
       updated_at text NOT NULL,
       deleted_at text

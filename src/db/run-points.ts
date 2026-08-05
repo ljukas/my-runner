@@ -29,6 +29,7 @@ export function loadBufferedRunPoints(runId: string): BufferedRunPoint[] {
     lng: row.lng,
     altitude: row.altitude,
     accuracy: row.accuracy,
+    altitudeAccuracy: row.altitudeAccuracy,
     speed: row.speed,
   }));
 }

@@ -34,9 +34,10 @@ export function toHealthRoute(fixes: readonly SegmentedFix[]): HealthRoutePoint[
         altitude: fix.altitude ?? 0,
         horizontalAccuracy: fix.accuracy ?? CL_UNKNOWN,
         speed: fix.speed ?? CL_UNKNOWN,
-        // Never recorded: run_points has no course or vertical-accuracy column (spec §5.1).
+        // Never recorded: run_points has no course column (spec §5.1).
         course: CL_UNKNOWN,
-        verticalAccuracy: CL_UNKNOWN,
+        // CoreLocation's own negative-means-invalid convention makes CL_UNKNOWN a safe, un-clamped fallback.
+        verticalAccuracy: fix.altitudeAccuracy ?? CL_UNKNOWN,
       }))
   );
 }

@@ -19,6 +19,7 @@ function toFix({ coords, timestamp }: Location.LocationObject): LocationFix {
     lng: coords.longitude,
     altitude: coords.altitude,
     accuracy: coords.accuracy,
+    altitudeAccuracy: coords.altitudeAccuracy,
     speed: coords.speed,
   };
 }

@@ -29,6 +29,8 @@ export const dbRunPersistence: RunLifecyclePersistence = {
       // why: this path has no `'active'` row and therefore no `run_points` to re-derive from — the
       // engine's live scalar is the only distance such a run will ever have.
       distanceM: record.distanceM ?? null,
+      eventLogJson: record.eventLogJson ?? null,
+      motionPermission: record.motionPermission ?? null,
       createdAt: nowIso,
       updatedAt: nowIso,
     });
@@ -107,6 +109,8 @@ export const dbRunPersistence: RunLifecyclePersistence = {
           activeDurationS: record.activeDurationS,
           distanceM: hasPoints ? distanceM : null,
           summaryPolyline: hasPoints ? encodePolyline(points) : null,
+          eventLogJson: record.eventLogJson ?? null,
+          motionPermission: record.motionPermission ?? null,
           updatedAt: nowIso,
         })
         .where(eq(runs.id, runId))

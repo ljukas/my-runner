@@ -42,6 +42,16 @@ describe('toHealthRoute', () => {
     expect(point.altitude).toBe(0);
   });
 
+  test('carries a fix vertical accuracy through, negative value included', () => {
+    const [point] = toHealthRoute([makeFix({ altitudeAccuracy: -1 })]);
+    expect(point.verticalAccuracy).toBe(-1);
+  });
+
+  test('falls back to CL_UNKNOWN when vertical accuracy was not recorded', () => {
+    const [point] = toHealthRoute([makeFix()]);
+    expect(point.verticalAccuracy).toBe(CL_UNKNOWN);
+  });
+
   test('preserves order and handles an empty track', () => {
     const points = toHealthRoute([makeFix({ timestamp: 1 }), makeFix({ timestamp: 2 })]);
     expect(points.map((p) => p.timestamp)).toEqual([1, 2]);

@@ -8,6 +8,7 @@ tags:
     clearState: true
     permissions:
       location: unset
+      motion: allow
 - runFlow: ../helpers/complete-onboarding.yaml
 - tapOn: "Settings"
 # LabeledContent merges label and value into one element ("Access, <value>"), so match the

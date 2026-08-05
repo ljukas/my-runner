@@ -34,6 +34,13 @@ import {
   formatRunDate,
   sessionTitle,
 } from '@/domain/format';
+import { isFieldTestRun } from '@/services/field-test';
+
+/** The Log's title for a row — distinct from `sessionTitle`'s plan-day format so a field-test
+ * capture (spec §8.0) can never be misread as training. */
+function rowTitle(sessionKey: string): string {
+  return isFieldTestRun(sessionKey) ? 'Field test' : sessionTitle(sessionKey);
+}
 
 /**
  * One combined VoiceOver label per history row. The row is a Button (so it
@@ -50,7 +57,7 @@ function rowA11yLabel(run: {
 }) {
   const { value, unit } = clockParts(run.activeDurationS);
   const partial = run.status === 'partial' ? 'partial, ' : '';
-  let label = `${sessionTitle(run.sessionKey)}, ${formatRunDate(run.startedAt)}, ${partial}duration ${value} ${unit}`;
+  let label = `${rowTitle(run.sessionKey)}, ${formatRunDate(run.startedAt)}, ${partial}duration ${value} ${unit}`;
   if (run.distanceM) {
     label += `, ${formatDistanceKm(run.distanceM)}`;
   }
@@ -90,7 +97,7 @@ export default function LogScreen() {
             >
               <HStack spacing={12}>
                 <VStack alignment="leading" spacing={2}>
-                  <Island.Text>{sessionTitle(run.sessionKey)}</Island.Text>
+                  <Island.Text>{rowTitle(run.sessionKey)}</Island.Text>
                   <Island.Text tone="secondary" modifiers={[font({ textStyle: 'footnote' })]}>
                     {formatRunDate(run.startedAt)}
                   </Island.Text>

@@ -5,6 +5,7 @@ import { loadRunFixes } from '@/db/run-points';
 import { runs } from '@/db/schema';
 import { toHealthWorkout } from '@/domain/health';
 import { healthAdapter } from './adapter';
+import { isHealthWritable } from './writable';
 
 // why: the auto-save and a summary button tap can target the same run at once, and HealthKit would
 // happily write the workout twice.
@@ -37,7 +38,7 @@ export async function syncRunToHealth(runId: string): Promise<HealthSyncResult> 
     if (healthAdapter.getAuthorization() !== 'authorized') return 'skipped';
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
-    if (!run || run.status === 'active' || run.healthkitSaved) return 'skipped';
+    if (!run || !isHealthWritable(run)) return 'skipped';
 
     await healthAdapter.saveRun(toHealthWorkout(run, loadRunFixes(runId)));
 

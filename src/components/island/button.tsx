@@ -45,6 +45,7 @@ export function IslandButton({
   disabled = false,
   fill = false,
   inline = false,
+  testID,
 }: {
   variant?: IslandButtonVariant;
   label: string;
@@ -52,11 +53,20 @@ export function IslandButton({
   disabled?: boolean;
   fill?: boolean;
   inline?: boolean;
+  testID?: string;
 }) {
   const colors = useTheme();
 
   if (!inline && Platform.OS !== 'ios') {
-    return <PillButton variant={variant} label={label} onPress={onPress} disabled={disabled} />;
+    return (
+      <PillButton
+        testID={testID}
+        variant={variant}
+        label={label}
+        onPress={onPress}
+        disabled={disabled}
+      />
+    );
   }
 
   // Unlike the icon button, the bordered styles dim themselves when disabled:
@@ -73,7 +83,7 @@ export function IslandButton({
   const role = variant === 'destructive' ? 'destructive' : undefined;
 
   const button = fill ? (
-    <Button role={role} onPress={onPress} modifiers={modifiers}>
+    <Button testID={testID} role={role} onPress={onPress} modifiers={modifiers}>
       {/* SwiftUI sizes a button by its label — the maxWidth frame on the label
           (not the button) is what makes the capsule span the screen. */}
       <Text
@@ -87,7 +97,7 @@ export function IslandButton({
       </Text>
     </Button>
   ) : (
-    <Button role={role} label={label} onPress={onPress} modifiers={modifiers} />
+    <Button testID={testID} role={role} label={label} onPress={onPress} modifiers={modifiers} />
   );
 
   if (inline) return button;

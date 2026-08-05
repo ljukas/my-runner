@@ -1,37 +1,144 @@
+import { eq } from 'drizzle-orm';
+import * as Battery from 'expo-battery';
+import { Pedometer } from 'expo-sensors';
 import { useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 
 import { findActiveRun } from '@/db/active-run';
+import { db } from '@/db/client';
+import { loadLogResumeWatermarks } from '@/db/run-log';
 import { loadBufferedRunPoints } from '@/db/run-points';
 import { dbRunPersistence } from '@/db/save-run';
+import { runs } from '@/db/schema';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
+import { elevationSource, type ElevationSource } from '@/services/elevation';
+import { resumeDispositionOf, skipForFieldTest } from '@/services/field-test';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
-import { isTimelineExhausted, RunEngine } from './engine';
+import { isTimelineExhausted, RunEngine, type RunRestoreInput } from './engine';
+import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
+import type { StepCounter } from './types';
 
 export { endCountsAsCompleted } from './engine';
+
+// why memoized, and consulted before every CoreMotion touch: iOS raises the Motion & Fitness prompt
+// on the first Pedometer call while authorization is undetermined, and on hardware with no barometer
+// there is nothing that prompt could serve — no reading can ever arrive (ADR 0015 item 2's feature
+// detection). Every simulator is such hardware, so an ungated read strands the whole Maestro suite
+// behind a system alert `clearState` cannot dismiss. The answer cannot change within a process.
+let barometerAvailable: Promise<boolean> | null = null;
+function hasBarometer(): Promise<boolean> {
+  return (barometerAvailable ??= elevationSource.isAvailable().catch(() => false));
+}
+
+// why wrap start() rather than note from the engine: this is the only seam that fires exactly once
+// per run start/restore (engine.ts's queueElevation) without engine.ts importing anything to log it
+// (spec §6.1).
+const elevationWithSensorLog: ElevationSource = {
+  ...elevationSource,
+  // why gated: this is a Pedometer call, so reading it on barometer-less hardware raises the prompt
+  // for a capability that device does not have. `available: false` in the `sensor` row already says
+  // why an export has no samples, so nothing diagnostic is lost by not asking.
+  async getPermissionStatus() {
+    return (await hasBarometer()) ? elevationSource.getPermissionStatus() : 'undetermined';
+  },
+  start() {
+    // why nothing here is awaited: a permission read that never settles would strand the engine's
+    // elevation op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
+    // only have to belong to this run, not precede the start. Accepted consequence: in the
+    // millisecond-wide reset()+start() window between two runs, either note can land in the
+    // neighbouring run's log — both are process-level facts, so a mislabelled row misstates nothing.
+    void hasBarometer()
+      .then(async (available) => {
+        const permission = available ? await elevationSource.getPermissionStatus() : null;
+        runEngine.note('sensor', { available, permission, processToken: PROCESS_TOKEN });
+      })
+      .catch((error) => console.warn('[run-engine] sensor note failed', error));
+    // why here and not at module load: the engine clears the log on every start()/restore(), so a
+    // one-shot read at import is always wiped before a run exists. Low Power Mode throttles
+    // background work, which is the first thing to rule out when a capture shows delivery gaps.
+    void Battery.getPowerStateAsync()
+      .then(({ batteryLevel, lowPowerMode }) =>
+        runEngine.note('battery', { level: batteryLevel, lowPowerMode }),
+      )
+      .catch((error) => console.warn('[run-engine] battery read failed', error));
+    return elevationSource.start();
+  },
+};
+
+// why wrapped rather than passed raw: getStepCountAsync performs no permission check of its own —
+// it rejects when Motion & Fitness isn't authorized — and a finalize that throws is a run that
+// never gets saved (spec §6.3).
+const stepCounter: StepCounter = async (start, end) => {
+  // why gated on the barometer: the step count exists only to accompany a barometer capture, it
+  // shares the one Motion & Fitness authorization CMAltimeter needs, and hardware without a
+  // barometer has no pedometer worth asking either — so the only effect of asking is the prompt.
+  if (!(await hasBarometer())) return null;
+  try {
+    const { steps } = await Pedometer.getStepCountAsync(start, end);
+    return steps;
+  } catch (error) {
+    console.warn('[run-engine] step count read failed', error);
+    return null;
+  }
+};
+
+// `withHealthSync`'s sync callback only carries a runId (ADR 0011 §4), so a field-test skip has to
+// re-derive the session key here rather than through the decorator's signature (spec §8.0).
+function sessionKeyOfRun(runId: string): string | undefined {
+  return db.select({ sessionKey: runs.sessionKey }).from(runs).where(eq(runs.id, runId)).get()
+    ?.sessionKey;
+}
 
 export const runEngine = new RunEngine({
   // why not `(runId) => void syncRunToHealth(runId)`: that discards the real promise, so fireSync's
   // own `Promise.resolve(sync(runId)).catch(...)` would await `undefined` and any rejection from
   // syncRunToHealth would become an unhandled rejection instead of a logged warning. Pass the
   // function straight through so its promise reaches fireSync.
-  persistence: withHealthSync(dbRunPersistence, syncRunToHealth),
+  persistence: withHealthSync(dbRunPersistence, skipForFieldTest(sessionKeyOfRun, syncRunToHealth)),
   cue: cueService,
   runStore: dbRunStore,
   tracker: locationTracker,
+  elevation: elevationWithSensorLog,
+  stepCounter,
 });
 
 // Module scope, never a React effect, and imported from the app entry rather than a route: iOS
 // relaunches the app headlessly for location updates, so the subscription has to exist before any
 // route is required (ADR 0008 §4). The engine drops fixes unless a run is running.
-// why the clamp: a fix dated ahead of the wall clock would tag its point with a segment index the
-// finalize rollup never emits, silently dropping that distance from the per-segment split (ADR 0021 §4).
-locationTracker.onFix((fix) => runEngine.heartbeat(Math.min(fix.timestamp, Date.now()), fix));
+locationTracker.onFix((fix) => {
+  // why here and not in the engine: this is the ONLY place every delivered fix is visible —
+  // `ingestFix` never sees a fix delivered while paused, and CoreLocation delivers batches, so a
+  // receipt-time stamp is what makes a process freeze detectable at all (spec §6.1).
+  runEngine.note('fix_batch', { receivedAt: Date.now(), fixAt: fix.timestamp });
+  // why the clamp: a fix dated ahead of the wall clock would tag its point with a segment index the
+  // finalize rollup never emits, silently dropping that distance from the per-segment split (ADR 0021 §4).
+  runEngine.heartbeat(Math.min(fix.timestamp, Date.now()), fix);
+});
+
+try {
+  AppState.addEventListener('change', (state) => {
+    runEngine.note('lifecycle', { state });
+  });
+} catch (error) {
+  console.warn('[run-engine] lifecycle subscription failed', error);
+}
+
+// expo-battery is device-only (Simulator has no battery) — these resolve to defaults or reject
+// there, and the wrap absorbs it so a missing sensor can never affect a run (spec §6.3). The
+// per-run baseline is read from elevationWithSensorLog.start().
+try {
+  Battery.addLowPowerModeListener(({ lowPowerMode }) => {
+    runEngine.note('battery', { lowPowerMode });
+  });
+} catch (error) {
+  console.warn('[run-engine] battery subscription failed', error);
+}
 
 export interface ResumableRun {
   runId: string;
@@ -50,6 +157,18 @@ function stopIdleTracking(): null {
       .catch((error) => console.warn('[run-engine] location stop failed', error));
   }
   return null;
+}
+
+// why its own try and not inline in the call: evaluated in an `abandon()`/`restore()` argument list,
+// a throwing read takes the whole call with it — leaving the interrupted run `'active'` forever and
+// invisible in the Log. Degrading the seeding is the cheaper failure by far.
+function logResumeOf(runId: string): RunRestoreInput['logResume'] {
+  try {
+    return loadLogResumeWatermarks(runId);
+  } catch (error) {
+    console.warn('[run-engine] log watermark read failed; this run restarts its log seq', error);
+    return undefined;
+  }
 }
 
 async function clearSnapshot(): Promise<void> {
@@ -80,12 +199,15 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       active !== null &&
       active.sessionKey === state.sessionKey &&
       Date.parse(active.startedAt) === state.events[0].at;
-    const session = state ? getSession(activePlan(), state.sessionKey) : undefined;
-    if (!state || !active || !session || !tiedToRow) {
+    const disposition = state
+      ? resumeDispositionOf(state.sessionKey, (key) => getSession(activePlan(), key))
+      : null;
+    if (!state || !active || !disposition || !tiedToRow) {
       await clearSnapshot();
       return stopIdleTracking();
     }
 
+    const { session, offerable } = disposition;
     const now = Date.now();
     const candidate: ResumableRun = {
       runId: active.id,
@@ -94,10 +216,14 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       aliveUntil: snapshotAliveUntil(loaded.updatedAt, now),
     };
     if (
+      !offerable ||
       !isSnapshotFresh(loaded.updatedAt, session, now) ||
       isTimelineExhausted(session, state.events, now)
     ) {
-      await runEngine.abandon(candidate);
+      // why here too, not just resumeCrashedRun: abandon() also rebuilds the log counters before its
+      // own finalize flush mints new rows (a tick at least) — without this the same duplicate-seq risk
+      // applies to the discarded run's tail.
+      await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
       return null;
     }
     return candidate;
@@ -110,7 +236,13 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
 /** Rebuilds the interrupted run in the engine from its persisted points (ADR 0021 §3). */
 export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean> {
   try {
-    return runEngine.restore({ ...candidate, points: loadBufferedRunPoints(candidate.runId) });
+    return runEngine.restore({
+      ...candidate,
+      points: loadBufferedRunPoints(candidate.runId),
+      // why: continues this run's log `seq`/`epoch` instead of restarting them (spec §5.1) — see
+      // db/run-log.ts's `loadLogResumeWatermarks` for why `epochBase` always comes from here.
+      logResume: logResumeOf(candidate.runId),
+    });
   } catch (error) {
     console.warn('[run-engine] resume failed', error);
     return false;
@@ -120,7 +252,7 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
 /** Declining an offered run still finalizes it as `partial`, so its track stays reachable from the Log. */
 export async function discardResumableRun(candidate: ResumableRun): Promise<void> {
   try {
-    await runEngine.abandon(candidate);
+    await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
   } catch (error) {
     console.warn('[run-engine] discard failed', error);
   }

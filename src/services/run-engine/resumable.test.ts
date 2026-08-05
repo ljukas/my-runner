@@ -64,6 +64,50 @@ describe('parseSnapshotState', () => {
       parseSnapshotState({ ...STATE, lastAcceptedFix: { lat: 'x' } })?.lastAcceptedFix,
     ).toBeNull();
   });
+
+  describe('lastAcceptedFix.altitudeAccuracy — three-state passthrough', () => {
+    test('a negative number survives verbatim (CoreLocation: negative means altitude invalid)', () => {
+      const raw = { ...STATE, lastAcceptedFix: { ...STATE.lastAcceptedFix, altitudeAccuracy: -1 } };
+      const parsed = parseSnapshotState(JSON.parse(JSON.stringify(raw)));
+      expect(parsed?.lastAcceptedFix?.altitudeAccuracy).toBe(-1);
+    });
+
+    test('an explicit null survives as null', () => {
+      const raw = {
+        ...STATE,
+        lastAcceptedFix: { ...STATE.lastAcceptedFix, altitudeAccuracy: null },
+      };
+      const parsed = parseSnapshotState(JSON.parse(JSON.stringify(raw)));
+      expect(parsed?.lastAcceptedFix?.altitudeAccuracy).toBeNull();
+    });
+
+    test('an absent field stays absent, not coerced to null', () => {
+      // STATE.lastAcceptedFix carries no altitudeAccuracy key — an older snapshot's shape.
+      const parsed = parseSnapshotState(JSON.parse(JSON.stringify(STATE)));
+      expect(parsed?.lastAcceptedFix?.altitudeAccuracy).toBeUndefined();
+    });
+  });
+
+  describe('logSeq — the instrumentation resume watermark', () => {
+    test('survives the JSON round-trip, so a resumed run continues its own numbering', () => {
+      const raw = { ...STATE, logSeq: { sampleSeq: 12, entrySeq: 340 } };
+      expect(parseSnapshotState(JSON.parse(JSON.stringify(raw)))?.logSeq).toEqual({
+        sampleSeq: 12,
+        entrySeq: 340,
+      });
+    });
+
+    test('stays absent for a pre-slice snapshot rather than being zeroed', () => {
+      // Zeroing it would re-mint `seq`s the run already stored, faking a clean stretch (spec §5.1).
+      expect(parseSnapshotState(JSON.parse(JSON.stringify(STATE)))?.logSeq).toBeUndefined();
+    });
+
+    test('a garbage watermark degrades to absent instead of failing the whole snapshot', () => {
+      const parsed = parseSnapshotState({ ...STATE, logSeq: { sampleSeq: 1.5, entrySeq: 'x' } });
+      expect(parsed).not.toBeNull();
+      expect(parsed?.logSeq).toBeUndefined();
+    });
+  });
 });
 
 describe('isSnapshotFresh', () => {

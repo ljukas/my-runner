@@ -9,6 +9,7 @@ tags:
     clearState: true
     permissions:
       location: never
+      motion: allow
 - runFlow: ../helpers/complete-onboarding.yaml
 - runFlow: ../helpers/start-w1d1.yaml
 - tapOn:

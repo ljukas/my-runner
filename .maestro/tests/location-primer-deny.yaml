@@ -8,6 +8,7 @@ tags:
     clearState: true
     permissions:
       location: never
+      motion: allow
 - runFlow: ../helpers/onboarding-to-primer.yaml
 - retry:
     maxRetries: 3

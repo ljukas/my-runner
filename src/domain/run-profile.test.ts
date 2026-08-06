@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { smoothTrack, type LocationFix } from './geo';
 import {
-  foldRunProfile,
   isDrawableProfile,
+  paceChartDomain,
   paceRange,
   PROFILE_SAMPLE_COUNT,
   toRunProfile,
@@ -12,20 +12,49 @@ import {
 
 const DEG_PER_METRE = 1 / 111_320;
 
+/** Deterministic LCG so noise/jitter fixtures reproduce exactly — never Math.random(). */
+function makeRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+}
+
 /**
- * A straight northward run at a steady pace, `metresPerFix` apart every `intervalMs`.
+ * A straight northward run at a steady pace, `metresPerFix` apart every `intervalMs`. `noiseM` adds
+ * both position noise and ±3 ms fix-interval jitter (0 by default, so every other call site stays
+ * exact); when non-zero it's drawn from a seeded PRNG, never `Math.random()`.
  * why hard-coded degrees: 1e-5 deg latitude is ~1.11 m, close enough that the
  * assertions below are about bucketing, not about haversine precision.
  */
-function straightRun(count: number, metresPerFix: number, intervalMs = 1000): LocationFix[] {
-  return Array.from({ length: count }, (_, i) => ({
-    timestamp: 1_000_000 + i * intervalMs,
-    lat: 59.3 + i * metresPerFix * DEG_PER_METRE,
-    lng: 18.06,
-    altitude: 100,
-    accuracy: 5,
-    speed: metresPerFix / (intervalMs / 1000),
-  }));
+function straightRun(
+  count: number,
+  metresPerFix: number,
+  intervalMs = 1000,
+  noiseM = 0,
+  seed = 1,
+): LocationFix[] {
+  const random = makeRandom(seed);
+  let timestamp = 1_000_000;
+  const fixes: LocationFix[] = [];
+  for (let i = 0; i < count; i += 1) {
+    if (i > 0) {
+      const jitterMs = noiseM > 0 ? Math.round((random() - 0.5) * 6) : 0; // ±3 ms
+      timestamp += intervalMs + jitterMs;
+    }
+    const positionNoiseM =
+      noiseM > 0 ? (random() + random() + random() + random() - 2) * noiseM : 0;
+    fixes.push({
+      timestamp,
+      lat: 59.3 + (i * metresPerFix + positionNoiseM) * DEG_PER_METRE,
+      lng: 18.06,
+      altitude: 100,
+      accuracy: 5,
+      speed: metresPerFix / (intervalMs / 1000),
+    });
+  }
+  return fixes;
 }
 
 interface Phase {
@@ -61,21 +90,18 @@ function phasedRun(phases: Phase[]): LocationFix[] {
 const RUN_MPS = 2.8;
 const WALK_MPS = 1.4;
 
-/** W1D1's phases, for fixtures that need to bracket them with a standstill. */
-function w1d1Phases(): Phase[] {
+/** The W1D1 shape: a walking warm-up, 8 × (60 s run / 90 s walk), a walking cool-down. */
+function w1d1(gapAfterFirstRunS = 0): LocationFix[] {
   const phases: Phase[] = [{ seconds: 300, mps: WALK_MPS }];
   for (let interval = 0; interval < 8; interval += 1) {
-    phases.push({ seconds: 60, mps: RUN_MPS });
+    phases.push({
+      seconds: 60,
+      mps: RUN_MPS,
+      gapAfterS: interval === 0 ? gapAfterFirstRunS : 0,
+    });
     phases.push({ seconds: 90, mps: WALK_MPS });
   }
   phases.push({ seconds: 300, mps: WALK_MPS });
-  return phases;
-}
-
-/** The W1D1 shape: a walking warm-up, 8 × (60 s run / 90 s walk), a walking cool-down. */
-function w1d1(gapAfterFirstRunS = 0): LocationFix[] {
-  const phases = w1d1Phases();
-  if (gapAfterFirstRunS > 0) phases[1] = { ...phases[1], gapAfterS: gapAfterFirstRunS };
   return phasedRun(phases);
 }
 
@@ -142,33 +168,39 @@ describe('toRunProfile pace', () => {
   });
 });
 
-describe('toRunProfile cadence', () => {
-  // The test that matters most (spec §14): a duration-based guard (revision 2's ACCRUAL_GUARD_S)
-  // read a fix's own cadence into its verdict, so a 0.4 m/s walker went from 41:43 to 10:26 on a
-  // single 1 ms cadence shift. The rate-based rule must not repeat that — a steady walker reports
-  // its true pace at any fix interval.
-  test('a steady walk reports its true pace at every fix cadence, not only exactly 1 Hz', () => {
+describe('toRunProfile pace fidelity', () => {
+  // The test that matters most (stationary-time design §10): noise-free, fixed-cadence fixtures
+  // hid three successive standstill-classification regressions, because a slow walker only reads
+  // wrong once jitter and position noise are both present.
+  test('a slow walker reports true pace at any cadence, jitter, or position noise', () => {
     const cases: [mps: number, intervalMs: number][] = [
       [0.3, 1000],
-      [0.35, 1001],
-      [0.4, 900],
-      [0.5, 1100],
+      [0.4, 1001],
+      [0.5, 900],
+      [0.6, 1100],
       [0.8, 500],
       [1.4, 2000],
     ];
-    for (const [mps, intervalMs] of cases) {
-      const durationS = 600;
-      const count = Math.round((durationS * 1000) / intervalMs);
-      const metresPerFix = mps * (intervalMs / 1000);
-      const profile = toRunProfile(straightRun(count, metresPerFix, intervalMs));
-      const paces = profile
-        .map((point) => point.paceSecPerKm)
-        .filter((pace): pace is number => pace !== null);
-      // why median and not meanPace: spec §6's own cadence table is measured on the median, which
-      // is robust to the 1-2 buckets the deadband's start/end-of-track warm-up (§6's disclosed
-      // floor cliff) can still tug — the same reason the deadband-floor test below uses it.
-      const median = [...paces].sort((a, b) => a - b)[Math.floor(paces.length / 2)];
-      expect(median).toBeCloseTo(1000 / mps, -1);
+    for (const noiseM of [0.5, 1]) {
+      for (const [mps, intervalMs] of cases) {
+        const durationS = 600;
+        const count = Math.round((durationS * 1000) / intervalMs);
+        const metresPerFix = mps * (intervalMs / 1000);
+        const profile = toRunProfile(straightRun(count, metresPerFix, intervalMs, noiseM));
+        const paces = profile
+          .map((point) => point.paceSecPerKm)
+          .filter((pace): pace is number => pace !== null);
+        // why median: robust to the 1-2 buckets the deadband's start/end-of-track warm-up can
+        // still tug, the same reason the domain helper's own tests use a spread rather than a mean.
+        const median = [...paces].sort((a, b) => a - b)[Math.floor(paces.length / 2)];
+        const truth = 1000 / mps;
+        // why a relative bound and not toBeCloseTo(truth, -1): at 0.3 m/s, 1 m of noise is more
+        // than 3x the per-fix signal, and the design's own validated reference measures the SAME
+        // 2.5% deviation here (§4) — an absolute ±5 s/km bound is unreachable at this SNR by any
+        // correct fold, not only this one. 5% gives a real margin over every measured case (worst
+        // observed here: 1.83%) while still catching the 28-40% errors the earlier revisions had.
+        expect(Math.abs(median - truth) / truth).toBeLessThan(0.05);
+      }
     }
   });
 });
@@ -242,27 +274,73 @@ describe('toRunProfile gaps', () => {
     expect(slowest).toBeLessThan((1000 / WALK_MPS) * 1.5);
   });
 
-  test('a standstill with fixes is excluded, and only slows the bucket it happened in', () => {
-    // Reverses the pace chart design's §5.2 decision that such a standstill must slow its bucket.
-    // Measured there: a 6 s stop cost its bucket 2:49 /km, and the fixes keep arriving at ~1 Hz so
-    // MAX_GAP_S never sees it (slice design §2, §3). Bar measured at the DEFAULT bucket count —
-    // the hard-coded 20 this pinned before failed at 120 (spec §6, §7.1).
+  test('a standstill with fixes still counts as time — only gaps are excluded', () => {
+    // why: a traffic light the runner never paused for is real elapsed time and must slow its
+    // bucket. Only a bare timestamp gap (pause / dropout) is unmeasured.
     const stalled = toRunProfile(
       phasedRun([
         { seconds: 300, mps: 3 },
         { seconds: 25, mps: 0 },
         { seconds: 300, mps: 3 },
       ]),
+      20,
     );
     const paces = stalled
       .map((point) => point.paceSecPerKm)
       .filter((pace): pace is number => pace !== null);
+    expect(Math.max(...paces)).toBeGreaterThan(STEADY_PACE_SEC_PER_KM * 1.2);
+    expect(Math.min(...paces)).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
+  });
+});
 
-    expect(Math.max(...paces)).toBeCloseTo(671, 0);
+describe('toRunProfile carry-forward', () => {
+  test('a duplicate timestamp does not discard accrued seconds', () => {
+    // why: a duplicate/backwards-timestamp leg carries no time of its own and must not clear the
+    // carry — clearing it there reports a slow walker four times too fast (design §5).
+    const base = straightRun(600, 0.4);
+    const withDuplicates: LocationFix[] = [];
+    for (let i = 0; i < base.length; i += 1) {
+      withDuplicates.push(base[i]);
+      if (i % 4 === 3) withDuplicates.push({ ...base[i] });
+    }
+    expect(meanPace(toRunProfile(withDuplicates))).toBeCloseTo(1000 / 0.4, -1);
+  });
 
-    // The stop is at the halfway point, so the first and last buckets must be untouched.
-    expect(stalled[0].paceSecPerKm).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
-    expect(stalled.at(-1)!.paceSecPerKm).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
+  test('total folded time is preserved except for a genuine gap', () => {
+    // Every bucket is asserted non-null first so this can't pass vacuously on a chart the carry
+    // silently emptied. The remaining seconds must equal wall-clock elapsed minus only the gap's
+    // own duration — a standstill's seconds must still be in there somewhere.
+    const gapAfterS = 40; // + the next leg's own 1 s = a 41 s leg, over MAX_GAP_S (30 s)
+    const fixes = phasedRun([
+      { seconds: 300, mps: 3 },
+      { seconds: 40, mps: 0 },
+      { seconds: 300, mps: 3, gapAfterS },
+      { seconds: 300, mps: 3 },
+    ]);
+    const profile = toRunProfile(fixes);
+    expect(profile.every((point) => point.paceSecPerKm !== null)).toBe(true);
+
+    const width = smoothTrack(fixes).distanceM / profile.length;
+    const foldedSeconds = profile.reduce(
+      (sum, point) => sum + (point.paceSecPerKm! / 1000) * width,
+      0,
+    );
+    const elapsedS = (fixes.at(-1)!.timestamp - fixes[0].timestamp) / 1000;
+    expect(foldedSeconds).toBeCloseTo(elapsedS - (gapAfterS + 1), 6);
+  });
+
+  test('a standstill does not create or destroy distance in the grid', () => {
+    const fixes = phasedRun([
+      { seconds: 300, mps: 3 },
+      { seconds: 40, mps: 0 },
+      { seconds: 300, mps: 3 },
+    ]);
+    const total = smoothTrack(fixes).distanceM;
+    const profile = toRunProfile(fixes);
+    expect(profile.every((point) => point.paceSecPerKm !== null)).toBe(true);
+
+    const width = total / profile.length;
+    expect(profile.length * width).toBeCloseTo(total, 9);
   });
 });
 
@@ -322,187 +400,28 @@ describe('paceRange', () => {
   });
 });
 
-describe('toRunProfile standstill', () => {
-  test('a mid-run stop no longer poles its bucket, whatever its length', () => {
-    // why lengths: today a stop's bucket grows without bound with the stop, because a distance
-    // bucket divides seconds by metres and the metres stop arriving (spec §2). 10/25/60/144, not
-    // 5/6/7 — spec §6 measures the short-stop band as non-monotonic, so asserting it would pin a
-    // number the rule does not deliver. Measured at the DEFAULT bucket count, not a hard-coded one.
-    const slowest = [10, 25, 60, 144].map((stopS) => {
-      const profile = toRunProfile(
-        phasedRun([
-          { seconds: 300, mps: 3 },
-          { seconds: stopS, mps: 0 },
-          { seconds: 300, mps: 3 },
-        ]),
-      );
-      const paces = profile
-        .map((point) => point.paceSecPerKm)
-        .filter((pace): pace is number => pace !== null);
-      return Math.max(...paces);
-    });
+describe('paceChartDomain', () => {
+  const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
 
-    for (const pace of slowest) {
-      expect(pace).toBeCloseTo(671, 0);
-    }
-    // The bound does not move with the stop's length — that is the property, not the value.
-    expect(Math.max(...slowest) - Math.min(...slowest)).toBeLessThan(1);
+  test('a series with nothing measured has no domain', () => {
+    expect(paceChartDomain([])).toBeUndefined();
+    expect(paceChartDomain([point(null), point(null)])).toBeUndefined();
   });
 
-  test('a stationary head no longer flattens the chart', () => {
-    const clean = bandContrast(toRunProfile(w1d1()));
-    const withHead = bandContrast(
-      toRunProfile(phasedRun([{ seconds: 45, mps: 0 }, ...w1d1Phases()])),
-    );
-
-    expect(clean).toBeGreaterThan(0.8);
-    expect(withHead).toBeCloseTo(clean, 2);
+  test('the fast bound is the minimum and the slow bound is the 95th percentile', () => {
+    const profile = Array.from({ length: 100 }, (_, i) => point(i + 1)); // 1..100
+    // nearest-rank p95 of 1..100 is 96 — the top 4 values (97-100) are the ones the chart clips.
+    expect(paceChartDomain(profile)).toEqual([96, 1]);
   });
 
-  test('a stationary tail costs a fixed deceleration, not a pole', () => {
-    // why no bandContrast bar like the head's: a moving→stationary transition decays velocity over
-    // ~3 fixes (geo.ts's Kalman lag), so ~1 m of real deceleration lands in the last bucket and
-    // costs the tail a fixed ~1:26 against steady walking. That is deceleration, correctly kept —
-    // excluding it would mean excluding legs that committed distance, the defect that sank an
-    // earlier design. What must hold is that the cost does not grow with the stand.
-    const worst = [30, 170, 600].map((standS) => {
-      const profile = toRunProfile(phasedRun([...w1d1Phases(), { seconds: standS, mps: 0 }]));
-      const paces = profile
-        .map((point) => point.paceSecPerKm)
-        .filter((pace): pace is number => pace !== null);
-      return Math.max(...paces);
-    });
-
-    for (const pace of worst) {
-      expect(pace).toBeLessThan((1000 / WALK_MPS) * 1.25);
-    }
-    expect(Math.max(...worst) - Math.min(...worst)).toBeLessThan(1);
+  test('a perfectly uniform series still gets a non-zero-width domain', () => {
+    // why this matters: p95 equals the minimum on a uniform series, so without a floor the domain
+    // would collapse to zero width (design §6).
+    const profile = Array.from({ length: 20 }, () => point(300));
+    expect(paceChartDomain(profile)).toEqual([330, 300]);
   });
 
-  test('a walker slower than the deadband is not reported faster than they ran', () => {
-    // why this is the assertion that matters: dropping the deadband's accrual seconds instead of
-    // carrying them reports a 0.4 m/s walker at 10:26 /km against a true 41:40 (spec §5 case 3).
-    for (const mps of [0.4, 0.5, 0.6, 0.8, 1.1, 1.4]) {
-      const profile = toRunProfile(straightRun(600, mps));
-      const paces = profile
-        .map((point) => point.paceSecPerKm)
-        .filter((pace): pace is number => pace !== null);
-
-      expect(paces).toHaveLength(profile.length);
-      const median = [...paces].sort((a, b) => a - b)[Math.floor(paces.length / 2)];
-      expect(median).toBeCloseTo(1000 / mps, -1);
-    }
-  });
-
-  test('a leg that committed distance is never excluded', () => {
-    // The previous design deleted a leg at 1.90 m/s as standstill (spec §16). A fixture fast
-    // enough that no case could fire (revision 2 used 1.4 m/s alone) let a mutant that excluded
-    // real movement up to 1 m/s pass, so this sweeps speeds instead of folding one steady run.
-    for (const mps of [0.3, 0.4, 0.5, 0.6, 0.8, 1.1, 1.4, 1.9, 2.8]) {
-      expect(foldRunProfile(straightRun(600, mps)).excludedStandstillS).toBe(0);
-    }
-  });
-
-  test('folded seconds equal elapsed minus excluded', () => {
-    // why not the old conservation test: `(n−0.5)·T/n + T/2n === T` is an arithmetic identity that
-    // passes a mutant which collapses the chart (spec §14). This instead checks every bucket is
-    // measured, then sums the fold's own seconds back up against wall-clock elapsed time.
-    const fixes = phasedRun([
-      { seconds: 300, mps: 3 },
-      { seconds: 60, mps: 0 },
-      { seconds: 300, mps: 3 },
-    ]);
-    const fold = foldRunProfile(fixes);
-    expect(fold.points.every((point) => point.paceSecPerKm !== null)).toBe(true);
-
-    const width = smoothTrack(fixes).distanceM / fold.points.length;
-    const foldedSeconds = fold.points.reduce(
-      (sum, point) => sum + (point.paceSecPerKm! / 1000) * width,
-      0,
-    );
-    const elapsedS = (fixes.at(-1)!.timestamp - fixes[0].timestamp) / 1000;
-    expect(foldedSeconds).toBeCloseTo(elapsedS - fold.excludedStandstillS, 6);
-  });
-
-  test('foldRunProfile reports the stop and nothing else', () => {
-    const moving = straightRun(600, 3);
-    expect(foldRunProfile(moving).excludedStandstillS).toBe(0);
-
-    const stopped = phasedRun([
-      { seconds: 200, mps: 3 },
-      { seconds: 60, mps: 0 },
-      { seconds: 200, mps: 3 },
-    ]);
-    const excluded = foldRunProfile(stopped).excludedStandstillS;
-    expect(excluded).toBeGreaterThan(50);
-    expect(excluded).toBeLessThanOrEqual(60);
-  });
-
-  test('a bare gap is unmeasured, not a standstill', () => {
-    // why: a gap leg commits nothing either, but it is already skipped by MAX_GAP_S and must not
-    // be counted as excluded standstill or terminate-and-carry accrual across itself.
-    expect(foldRunProfile(w1d1(240)).excludedStandstillS).toBe(0);
-  });
-
-  test('a duplicate timestamp does not discard accrued seconds', () => {
-    // why: an untimed leg (seconds <= 0) must be transparent to the hold-run scan — treating it as
-    // a terminator made a slow walker's every accrual run look like it never released (spec §5,
-    // §16). Duplicating every 4th fix of a 0.4 m/s walk must still report ~41:40, not the 10:26 a
-    // terminating untimed leg produced, and exclude nothing — the walker never stopped.
-    const base = straightRun(600, 0.4);
-    const withDuplicates: LocationFix[] = [];
-    for (let i = 0; i < base.length; i += 1) {
-      withDuplicates.push(base[i]);
-      if (i % 4 === 3) withDuplicates.push({ ...base[i] });
-    }
-    const fold = foldRunProfile(withDuplicates);
-    expect(meanPace(fold.points)).toBeCloseTo(1000 / 0.4, -1);
-    expect(fold.excludedStandstillS).toBe(0);
-  });
-
-  test('a velocity-gated burst is not standing', () => {
-    // why: committedM === 0 has three causes (deadband hold, velocity-gate rejection, gap reset),
-    // and conflating them made a multipath burst read as standing (spec §5). A runner at 3 m/s
-    // through fixes jumping ±400 m for 20 s excludes nothing.
-    const fixes: LocationFix[] = [];
-    let timestamp = 1_000_000;
-    let metres = 0;
-    for (let second = 0; second < 100; second += 1) {
-      metres += 3;
-      timestamp += 1000;
-      fixes.push({
-        timestamp,
-        lat: 59.3 + metres * DEG_PER_METRE,
-        lng: 18.06,
-        altitude: 100,
-        accuracy: 5,
-        speed: 3,
-      });
-    }
-    for (let second = 0; second < 20; second += 1) {
-      timestamp += 1000;
-      const jump = second % 2 === 0 ? 400 : -400;
-      fixes.push({
-        timestamp,
-        lat: 59.3 + (metres + jump) * DEG_PER_METRE,
-        lng: 18.06,
-        altitude: 100,
-        accuracy: 5,
-        speed: 3,
-      });
-    }
-    for (let second = 0; second < 100; second += 1) {
-      metres += 3;
-      timestamp += 1000;
-      fixes.push({
-        timestamp,
-        lat: 59.3 + metres * DEG_PER_METRE,
-        lng: 18.06,
-        altitude: 100,
-        accuracy: 5,
-        speed: 3,
-      });
-    }
-    expect(foldRunProfile(fixes).excludedStandstillS).toBe(0);
+  test('a single measured point still gets a non-zero-width domain', () => {
+    expect(paceChartDomain([point(360)])).toEqual([396, 360]);
   });
 });

@@ -4,7 +4,7 @@ import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
 import { distanceParts, paceParts } from '@/domain/format';
-import type { ProfilePoint } from '@/domain/run-profile';
+import { paceChartDomain, type ProfilePoint } from '@/domain/run-profile';
 import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
@@ -86,11 +86,7 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   );
 
   // why inverted: pace is seconds per km, so a LOWER value is faster and belongs higher.
-  const paceDomain = useMemo(() => {
-    const paces = points.map((p) => p.paceSecPerKm).filter((p): p is number => p !== null);
-    if (paces.length === 0) return undefined;
-    return [Math.max(...paces), Math.min(...paces)] as [number, number];
-  }, [points]);
+  const paceDomain = useMemo(() => paceChartDomain(points), [points]);
 
   const yAxis = useMemo(
     () => [

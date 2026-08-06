@@ -85,7 +85,6 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
     [font, colors.textSecondary, grid, fontScale],
   );
 
-  // why inverted: pace is seconds per km, so a LOWER value is faster and belongs higher.
   const paceDomain = useMemo(() => paceChartDomain(points), [points]);
 
   const yAxis = useMemo(

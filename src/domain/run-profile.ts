@@ -63,6 +63,7 @@ export function toRunProfile(
     // carries no time of its own and is not evidence the held stretch ended (pace chart
     // stationary-time design §5).
     if (legSeconds > MAX_GAP_S) {
+      // the smoother's own reset threshold (ADR 0021)
       carried = 0;
       continue;
     }
@@ -133,19 +134,16 @@ export function paceChartDomain(points: readonly ProfilePoint[]): [number, numbe
 export interface ProfilePaceRange {
   fastestSecPerKm: number;
   slowestSecPerKm: number;
-  /** Points slower than `slowestSecPerKm`; 0 when the axis already holds the whole series. */
+  /** Points strictly slower than `slowestSecPerKm`. */
   clippedCount: number;
-  /** The clipped points' own slowest pace — what a sighted user sees the line exit toward, above
-   * the plot. Null when `clippedCount` is 0. */
+  /** The clipped points' own slowest pace; null when `clippedCount` is 0. */
   clippedSlowestSecPerKm: number | null;
 }
 
 /**
- * The pace axis's VISIBLE extent, for the card's VoiceOver label — `paceChartDomain`'s bound, not
- * the series' own min/max, so the label never names a number the axis doesn't show (stationary-time
- * design §8.1). `clippedCount`/`clippedSlowestSecPerKm` say what that leaves off, so the label can
- * still tell a listener what a sighted user sees the line do at the top of the plot. Null when
- * nothing measured.
+ * The pace axis's extent, for the card's VoiceOver label — `paceChartDomain`'s bound, not the
+ * series' own min/max, so the label never names a number the axis doesn't show (design §8.1).
+ * Null when nothing measured.
  *
  * why only a range, and no characterisation of the run: bucket means cannot support one here.
  * A C25K session puts the same run/walk mix in both halves by construction, so a first-half /

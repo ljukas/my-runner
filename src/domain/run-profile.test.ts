@@ -12,8 +12,7 @@ import {
 
 const DEG_PER_METRE = 1 / 111_320;
 
-/** Deterministic LCG so noise/jitter fixtures reproduce exactly — never Math.random(). */
-function makeRandom(seed: number): () => number {
+function makeSeededRandom(seed: number): () => number {
   let state = seed;
   return () => {
     state = (state * 1103515245 + 12345) & 0x7fffffff;
@@ -22,9 +21,9 @@ function makeRandom(seed: number): () => number {
 }
 
 /**
- * A straight northward run at a steady pace, `metresPerFix` apart every `intervalMs`. `noiseM` adds
- * both position noise and ±3 ms fix-interval jitter (0 by default, so every other call site stays
- * exact); when non-zero it's drawn from a seeded PRNG, never `Math.random()`.
+ * A straight northward run at a steady pace. `noiseM` is 0 by default, so every other call site
+ * stays exact; non-zero noise adds both position and interval jitter, drawn from a seeded PRNG,
+ * never `Math.random()`.
  * why hard-coded degrees: 1e-5 deg latitude is ~1.11 m, close enough that the
  * assertions below are about bucketing, not about haversine precision.
  */
@@ -35,7 +34,7 @@ function straightRun(
   noiseM = 0,
   seed = 1,
 ): LocationFix[] {
-  const random = makeRandom(seed);
+  const random = makeSeededRandom(seed);
   let timestamp = 1_000_000;
   const fixes: LocationFix[] = [];
   for (let i = 0; i < count; i += 1) {
@@ -169,9 +168,9 @@ describe('toRunProfile pace', () => {
 });
 
 describe('toRunProfile pace fidelity', () => {
-  // The test that matters most (stationary-time design §10): noise-free, fixed-cadence fixtures
-  // hid three successive standstill-classification regressions, because a slow walker only reads
-  // wrong once jitter and position noise are both present.
+  // Noise-free, fixed-cadence fixtures (stationary-time design §10) hid three successive
+  // standstill-classification regressions, because a slow walker only reads wrong once jitter
+  // and position noise are both present.
   test('a slow walker reports true pace at any cadence, jitter, or position noise', () => {
     const cases: [mps: number, intervalMs: number][] = [
       [0.3, 1000],
@@ -187,19 +186,12 @@ describe('toRunProfile pace fidelity', () => {
         const count = Math.round((durationS * 1000) / intervalMs);
         const metresPerFix = mps * (intervalMs / 1000);
         const profile = toRunProfile(straightRun(count, metresPerFix, intervalMs, noiseM));
-        const paces = profile
-          .map((point) => point.paceSecPerKm)
-          .filter((pace): pace is number => pace !== null);
-        // why median: robust to the 1-2 buckets the deadband's start/end-of-track warm-up can
-        // still tug, the same reason the domain helper's own tests use a spread rather than a mean.
-        const median = [...paces].sort((a, b) => a - b)[Math.floor(paces.length / 2)];
+        const mean = meanPace(profile);
         const truth = 1000 / mps;
-        // why a relative bound and not toBeCloseTo(truth, -1): at 0.3 m/s, 1 m of noise is more
-        // than 3x the per-fix signal, and the design's own validated reference measures the SAME
-        // 2.5% deviation here (§4) — an absolute ±5 s/km bound is unreachable at this SNR by any
-        // correct fold, not only this one. 5% gives a real margin over every measured case (worst
-        // observed here: 1.83%) while still catching the 28-40% errors the earlier revisions had.
-        expect(Math.abs(median - truth) / truth).toBeLessThan(0.05);
+        // why a relative bound: at 0.3 m/s, 1 m of noise is over 3x the per-fix signal, so an
+        // absolute bound is unreachable here; 1% has real margin over the worst measured case
+        // (0.38%) while still catching the 28-40% errors the earlier revisions had.
+        expect(Math.abs(mean - truth) / truth).toBeLessThan(0.01);
       }
     }
   });
@@ -340,7 +332,7 @@ describe('toRunProfile carry-forward', () => {
     expect(profile.every((point) => point.paceSecPerKm !== null)).toBe(true);
 
     const width = total / profile.length;
-    expect(profile.length * width).toBeCloseTo(total, 9);
+    expect(profile.at(-1)!.distanceM + width / 2).toBeCloseTo(total, 9);
   });
 });
 
@@ -383,8 +375,8 @@ describe('paceRange', () => {
   });
 
   test('a single measured bucket gets the domain floor, not its own value, as the slow bound', () => {
-    // Mirrors `paceChartDomain`'s own single-point test: p95 of one value is that value, so the
-    // minimum-span floor is what actually sets `slowestSecPerKm` here (360 * 1.1 = 396).
+    // p95 of one value is that value, so the minimum-span floor is what actually sets
+    // `slowestSecPerKm` here (360 * 1.1 = 396).
     expect(paceRange([point(360)])).toEqual({
       fastestSecPerKm: 360,
       slowestSecPerKm: 396,
@@ -446,7 +438,7 @@ describe('paceChartDomain', () => {
 
   test('the fast bound is the minimum and the slow bound is the 95th percentile', () => {
     const profile = Array.from({ length: 100 }, (_, i) => point(i + 1)); // 1..100
-    // nearest-rank p95 of 1..100 is 96 — the top 4 values (97-100) are the ones the chart clips.
+    // p95 here is 96, so the top 4 (97-100) are what the chart clips.
     expect(paceChartDomain(profile)).toEqual([96, 1]);
   });
 

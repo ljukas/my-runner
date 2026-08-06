@@ -321,7 +321,7 @@ describe('toRunProfile carry-forward', () => {
     expect(foldedSeconds).toBeCloseTo(elapsedS - (gapAfterS + 1), 6);
   });
 
-  test('a standstill does not create or destroy distance in the grid', () => {
+  test("the bucket grid spans the run's smoothed total", () => {
     const fixes = phasedRun([
       { seconds: 300, mps: 3 },
       { seconds: 40, mps: 0 },
@@ -331,6 +331,8 @@ describe('toRunProfile carry-forward', () => {
     const profile = toRunProfile(fixes);
     expect(profile.every((point) => point.paceSecPerKm !== null)).toBe(true);
 
+    // why: per-bucket metre conservation isn't observable through `ProfilePoint` (only
+    // `distanceM`/`paceSecPerKm` are exposed) — that's pinned indirectly by the seconds test.
     const width = total / profile.length;
     expect(profile.at(-1)!.distanceM + width / 2).toBeCloseTo(total, 9);
   });

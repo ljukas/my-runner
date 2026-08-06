@@ -211,9 +211,10 @@ describe('toRunProfile gaps', () => {
     expect(slowest).toBeLessThan((1000 / WALK_MPS) * 1.5);
   });
 
-  test('a standstill with fixes still counts as time — only gaps are excluded', () => {
-    // why: a traffic light the runner never paused for is real elapsed time and must slow its
-    // bucket. Only a bare timestamp gap (pause / dropout) is unmeasured.
+  test('a standstill with fixes is excluded, and only slows the bucket it happened in', () => {
+    // Reverses the pace chart design's §5.2 decision that such a standstill must slow its bucket.
+    // Measured there: a 6 s stop cost its bucket 2:49 /km, and the fixes keep arriving at ~1 Hz so
+    // MAX_GAP_S never sees it (slice design §2, §3).
     const stalled = toRunProfile(
       phasedRun([
         { seconds: 300, mps: 3 },
@@ -225,8 +226,14 @@ describe('toRunProfile gaps', () => {
     const paces = stalled
       .map((point) => point.paceSecPerKm)
       .filter((pace): pace is number => pace !== null);
-    expect(Math.max(...paces)).toBeGreaterThan(STEADY_PACE_SEC_PER_KM * 1.2);
+
+    expect(Math.max(...paces)).toBeLessThan(STEADY_PACE_SEC_PER_KM * 1.2);
     expect(Math.min(...paces)).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
+
+    // The stop is at the halfway point, so any residual slowness belongs to the middle of the
+    // series and the first and last buckets must be untouched.
+    expect(stalled[0].paceSecPerKm).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
+    expect(stalled.at(-1)!.paceSecPerKm).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
   });
 });
 

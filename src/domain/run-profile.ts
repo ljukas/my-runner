@@ -1,4 +1,11 @@
-import { createSmootherState, MAX_GAP_S, smoothFix, type LocationFix } from './geo';
+import {
+  createSmootherState,
+  MAX_GAP_S,
+  NEAR_STATIONARY_DEADBAND_M,
+  NEAR_STATIONARY_SPEED_MPS,
+  smoothFix,
+  type LocationFix,
+} from './geo';
 
 /** One resampled point of the summary chart. `distanceM` is the bucket's centre. */
 export type ProfilePoint = {
@@ -22,11 +29,84 @@ function bucketAt(distanceM: number, width: number, bucketCount: number): number
   return Math.min(bucketCount - 1, Math.max(0, Math.floor(distanceM / width)));
 }
 
+// why derived and not chosen: the longest the smoother's deadband can legitimately hold distance
+// for a runner still moving at the measurable floor. A tuned speed threshold here deleted the
+// chart outright for slow walkers — see the slice design §16.
+const ACCRUAL_GUARD_S = NEAR_STATIONARY_DEADBAND_M / NEAR_STATIONARY_SPEED_MPS;
+
+interface Leg {
+  fromM: number;
+  toM: number;
+  seconds: number;
+  committedM: number;
+  /** False for a gap or a non-monotonic timestamp: unmeasured, which is not the same as stopped. */
+  measured: boolean;
+}
+
+function legsOf(fixes: readonly LocationFix[]): { legs: Leg[]; total: number } {
+  let state = createSmootherState();
+  let cumulative = 0;
+  const walked = fixes.map((fix) => {
+    const step = smoothFix(state, fix);
+    state = step.state;
+    cumulative += step.acceptedDeltaMeters;
+    return {
+      distanceM: cumulative,
+      timestamp: fix.timestamp,
+      committedM: step.acceptedDeltaMeters,
+    };
+  });
+
+  const legs: Leg[] = [];
+  for (let i = 1; i < walked.length; i += 1) {
+    const seconds = (walked[i].timestamp - walked[i - 1].timestamp) / 1000;
+    legs.push({
+      fromM: walked[i - 1].distanceM,
+      toM: walked[i].distanceM,
+      seconds,
+      committedM: walked[i].committedM,
+      measured: seconds > 0 && seconds <= MAX_GAP_S,
+    });
+  }
+  return { legs, total: cumulative };
+}
+
 /**
- * Fixes → the chart's pace series, resampled onto a uniform distance grid. Distance is folded with
- * the SAME smoother the stored distance used (ADR 0021 §3), so the chart's x extent agrees with the
- * summary's headline figure. Inputs must already pass `accuracyFilter`. Returns [] for a run that
- * covered no ground, or a `bucketCount` that is not a positive integer.
+ * Which legs fall inside a stop: a run of measured legs that committed nothing, lasting longer
+ * than the deadband could legitimately hold. A shorter run is accrual, and its time is carried
+ * rather than dropped (`toRunProfile`).
+ */
+function stoppedLegs(legs: readonly Leg[]): boolean[] {
+  const stopped = new Array<boolean>(legs.length).fill(false);
+  let index = 0;
+  while (index < legs.length) {
+    if (!legs[index].measured || legs[index].committedM > 0) {
+      index += 1;
+      continue;
+    }
+    let end = index;
+    let seconds = 0;
+    while (end < legs.length && legs[end].measured && legs[end].committedM === 0) {
+      seconds += legs[end].seconds;
+      end += 1;
+    }
+    if (seconds > ACCRUAL_GUARD_S) for (let i = index; i < end; i += 1) stopped[i] = true;
+    index = end;
+  }
+  return stopped;
+}
+
+/** Seconds the pace fold discarded as standstill, for the card to disclose. 0 when the runner never stopped. */
+export function excludedStandstillSeconds(fixes: readonly LocationFix[]): number {
+  const { legs } = legsOf(fixes);
+  const stopped = stoppedLegs(legs);
+  return legs.reduce((sum, leg, index) => (stopped[index] ? sum + leg.seconds : sum), 0);
+}
+
+/**
+ * Fixes → the chart's pace series, resampled onto a uniform distance grid. A standstill's time is
+ * excluded from the fold, per the slice design §4. Inputs must already pass `accuracyFilter`.
+ * Returns [] for a run that covered no ground, or a `bucketCount` that is not a positive integer.
  */
 export function toRunProfile(
   fixes: readonly LocationFix[],
@@ -35,45 +115,38 @@ export function toRunProfile(
   if (fixes.length === 0) return [];
   if (!Number.isInteger(bucketCount) || bucketCount < 1) return [];
 
-  let state = createSmootherState();
-  let cumulative = 0;
-  const walked = fixes.map((fix) => {
-    const step = smoothFix(state, fix);
-    state = step.state;
-    cumulative += step.acceptedDeltaMeters;
-    return { distanceM: cumulative, timestamp: fix.timestamp };
-  });
-
-  const total = cumulative;
+  const { legs, total } = legsOf(fixes);
   if (total <= 0) return [];
+  const stopped = stoppedLegs(legs);
 
   const width = total / bucketCount;
   const meters = new Array<number>(bucketCount).fill(0);
   const seconds = new Array<number>(bucketCount).fill(0);
+  let heldSeconds = 0;
 
   // Legs are split across the buckets they cross so a long one cannot step over a bucket and
-  // leave it empty; both measurements behind this are in spec §5.2.
-  for (let i = 1; i < walked.length; i += 1) {
-    const from = walked[i - 1];
-    const to = walked[i];
-    const legSeconds = (to.timestamp - from.timestamp) / 1000;
-    // why MAX_GAP_S: a pause or dropout is a bare timestamp gap, and charging it to one bucket
-    // made it an outlier the auto-fit axis scaled the whole chart to. Such a leg carries no
-    // distance to lose — it is the smoother's own reset threshold.
-    if (legSeconds <= 0 || legSeconds > MAX_GAP_S) continue;
+  // leave it empty; both measurements behind this are in the pace chart design §5.2.
+  for (let i = 0; i < legs.length; i += 1) {
+    const leg = legs[i];
+    // why the reset: a gap is unmeasured time, so it cannot carry accrued seconds across itself.
+    if (!leg.measured) {
+      heldSeconds = 0;
+      continue;
+    }
+    if (stopped[i]) continue;
 
-    const legMeters = to.distanceM - from.distanceM;
+    const legMeters = leg.toM - leg.fromM;
     if (legMeters <= 0) {
-      // A stationary stretch is real running time and belongs to the bucket it happened in.
-      seconds[bucketAt(from.distanceM, width, bucketCount)] += legSeconds;
+      heldSeconds += leg.seconds;
       continue;
     }
 
-    const first = bucketAt(from.distanceM, width, bucketCount);
-    const last = bucketAt(to.distanceM, width, bucketCount);
+    const legSeconds = leg.seconds + heldSeconds;
+    heldSeconds = 0;
+    const first = bucketAt(leg.fromM, width, bucketCount);
+    const last = bucketAt(leg.toM, width, bucketCount);
     for (let bucket = first; bucket <= last; bucket += 1) {
-      const overlap =
-        Math.min(to.distanceM, (bucket + 1) * width) - Math.max(from.distanceM, bucket * width);
+      const overlap = Math.min(leg.toM, (bucket + 1) * width) - Math.max(leg.fromM, bucket * width);
       if (overlap <= 0) continue;
       meters[bucket] += overlap;
       seconds[bucket] += legSeconds * (overlap / legMeters);

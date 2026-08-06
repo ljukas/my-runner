@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { smoothTrack, type LocationFix } from './geo';
 import {
+  excludedStandstillSeconds,
   isDrawableProfile,
   paceRange,
   PROFILE_SAMPLE_COUNT,
@@ -60,18 +61,21 @@ function phasedRun(phases: Phase[]): LocationFix[] {
 const RUN_MPS = 2.8;
 const WALK_MPS = 1.4;
 
-/** The W1D1 shape: a walking warm-up, 8 × (60 s run / 90 s walk), a walking cool-down. */
-function w1d1(gapAfterFirstRunS = 0): LocationFix[] {
+/** W1D1's phases, for fixtures that need to bracket them with a standstill. */
+function w1d1Phases(): Phase[] {
   const phases: Phase[] = [{ seconds: 300, mps: WALK_MPS }];
   for (let interval = 0; interval < 8; interval += 1) {
-    phases.push({
-      seconds: 60,
-      mps: RUN_MPS,
-      gapAfterS: interval === 0 ? gapAfterFirstRunS : 0,
-    });
+    phases.push({ seconds: 60, mps: RUN_MPS });
     phases.push({ seconds: 90, mps: WALK_MPS });
   }
   phases.push({ seconds: 300, mps: WALK_MPS });
+  return phases;
+}
+
+/** The W1D1 shape: a walking warm-up, 8 × (60 s run / 90 s walk), a walking cool-down. */
+function w1d1(gapAfterFirstRunS = 0): LocationFix[] {
+  const phases = w1d1Phases();
+  if (gapAfterFirstRunS > 0) phases[1] = { ...phases[1], gapAfterS: gapAfterFirstRunS };
   return phasedRun(phases);
 }
 
@@ -279,5 +283,101 @@ describe('paceRange', () => {
     const half = Math.floor(paces.length / 2);
     const mean = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
     expect(mean(paces.slice(0, half)) / mean(paces.slice(-half))).toBeCloseTo(1, 1);
+  });
+});
+
+describe('toRunProfile standstill', () => {
+  test('a mid-run stop no longer poles its bucket, whatever its length', () => {
+    // why lengths: today a stop's bucket grows without bound with the stop, because a distance
+    // bucket divides seconds by metres and the metres stop arriving (spec §2).
+    const slowest = [25, 60, 144].map((stopS) => {
+      const profile = toRunProfile(
+        phasedRun([
+          { seconds: 300, mps: 3 },
+          { seconds: stopS, mps: 0 },
+          { seconds: 300, mps: 3 },
+        ]),
+        20,
+      );
+      const paces = profile
+        .map((point) => point.paceSecPerKm)
+        .filter((pace): pace is number => pace !== null);
+      return Math.max(...paces);
+    });
+
+    for (const pace of slowest) {
+      expect(pace).toBeLessThan(STEADY_PACE_SEC_PER_KM * 1.2);
+    }
+    // The bound does not move with the stop's length — that is the property, not the value.
+    expect(Math.max(...slowest) - Math.min(...slowest)).toBeLessThan(1);
+  });
+
+  test('a stationary head or tail no longer flattens the chart', () => {
+    const clean = bandContrast(toRunProfile(w1d1()));
+    const withHead = bandContrast(
+      toRunProfile(phasedRun([{ seconds: 45, mps: 0 }, ...w1d1Phases()])),
+    );
+    const withTail = bandContrast(
+      toRunProfile(phasedRun([...w1d1Phases(), { seconds: 170, mps: 0 }])),
+    );
+
+    expect(clean).toBeGreaterThan(0.8);
+    expect(withHead).toBeGreaterThan(0.8);
+    expect(withTail).toBeGreaterThan(0.8);
+  });
+
+  test('a walker slower than the deadband is not reported faster than they ran', () => {
+    // why this is the assertion that matters: dropping the deadband's accrual seconds instead of
+    // carrying them reports a 0.4 m/s walker at 10:26 /km against a true 41:40 (spec §5 case 3).
+    for (const mps of [0.4, 0.5, 0.6, 0.8, 1.1, 1.4]) {
+      const profile = toRunProfile(straightRun(600, mps));
+      const paces = profile
+        .map((point) => point.paceSecPerKm)
+        .filter((pace): pace is number => pace !== null);
+
+      expect(paces).toHaveLength(profile.length);
+      const median = [...paces].sort((a, b) => a - b)[Math.floor(paces.length / 2)];
+      expect(median).toBeCloseTo(1000 / mps, -1);
+    }
+  });
+
+  test('a leg that committed distance is never excluded', () => {
+    // The previous design deleted a leg at 1.90 m/s as standstill (spec §16). This pins that a
+    // moving run loses no time at all: its mean pace must equal the untouched steady case.
+    const profile = toRunProfile(straightRun(600, 1.4));
+    expect(meanPace(profile)).toBeCloseTo(1000 / 1.4, -1);
+  });
+
+  test('the buckets still sum to the run distance', () => {
+    // why: an excluded leg committed nothing, so there are no metres to lose — conservation is
+    // exact, not approximate (spec §6).
+    const fixes = phasedRun([
+      { seconds: 200, mps: 3 },
+      { seconds: 60, mps: 0 },
+      { seconds: 200, mps: 3 },
+    ]);
+    const profile = toRunProfile(fixes, 20);
+    const width = smoothTrack(fixes).distanceM / 20;
+    expect(profile.at(-1)!.distanceM + width / 2).toBeCloseTo(smoothTrack(fixes).distanceM, 9);
+  });
+
+  test('excludedStandstillSeconds reports the stop and nothing else', () => {
+    const moving = straightRun(600, 3);
+    expect(excludedStandstillSeconds(moving)).toBe(0);
+
+    const stopped = phasedRun([
+      { seconds: 200, mps: 3 },
+      { seconds: 60, mps: 0 },
+      { seconds: 200, mps: 3 },
+    ]);
+    const excluded = excludedStandstillSeconds(stopped);
+    expect(excluded).toBeGreaterThan(50);
+    expect(excluded).toBeLessThanOrEqual(60);
+  });
+
+  test('a bare gap is unmeasured, not a standstill', () => {
+    // why: a gap leg commits nothing either, but it is already skipped by MAX_GAP_S and must not
+    // be counted as excluded standstill or terminate-and-carry accrual across itself.
+    expect(excludedStandstillSeconds(w1d1(240))).toBe(0);
   });
 });

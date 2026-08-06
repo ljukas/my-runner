@@ -133,10 +133,23 @@ This is why the deadband case improves: below 0.5 m/s the smoother withholds com
 seconds at a time, and charging those seconds to a bucket that earned no distance is exactly what made
 the walker read fast.
 
-**Total folded time is preserved** — seconds move, they are never dropped — so the chart's time basis
-still agrees with `activeDurationS`. Measured against the Avg Pace tile: **+0.05% / −0.39% / −0.09% /
-+0.27%**, inside the ±0.4% the chart already sits at today. **Nothing is owed to the user in
-explanation, and no disclosure is added.**
+**Folded time is preserved everywhere except a run that ends mid-hold.** Seconds move rather than
+being dropped — with one exception, because `carried` is only ever flushed by a leg that commits
+distance. If the run *ends* while seconds are still held, they reach no bucket. Measured on synthetic
+runs: a trailing 10 s stand loses 2 s, 40 s loses 32 s, and **173 s loses 2:45 — 21.4% of elapsed**.
+A *leading* or *mid-run* stand loses nothing, so the rule is head/tail asymmetric.
+
+**That is the behaviour we want, and the alternative is worse.** Flushing a trailing hold into the
+last bucket would give it 173 s over a few metres — restoring precisely the 125:36 pole this slice
+exists to remove. Time the runner spent standing after their last committed metre is not pace, and
+the chart declines to plot it.
+
+**On real data the loss is small**, because a real stand keeps committing wander (~1.55 m every ~9 s,
+§9), so the *final uncommitted* stretch is short. Measured against the Avg Pace tile across the four
+captures: **+0.05% / −0.39% / −0.09% / +0.27%** — inside the ±0.4% the chart already sits at today,
+even on `38f9634f` whose tail is a 173-second stand. The synthetic 21.4% is the bound, not the
+expectation. **No disclosure is added**, because on any run a user will actually see, the divergence
+is smaller than the chart's existing one.
 
 ## 6. The axis change
 
@@ -186,7 +199,7 @@ capture that motivated the slice**.
 **§5.2's decision stands.** That section holds that a standstill with fixes is real elapsed time and
 that only a bare gap is unmeasured. Under this design those seconds are still counted — attributed to
 the leg that earned the distance rather than to a bucket that earned none. Verified: the test pinning
-it (`run-profile.test.ts:210-226`, `max > 1.2 × steady` and `min ≈ steady`) passes with carry-forward
+it (`max > 1.2 × steady` and `min ≈ steady`) passes with carry-forward
 at **541.5** against its 400 bar, and both gap tests hold at band **0.960**. Revisions 1–3 all
 reversed §5.2 and required an amendment to it; revision 4 does not, and that amendment is withdrawn.
 
@@ -238,6 +251,9 @@ only consumer, so widening it costs nothing elsewhere.
   for the follow-up in §12.
 - **A run with more than 5 poled buckets** — six or more separate stands — pulls the domain back up.
   Nothing in the sample comes close; if field testing finds one, q moves.
+- **A run that ends mid-hold loses that time from the chart** (§5). Bounded by the length of the
+  final uncommitted stretch — ≤0.39% on all four captures, 21.4% on a synthetic zero-motion tail.
+  Deliberate: the alternative restores the pole.
 - **The pole is still in the data.** Nothing is deleted, so `paceRange` and any future consumer of the
   series still sees the extreme value. That is honest, and it is why no disclosure is owed — but a
   future consumer must not assume the series is outlier-free.
@@ -262,6 +278,10 @@ and §6's domain helper must be pure for the same reason.
 - **Total folded time is preserved.** Summed bucket seconds equal elapsed minus only what a
   `MAX_GAP_S` gap legitimately removes. Assert every bucket non-null first, so it cannot pass
   vacuously.
+- **The tail exception is pinned, in both directions.** A run ending mid-hold loses exactly the held
+  seconds; a run *beginning* mid-hold loses none. The existing conservation fixture ends while moving
+  and therefore cannot see either, which is how the asymmetry went unstated until an ADR review
+  measured it.
 - **Distance conservation** — buckets sum to the run total.
 - **The domain helper** — returns `[p95, min]` for a spread series; never returns a span below the
   minimum-span floor; handles an empty series, a single point, and an all-identical series.

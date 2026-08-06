@@ -409,6 +409,14 @@ Lower sec/km is faster, so a naively plotted pace line reads upside-down. Whethe
 this is expressed as a reversed axis `domain` tuple or by plotting negated values
 with formatted ticks is settled in the §9.1 spike rather than guessed here.
 
+**Amended 2026-08-06 — the slow bound is no longer the maximum.** It is the
+series' 95th percentile, so a single stationary bucket cannot set the scale;
+buckets beyond it are clipped by victory's chart-bounds clip group and the line
+visibly exits the plot. The domain is computed by `paceChartDomain` in
+`src/domain/run-profile.ts`, not inline in the component. Note the clamp is
+one-tailed — the fast bound is still the raw minimum. See
+[the standstill slice](2026-08-05-pace-chart-stationary-time-design.md) §6.
+
 ## 6. Storage — none *(amended 2026-08-03)*
 
 **This slice adds no column, no migration, and no change to `src/db/`.**
@@ -443,9 +451,16 @@ Its header carries the card title and the two axis units (§7.2). **No gain/loss
 **Accessibility is the card's job, not the chart's.** A Skia canvas is invisible
 to VoiceOver, so the chart is marked `accessibilityElementsHidden` and the card
 carries a summarising label — the same discipline `RouteMapCard` uses for its
-inert map (`route-map-card.tsx`). The label states what the axes show and nothing
-more: the distance covered and the pace range (`paceRange`), e.g.
+inert map (`route-map-card.tsx`). The label states what the axes show: the
+distance covered and the pace range (`paceRange`), e.g.
 *"Pace profile over 3.19 km. The chart spans 5:43 to 11:55 /km."*
+
+**Amended 2026-08-06.** `paceRange` now reports the *visible* extent — §5.4's
+percentile bound rather than the series' min/max — and the label gains a third
+sentence naming what was clipped, but only when something was:
+*"1 slower point reaches 6:09 /km, above the chart."* Without it the label would
+announce a pace no sighted user can see, in the only channel with nothing else to
+cross-check against.
 
 **No characterisation of the run — amended 2026-08-03.** The label originally
 closed with a start-to-finish trend ("Finished faster than you started" /
@@ -505,7 +520,7 @@ reason, never render a misleading chart.
 | Fewer than two **adjacent** measured buckets | No card. `isDrawableProfile` is the gate: `Line` splits the series at nulls and a one-point group emits a move with no lineto, so counting *measured* buckets is not enough — two that are not neighbours still stroke nothing, and the card would head an empty canvas "Pace". |
 | A bucket with no metres, or no elapsed time | That bucket's `paceSecPerKm` is `null`; the line breaks rather than plotting a fabricated value. |
 | **A pause, or a GPS dropout** | The gap is **excluded from bucket time** (any inter-fix leg longer than `MAX_GAP_S`), so the bucket spanning it reads the pace actually run rather than becoming an outlier the whole axis scales to (§5.2). No visible break: such a leg commits no distance, so the buckets either side are contiguous. |
-| **A stationary stretch with fixes still arriving** | Counted as elapsed time in the bucket where it happened — a traffic light the runner never paused for genuinely slows that stretch. Only a bare timestamp gap is treated as unmeasured. |
+| **A stationary stretch with fixes still arriving** | Still counted as elapsed time, but *(amended 2026-08-06)* charged to the bucket whose distance those seconds bought rather than to one that earned none — the seconds carry forward to the next committing leg. Only a bare timestamp gap is treated as unmeasured. One exception: a run that *ends* mid-standstill loses that trailing time from the chart, because there is no later bucket to carry it to. |
 | `loadRunFixes` throws | `console.warn` and no card, exactly as the route hook catches today. |
 | Run finalized before this shipped | No special case — the series is re-derived from `run_points`, which every GPS-recorded run already has. |
 

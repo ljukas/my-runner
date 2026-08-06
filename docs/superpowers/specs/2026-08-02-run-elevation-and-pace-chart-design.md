@@ -363,6 +363,22 @@ last fix in the bucket" rule were measured during the gate review:
   `activeDurationS`, which excludes pauses, while the chart used wall clock.
   A stop *without* a pause (a traffic light the runner ran through) still counts
   — that is real elapsed time, and only a bare gap is unmeasured.
+
+  **Refined 2026-08-06, and this decision was NOT reversed.** Such a standstill's
+  seconds are still counted in full. What changed is *which bucket* they land in:
+  they now carry forward to the leg that finally commits distance, rather than
+  being charged to a bucket that earned none — so the time and the distance it
+  bought travel together, which is the entry-leg rule above applied to a
+  zero-metre leg. The test pinning this section still passes unchanged.
+  Measured cause: a bucket cannot absorb a standstill. A 6 s stop cost its bucket
+  **2:49 /km**, and one field capture's 173-second tail produced a **125:36 /km**
+  bucket that took 98% of the axis — while `MAX_GAP_S` cannot see any of it,
+  because iOS keeps delivering fixes at ~1 Hz while the phone stands still
+  (**1 leg in 5,865** exceeded 30 s across four captures). The pole itself is
+  handled on the axis rather than in the data: §5.4's domain now takes its slow
+  bound from the series' 95th percentile. See
+  [the standstill slice](2026-08-05-pace-chart-stationary-time-design.md), whose
+  §4 records why three attempts to *classify* standing were abandoned.
 - **A leg that steps over a bucket used to leave it empty.** Bucket width is
   fix-density-driven (`total / bucketCount`, `bucketCount` from the fix count),
   so a stationary stretch shrinks the width until a fast leg can straddle several

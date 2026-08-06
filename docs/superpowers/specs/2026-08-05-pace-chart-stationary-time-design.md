@@ -1,22 +1,18 @@
-# Pace chart: standstill time is not pace time — design
+# Pace chart: a stationary runner must not set the pace axis — design
 
 Date: 2026-08-05
-Status: **design — awaiting approval**
-Revision: **2**. Revision 1 proposed a speed-threshold detector over a 5 s window,
-an end-trim, and a dashed stop marker. Three independent adversarial reviews found
-six Criticals in it, including one that would have deleted the chart entirely for
-the app's slowest users. §16 records what they found and what replaced it. The
-diagnosis (§2, §3) survived all three reviews unchanged; the remedy was rebuilt.
+Status: **design — approved, in implementation**
+Revision: **4**. Revisions 1–3 each tried to *classify* standing from the data, and each failed on the
+same population — slow walkers. §11 records all three and the reason the fourth does not try. The
+diagnosis (§2, §3) has survived six independent adversarial reviews unchanged; only the remedy moved.
 
 Refines the pace chart shipped in the
-[run elevation & pace chart slice](2026-08-02-run-elevation-and-pace-chart-design.md).
-That slice's §5.2 fixed one shape of this defect — a bare timestamp gap — and
-explicitly decided the other shape was correct behaviour. §15 records the
-measurement that overturns it.
+[run elevation & pace chart slice](2026-08-02-run-elevation-and-pace-chart-design.md). **It does not
+reverse that slice's §5.2** — see §8.
 
-Measured against four field captures, exported by the
-[field-test capture protocol](../../field-test-capture-protocol.md). `active` is
-`activeDurationS` from each export's header, not the first-to-last-fix span:
+Measured against four field captures from the
+[field-test capture protocol](../../field-test-capture-protocol.md). `active` is `activeDurationS`
+from each export's header:
 
 | capture | session | distance | active | fixes |
 | --- | --- | --- | --- | --- |
@@ -25,34 +21,33 @@ Measured against four field captures, exported by the
 | `runbro-20260803-1722-98459df2` | w3d1 | 2934 m | 1456 s | 1460 |
 | `runbro-20260803-1753-b4ae7b11` | w3d2 | 3108 m | 1469 s | 1463 |
 
-**Sample caveat, stated up front:** one runner, one phone, one city, all four in
-week 3. No W1/W2 capture, and no capture of a genuinely slow walker — the slowest
-sustained walk in the sample is ~1.3 m/s. §14 therefore covers the slow-walker
-case with synthetic tests, because the field data cannot. All four captures also
-sit at the same operating point (`bucketCount` = 120, bucket width 23–26 m), so
-nothing here exercises the short-run regime.
+**Sample caveat.** One runner, one phone, one city, all four in week 3. The slowest sustained walk in
+the sample is ~1.3 m/s, and every capture carries 0.18–0.34 m of position residual. Revisions 1–3 all
+died on populations the sample does not contain — slow walkers, noisy positions, irregular fix
+cadence — so §10 covers those synthetically and deliberately does not lean on the captures.
 
 ---
 
 ## 1. What this slice is
 
-**One rule in the pace fold**, stated in §4 and implemented in §5, plus one line
-of text on the card.
+Two changes, neither of which decides whether the runner was standing.
 
-**It is not:** any change to recorded distance, `activeDurationS`, the splits,
-Apple Health, the route map, or what is stored. No trimming, no new threshold
-constant, no marker layer, and **no change to `toRunProfile`'s return type**.
-Nothing new is persisted and no dependency is added, so the native fingerprint is
-untouched and the next release stays OTA-eligible (ADR 0012).
+1. **In the fold:** a leg that committed no distance carries its seconds forward to the leg that
+   finally commits, instead of being charged to a bucket that earned no distance.
+2. **On the chart:** the pace axis's slow bound becomes the series' 95th percentile rather than its
+   maximum, so one extreme bucket cannot set the scale.
+
+**It is not:** any classification of standing, any exclusion of time, any trimming, any marker, any
+new threshold on runner speed, any change to `toRunProfile`'s signature, and no change to recorded
+distance, `activeDurationS`, the splits or Apple Health. Nothing new is persisted and no dependency is
+added, so the native fingerprint is untouched and the next release stays OTA-eligible (ADR 0012).
 
 ## 2. The defect
 
-The chart buckets by **distance** and each bucket's pace is `seconds / metres`
-(§5.2 of the pace chart design). That is the right series for a pace-vs-distance
-chart, and it makes a stationary runner a **pole**: seconds accrue while metres
-do not, so the bucket's pace grows without bound.
-
-Measured with the shipped `toRunProfile`, worst bucket against the run's median:
+The chart buckets by **distance**, and each bucket's pace is `seconds / metres` (§5.2 of the pace
+chart design). That is the right series for a pace-vs-distance chart, and it makes a stationary runner
+a **pole**: seconds accrue while metres do not, so the bucket's pace grows without bound — and the y
+axis auto-fits to it.
 
 | capture | worst bucket | vs median |
 | --- | --- | --- |
@@ -61,9 +56,8 @@ Measured with the shipped `toRunProfile`, worst bucket against the run's median:
 | `98459df2` | #119 = 18:56 | 2.21× |
 | `b4ae7b11` | #0 = 16:32 | 1.99× |
 
-The y axis auto-fits to the extreme, so the run's genuine signal is squeezed into
-whatever is left. On `38f9634f` one bucket — 24.7 m of ground carrying 186 s, of
-which 169 s is motion below 0.1 m/s — owns almost the whole axis:
+On `38f9634f` one bucket — 24.7 m of ground carrying 186 s, of which 169 s is motion below 0.1 m/s —
+owns almost the whole axis:
 
 ```
 BEFORE   axis 5:11 (top) … 125:36 (bottom)
@@ -78,448 +72,268 @@ BEFORE   axis 5:11 (top) … 125:36 (bottom)
 125:36 |
 ```
 
-**`3ff243b0` is not a counter-example.** It has no standing at its ends, so it was
-first read as a control case whose 16:19 bucket was genuinely slow walking. It is
-not: bucket #112 is a **6-second stop at 2.60 km**. That bucket holds 23.04 m over
-22.55 s, and its own non-stationary legs (1.09–1.65 m/s) work out to **11:53 /km**
-— so the stop costs that bucket **2:49 /km**, and after this change it reads
-13:02. *(Revision 1 claimed "~9:00 to 16:19", a 7:19 effect. That compared the
-bucket against the whole run's median, not against its own walking pace. The real
-effect is 2.6× smaller and is the number §15 relies on.)*
+## 3. Why the shipped `MAX_GAP_S` guard misses it
 
-Reclassifying this capture from control to positive case is worth flagging as a
-confirmation risk: after it, all four captures support the conclusion.
+§5.2 excludes any leg longer than `MAX_GAP_S` (30 s), which is correct for a pause or a tunnel: the
+fixes are *absent*, and such a leg committed no distance to lose. It assumed a standstill would look
+the same. **It does not, because iOS keeps delivering fixes while the phone stands still.**
 
-## 3. Why the shipped guard misses it
+Across all four captures: **5,865 legs, of which exactly 1 exceeds `MAX_GAP_S`** — and that one is
+`38f9634f`'s fix #0→#1, before the run's own start. Median inter-fix interval is **1.00 s whether
+moving or stationary**. So a 173-second standstill arrives as ~173 fully-counted one-second legs.
 
-§5.2 excludes any leg longer than `MAX_GAP_S` (30 s), which is correct for a pause
-or a tunnel: the fixes are *absent*, and such a leg committed no distance to lose.
-It assumed a standstill would look the same. **It does not, because iOS keeps
-delivering fixes while the phone stands still.**
+## 4. Why nothing is classified
 
-Across all four captures: **5,865 legs, of which exactly 1 exceeds `MAX_GAP_S`** —
-and that one is `38f9634f`'s fix #0→#1, before the run's own start. Median
-inter-fix interval is **1.00 s whether moving or stationary**; the longest
-stationary intervals are 1.5 / 32.2 / 4.7 / 5.6 s.
+Three mechanisms were built and measured before this one, each trying to decide from the data whether
+the runner had stopped. Each failed on slow walkers, and the sixth review supplied the reason rather
+than another data point:
 
-So a 173-second standstill arrives as ~173 fully-counted one-second legs. The gap
-guard cannot see this case, and the hypothesis that a long standstill would
-self-exclude through location throttling is measurably false. Note the sample's
-one over-30 s leg sits in a head that no longer needs special handling, so **the
-sample contains no >30 s leg inside a mid-run stand** — the guard's blindness here
-is established by the cadence measurement, not by a counter-example.
+> **The deadband has already discarded the distinguishing information.** `geo.ts:332` withholds a
+> commit while `smoothedSpeed < 0.5 && d < 1.5`, so during a hold the ~1.2 m of ground detail is gone.
+> What survives is one flush whose size is set by departure speed × fix interval — and standing and
+> slow departure produce the same flush.
 
-## 4. The rule
+Measured at 1 Hz: the releasing commit for a **genuine standing start** spans 1.41–3.60 m; for a
+runner who **never stood and merely started slowly**, 1.21–3.67 m. The distributions overlap
+completely, so no threshold on that quantity can separate them. That is why a speed window (revision
+1), a hold duration (revision 2) and a release rate (revision 3) each failed in turn.
 
-> A bucket's time is the time in which its distance was actually covered.
+**The measurement that settled it.** A steady 0.30 m/s walk with 1 m of position noise — the app's own
+audience, within a factor of 3 of the captures' residual — against a true pace of 55:33:
 
-§5.2 already holds this when fixes are absent. It now holds when they are present.
-The pivot from revision 1 is *where the test lives*: not on a fix's windowed
-speed, but on **the leg's own committed distance**, which `smoothFix` already
-returns as `acceptedDeltaMeters` (ADR 0021 §2d).
+| | reported |
+| --- | --- |
+| today | 39:53 *(28% fast)* |
+| revision 3's rate rule | 33:06 *(40% fast)* |
+| **carry-forward, no classification** | **56:58** *(2.5% slow)* |
 
-That single change is what removes the trim, the 0.8 m/s constant, the marker
-layer and the API change — see §16.
+Classification was never the improvement; it was the harm. The improvement is the part that decides
+nothing.
 
-## 5. Implementation
+## 5. The fold change
 
-Fold the track once with the existing smoother, keeping each leg's
-`acceptedDeltaMeters`. Then every leg falls into exactly one of three cases:
+Today, `run-profile.ts:66-70` charges a zero-metre leg's seconds to the bucket it happened in:
 
-1. **It committed distance.** Unchanged from today: its metres and its seconds
-   split proportionally across the buckets it crosses, plus any seconds carried
-   from case 3.
-2. **It committed nothing, and sits in a run of non-committing legs longer than
-   the accrual guard.** This is a **stop**: it contributes no seconds. It has no
-   metres to contribute either, which is what makes the rule safe.
-3. **It committed nothing, and its non-committing run is within the guard.** This
-   is the smoother's **deadband accrual**, not a stop. Its seconds **carry
-   forward** onto the next committing leg, so the distance and the time it took
-   travel together.
+```ts
+if (legMeters <= 0) {
+  seconds[bucketAt(from.distanceM, width, bucketCount)] += legSeconds;
+  continue;
+}
+```
 
-**The accrual guard is 3 s, derived not invented:**
-`NEAR_STATIONARY_DEADBAND_M / NEAR_STATIONARY_SPEED_MPS` = 1.5 / 0.5 — the longest
-the deadband can legitimately hold distance for a runner still moving at the
-measurable floor.
+That branch is replaced by a carry: those seconds ride forward onto the leg that finally commits, so
+distance and the time it took travel together — the principle §5.2's entry-leg rule already rests on.
 
-**Case 3 is not optional, and no reviewer caught it.** `geo.ts:332` commits when
-`smoothedSpeed >= 0.5 || d >= 1.5`, so a walker under 0.5 m/s accrues silently and
-then commits ~1.5 m in one leg. Dropping those legs' seconds instead of carrying
-them reports that walker **four times too fast**:
+- A leg over `MAX_GAP_S` **clears** the carry: unmeasured time must not cross into a bucket.
+- A leg with `seconds <= 0` (a duplicate or backwards timestamp) contributes nothing and **must not
+  clear** the carry. Dropping accrued seconds there reports a slow walker four times too fast — a
+  measured defect, not a hypothetical.
 
-| true ground speed | true pace | case 3 carried | case 3 dropped |
-| --- | --- | --- | --- |
-| 0.4 m/s | 41:40 | **41:43** | 10:26 |
-| 0.5 m/s | 33:20 | **33:22** | 8:21 |
-| 0.6 m/s and above | — | exact | exact (no accrual legs) |
+This is why the deadband case improves: below 0.5 m/s the smoother withholds commits for several
+seconds at a time, and charging those seconds to a bucket that earned no distance is exactly what made
+the walker read fast.
 
-At 0.6 m/s and above every leg commits, so cases 2 and 3 never fire on a moving
-runner at all.
+**Total folded time is preserved** — seconds move, they are never dropped — so the chart's time basis
+still agrees with `activeDurationS`. Measured against the Avg Pace tile: **+0.05% / −0.39% / −0.09% /
++0.27%**, inside the ±0.4% the chart already sits at today. **Nothing is owed to the user in
+explanation, and no disclosure is added.**
 
-**The `legMeters <= 0` branch at `run-profile.ts:66-70` is deleted**, replaced by
-cases 2 and 3. Revision 1 said "everything else is unchanged", which left that
-branch — the actual pole generator — in place while claiming to fix it.
+## 6. The axis change
 
-## 6. Measured properties
+`run-profile-chart.tsx:89-93` already owns the pace domain explicitly:
 
-Each of these is a property of the rule, not of the sample.
+```ts
+return [Math.max(...paces), Math.min(...paces)] as [number, number];
+```
 
-**It cannot delete real movement.** A leg that committed distance is never
-excluded, by construction. Revision 1's window detector could and did: it deleted
-a leg at **1.90 m/s** as standstill — above that runner's median walking speed —
-while retaining 2 s of exactly-zero motion two legs later.
+The slow bound becomes the series' **95th percentile**. Buckets beyond it are clipped by
+victory-native, which renders chart children inside a clip group (`CartesianChart.tsx:977-981`,
+`clipRect = boundsToClip(chartBounds)`), so the line visibly exits the top of the plot rather than
+painting over the axis. That was verified in source — an earlier draft rejected this whole approach on
+an unverified assumption that it would *not* clip.
 
-**It cannot shorten the x extent.** An excluded leg committed no distance, so
-there is none to remove. Measured chart extent against stored distance:
-2.76 / 2.97 / 2.93 / 3.11 km against 2765 / 2966 / 2934 / 3108 m — exact on all
-four. Revision 1's trim shortened the axis by up to 0.7% on the sample and up to
-**20.6%** on a synthetic slow walker; that failure mode is gone, and with it the
-need to set the x domain explicitly.
+**Why the 95th and not the 98th.** q=0.95 scores better on all four captures and tolerates **5**
+poled buckets against q=0.98's **2**. With carry-forward each stand poles roughly one bucket, so 5 is
+headroom for a stop-and-go urban run — the case field testing is most likely to surface. The cost is
+4% of buckets clipped rather than 1.7%.
 
-**Distance conservation is exact.** The excluded legs committed **0.00 m** on all
-four captures, so the buckets sum to the run total with no residue. Revision 1
-skipped real metres and needed a residue clause; this does not.
+**A minimum span is required.** On a perfectly uniform series the 95th percentile equals the minimum
+and the domain collapses — measured on a synthetic steady run, p95 and min both 5:34. The domain must
+never be narrower than a floor; the exact form is settled in implementation and pinned by a test
+(§10).
 
-**A clean stop's damage is bounded and independent of its length.** Synthetic
-300 s @2.8 m/s → stop → 300 s @2.8 m/s, 20 buckets, steady pace 5:57:
-
-| stop | slowest bucket | seconds excluded |
-| --- | --- | --- |
-| 5 s | 6:46 | 0 |
-| 25 s | **6:38** | 21 |
-| 60 s | **6:38** | 56 |
-| 144 s | **6:38** | 140 |
-
-Today those four produce progressively worse poles without limit. The residual
-6:38 against 5:57 is the Kalman velocity decay either side of the stop — real
-deceleration, correctly kept.
-
-**On real data the bound is weaker, and this is a known limitation.** A synthetic
-stop commits nothing, so every leg inside it is caught. A *real* stand wanders:
-`geo.ts:332` commits ~1.5 m whenever the drift clears the deadband, roughly every
-2–3 s, which splits the stand into non-committing runs mostly **shorter than the
-3 s guard**. Those are carried as accrual rather than excluded, so `38f9634f`'s
-173-second tail is only partly caught — its worst bucket lands at **16:22**, not
-the synthetic's 6:38. That is a large improvement on 125:36 and it is not the whole
-fix.
-
-The residue is exactly ADR 0021's own open item: the smoother *"does NOT fully
-suppress a stationary GPS wander — an out-and-back drift still commits"*.
-Separating wander from genuine slow progress needs net displacement, which the
-smoother deliberately does not do. This slice inherits that limit rather than
-solving it, and §16 records the variant that tried.
-
-**No run loses its chart.** All 120 buckets stay measured at every steady speed
-from 0.4 to 1.4 m/s. Revision 1's 0.8 m/s floor produced **0 of 120 buckets and no
-chart at all** at exactly 0.80 m/s, inside the 0.5–0.8 m/s band that
-`MIN_MEASURED_SPEED_MPS` deliberately supports.
-
-**Exclusion has a floor, and it is ~5 s of standing, not "any duration".** Case 2
-needs a non-committing run longer than 3 s, and the smoother's velocity decay
-means a real stop takes a second or two to stop committing. The 5 s synthetic stop
-above excludes nothing. Revision 1 claimed exclusion was unconditional at any
-duration; that was false, and §14's acceptance test built on it was unsatisfiable.
+The domain must be computed by a **pure helper**, not inline in the component, so it is testable
+without a renderer.
 
 ## 7. Result
 
-The metric is **ground-truth band contrast**: `(walk pace − run pace) / axis span`,
-where the run and walk paces come from the capture's **own recorded segments**.
-Same form as the shipped `bandContrast`, with real ground truth in the numerator.
+Ground-truth band contrast — `(walk pace − run pace)` taken from each capture's own recorded segments,
+over the **domain** span:
 
-Measured against the **implementation of §5**, not a prototype (see §7.2):
+| capture | today | **after** | domain after | clipped |
+| --- | --- | --- | --- | --- |
+| `3ff243b0` | 0.36 | **0.61** | `5:46…12:00` | 5/120 |
+| `38f9634f` | 0.02 | **0.43** | `5:11…10:25` | 5/120 |
+| `98459df2` | 0.25 | **0.46** | `5:51…11:04` | 5/120 |
+| `b4ae7b11` | 0.28 | **0.59** | `5:13…10:35` | 5/120 |
 
-| capture | run | walk | band | today | **after** | axis after | excluded |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `3ff243b0` | 6:32 | 10:21 | 3:49 | 0.36 | **0.45** | `5:46…14:09` | 0:05 |
-| `38f9634f` | 6:35 | 8:51 | 2:15 | 0.02 | **0.20** | `5:11…16:22` | 2:42 |
-| `98459df2` | 6:42 | 9:07 | 2:25 | 0.18 | **0.25** | `5:51…15:32` | 0:10 |
-| `b4ae7b11` | 6:04 | 9:15 | 3:11 | 0.28 | **0.41** | `5:13…12:56` | 0:06 |
+Today's axes are `5:46…16:19`, `5:11…125:36`, `5:51…18:56`, `5:13…16:32`. For comparison, revision 3's
+rate rule reached 0.52 / 0.16 / 0.25 / 0.41 — this is better on all four and **2.7× better on the
+capture that motivated the slice**.
 
-Today's axes are `5:46…16:19`, `5:11…125:36`, `5:51…18:56`, `5:13…16:32`.
+## 8. What this does not change
 
-`38f9634f` improves 10× and still only reaches 0.20 for two reasons, both honest:
-its own run and walk paces are just 2:15 apart, a ceiling belonging to the run; and
-its wandering 173-second tail is only partly caught (§6).
+**§5.2's decision stands.** That section holds that a standstill with fixes is real elapsed time and
+that only a bare gap is unmeasured. Under this design those seconds are still counted — attributed to
+the leg that earned the distance rather than to a bucket that earned none. Verified: the test pinning
+it (`run-profile.test.ts:210-226`, `max > 1.2 × steady` and `min ≈ steady`) passes with carry-forward
+at **541.5** against its 400 bar, and both gap tests hold at band **0.960**. Revisions 1–3 all
+reversed §5.2 and required an amendment to it; revision 4 does not, and that amendment is withdrawn.
 
-### 7.2 These numbers are the implementation's, not a prototype's
+**No API change.** `toRunProfile(fixes, bucketCount?) => ProfilePoint[]` keeps its exact signature. No
+`foldRunProfile`, no `RunProfileFold`, no `excludedStandstillSeconds`, and no ripple through
+`use-run-track`, `RunProfileCard`, `isDrawableProfile` or `paceRange`.
 
-An earlier draft of this revision reported 0.45–0.52 / 0.27 / 0.38 / 0.41 with
-axes ending at 13:02 / 13:26 / 12:07 / 12:56. Those came from a prototype that
-**dropped** case 3's accrual seconds instead of carrying them forward — that is,
-from the 4×-too-fast bug §5 exists to prevent. Carrying the seconds correctly puts
-them back into the buckets, widening the axis and lowering the band. The corrected
-figures above are what the shipped rule produces.
+**No card copy.** There is nothing to disclose (§5), so no text is added, and the label's distance
+sentence already reads true — the x extent still equals `run.distanceM` exactly, because nothing is
+trimmed.
 
-This is the same class of error the reviews found in revision 1: a headline table
-measured against something other than the specified rule. The lesson worth keeping
-is procedural — **measure the implementation, not the prototype**, which is why
-§14 asserts these properties in the suite rather than in a document.
+**But the VoiceOver label's *range* sentence must change (§8.1).**
 
-### 7.1 Why revision 1's metric was thrown away
+### 8.1 The spoken range sentence, which this design does break
 
-Revision 1 measured `(p95 − min) / (max − min)` over bucket paces and reported
-4–59% → 84–95%. That metric is invalid, and the numbers it produced were roughly
-**2× inflated** against the table above.
+`paceRange`'s own contract is *"the pace axis's extent, for the card's VoiceOver label"* — and after §6
+it no longer describes the axis. It returns the full series' min and max, so on `38f9634f` the card
+would announce *"The chart spans 5:11 to 125:36"* while the visible axis tops out at **10:25**. That is
+a number no sighted user can see, in the one channel that has nothing else to go on. An earlier draft
+of this revision claimed no accessibility change was needed; that was wrong.
 
-- **It saturates.** p95 of 120 buckets discards the top six, so six or more
-  wrecked buckets put p95 among them. Measured on a clean synthetic: clean chart
-  **92.1%**, one poled bucket **10.2%**, five **11.1%**, six or more **100.0%**.
-  Non-monotonic, and perfect for the worst input.
-- **It would have rejected this slice.** On a synthetic 8 × (200 s running + 20 s
-  stop) — exactly the stop-and-go run this slice serves — the fix improves the
-  axis from `6:10…16:22` to `6:10…8:26` and the metric goes **99% → 97%**.
-- **It is self-referential**, putting p95 of the distribution in the numerator,
-  and it is blind to fast-side outliers.
-- Revision 1 also claimed it was "the same quantity §5.2's gap tests assert as
-  `bandContrast`". It is not: `bandContrast` takes its numerator from fixture
-  ground truth.
+The label must describe what is plotted, and — because a sighted user *does* see the line exit the top
+of the plot — must say that too:
 
-**A duration cap was considered and rejected.** Bounding exclusion at 30 s is
-inert here — post-fix every remaining standstill is short — and it would create a
-cliff where a 35 s stop stays as bad as today while a 25 s stop is cleaned up.
+> "Pace profile over 2.97 km. The chart spans 5:11 to 10:25. 5 slower points reach 125:36, above the
+> chart."
 
-## 8. Why no stop marker
+The second sentence appears only when points are clipped. This gives the listener the visible range
+plus the true extreme, which is strictly more than the sighted user gets and nothing that is false.
 
-A stop covers no ground, so on a distance axis it has no width: the standstills in
-these captures creep 0.00–12.57 m, which is 0.02–0.37% of the axis, or **~1 pt on
-the card's ~290 pt plot** against the ~12 pt a dash pattern needs to read as
-dashed. And no bucket goes null under this rule in any configuration on any
-capture, so the line stays continuous — there is nothing to bridge.
+`paceRange` therefore reports the **domain's** extent and how many points fall outside it. This is the
+only consumer, so widening it costs nothing elsewhere.
 
-A dashed vertical rule was designed in revision 1 and cut. Three findings killed
-it: victory clips chart children to `chartBounds`, whose x domain runs from the
-first bucket **centre** to the last, so on 3 of the 4 captures every marker fell in
-the clipped outer half-bucket and drew nothing; the chart already carries ~5 solid
-full-height vertical x-gridlines and a dashed y-grid, so "dashed vertical hairline"
-is not a distinguishable semantic; and it fired **once across four runs** while
-contributing nothing to the measured gain.
+## 9. Limits, stated plainly
 
-So a mid-run stop is simply spanned by the continuous line, which is the owner's
-decision of 2026-08-06.
+- **The percentile clips real data, but only on runs long enough to have buckets to spare.**
+  `Math.ceil((n − 1) × 0.95)` lands on the **last index** for any n ≤ 20, so a run of 20 buckets or
+  fewer clips nothing at all and its domain is identical to today's. Clipping begins at **21 buckets
+  — about 105 fixes, or 105 seconds of running** (verified on device: a 15-bucket run clipped
+  nothing, a 48-bucket run clipped one). At the 120-bucket cap it is 5 buckets, 4%. That threshold is
+  a good accident rather than a design choice: short runs, where one bucket is a large share of the
+  evidence, are left alone.
+- **The clamp is one-tailed.** Only the slow bound is a percentile; the fast bound is still the raw
+  minimum, so a fast-side outlier stretches the axis exactly as a slow one used to. Observed on
+  device: a verification run averaging 6:25 got a 2:40–5:58 domain, because one bucket read 2:40 /km
+  (6.25 m/s, at `RUNNING_SPEED_CEILING`) from a GPS artifact. A round-1 reviewer predicted this —
+  *"it is blind to fast-side outliers"*. It is not this slice's defect, since the pole this slice
+  exists for is always slow-side, and a p05 fast bound would hide genuinely fast running. Recorded
+  for the follow-up in §12.
+- **A run with more than 5 poled buckets** — six or more separate stands — pulls the domain back up.
+  Nothing in the sample comes close; if field testing finds one, q moves.
+- **The pole is still in the data.** Nothing is deleted, so `paceRange` and any future consumer of the
+  series still sees the extreme value. That is honest, and it is why no disclosure is owed — but a
+  future consumer must not assume the series is outlier-free.
+- **A 15–29 s pause still poles its bucket.** The engine ingests no fixes while paused, and the
+  resumed fix commits 0.19–0.54 m of stale Kalman velocity, so the leg is not a gap and its full
+  duration lands in one bucket — up to 39:25 measured at a 29 s pause. The percentile domain hides it
+  exactly as it hides a stand's. Worth fixing in the engine, not the fold.
 
-## 9. What the card must disclose
+## 10. Testing
 
-Excluding standstill time makes the chart's pace basis differ from
-`activeDurationS`, which every other figure on the summary uses. Measured as the
-chart's distance-weighted mean pace against the Avg Pace tile:
+Unit only, in `bun test` — `src/domain/run-profile.ts` is pure TS with no Expo or React Native import,
+and §6's domain helper must be pure for the same reason.
 
-| capture | today | after | excluded, as a share of active time |
-| --- | --- | --- | --- |
-| `3ff243b0` | +0.1% | −0.4% | 0:05 of 1415 s (0.4%) |
-| `38f9634f` | +0.4% | **−10.2%** | 2:42 of 1590 s (10.2%) |
-| `98459df2` | +0.2% | −0.7% | 0:10 of 1456 s (0.7%) |
-| `b4ae7b11` | +0.3% | −0.4% | 0:06 of 1469 s (0.4%) |
+- **The whole existing suite passes unchanged**, including the §5.2 test and both gap tests. A failure
+  there means the carry is wrong.
+- **A slow walker is not reported fast.** Steady walks at 0.3–1.4 m/s report true pace to within a few
+  s/km at **1000, 1001, 900, 1100, 500 and 2000 ms cadences, under ±3 ms jitter, and with 0.5 m and
+  1 m of position noise.** This is the test revisions 1–3 lacked; `straightRun` needs both a cadence
+  and a noise parameter to express it. **Noise-free, fixed-cadence fixtures are what hid three
+  successive regressions** — that is the lesson worth encoding.
+- **A duplicate timestamp does not discard accrued seconds** — the walker still reports true pace.
+- **Total folded time is preserved.** Summed bucket seconds equal elapsed minus only what a
+  `MAX_GAP_S` gap legitimately removes. Assert every bucket non-null first, so it cannot pass
+  vacuously.
+- **Distance conservation** — buckets sum to the run total.
+- **The domain helper** — returns `[p95, min]` for a spread series; never returns a span below the
+  minimum-span floor; handles an empty series, a single point, and an all-identical series.
+- **`paceRange` reports the domain, not the series** — on a fixture with a pole it must report the
+  p95 bound and a non-zero clipped count, never the pole as the range. This is the assertion that
+  keeps §8.1's defect from returning.
+- No test asserts that a stop was detected, because nothing detects one.
 
-The divergence is exactly the excluded share, by construction — which is what makes
-the disclosure below sufficient rather than approximate.
+**No E2E.** Simulated GPS motion is unreachable by Maestro (ADR 0001, 2026-07-31 amendment).
 
-The chart currently agrees with the tile to within 0.4% on all four; after this it
-diverges by 10.3% on the one capture with material standing time. That is the
-divergence prior §5.2 was partly written to close, so it is **disclosed rather
-than left silent** (owner's decision, 2026-08-06 — "preferably no").
+**Simulator verification, done 2026-08-06** (iPhone 17 Pro / iOS 26.5, dev client). Two runs, driven
+with `simctl location` and a static fix in the middle for the stand:
 
-`RunProfileCard` gains one line of secondary text whenever excluded standstill
-time is material — *"Excludes 3:14 standing"* — and the same sentence joins the
-VoiceOver label. This is also what replaces the cut marker layer: unlike a marker,
-it covers standing anywhere in the run, states the magnitude, is legible without a
-legend, and is real `Text` so VoiceOver reads it for free.
+| run | buckets | label |
+| --- | --- | --- |
+| 0.26 km / 1:15 | ~15 | *"…spans 4:13 to 5:09 /km."* — nothing clipped, no third sentence |
+| 0.65 km / 4:09 | ~48 | *"…spans 2:40 to 5:58 /km. 1 slower point reaches 6:09 /km, above the chart."* |
 
-**There is deliberately no "material" threshold.** The line appears whenever any
-standstill was excluded, because by §6 that already means a genuine stop was found
-— inventing a second constant to decide when a stop is worth mentioning is what
-revision 1 did with its 5 s marker floor, and it went badly. On the sample that
-means the line reads *"Excludes 0:05 standing"* on `3ff243b0`, *0:10* on
-`98459df2`, *0:06* on `b4ae7b11` and *2:42* on `38f9634f`. Three of those are
-small, and saying so costs nothing; the alternative is a chart that quietly
-disagrees with the tile above it.
+Both axes' tick labels fall inside their stated domain, and the singular form reads correctly.
 
-## 10. Data model
+**One caution for whoever verifies this next: you cannot tell clipping from genuinely slow pace by
+eye.** On the second run the line runs flat near the bottom of the plot, which reads at a glance like
+a stroke pinned at a clip boundary; it is not — the domain's floor is below the lowest tick and that
+stretch is real pace. Only the label distinguishes them, which is an argument for the label sentence
+existing rather than against it.
 
-**Unchanged.** `toRunProfile` still returns `ProfilePoint[]`; `ProfilePoint` still
-carries `distanceM` and `paceSecPerKm`. Revision 1 introduced `RunProfile` and
-`ProfileStop` solely to carry the marker layer, rippling through `RunTrack`,
-`isDrawableProfile`, `paceRange`, `RunProfileChart`'s props and ~17 test call
-sites. Cutting the marker cuts all of it.
+## 11. Review record
 
-One fact the fold must expose to the card for §9, and nothing more: the total
-excluded standstill seconds. This is an additive field, not a shape change.
+Six independent adversarial reviews across three rounds. The diagnosis (§2, §3) survived all six.
+Every remedy that classified standing was broken by the next round.
 
-`bucketCount`'s default still derives from the fix count. No fixes are removed —
-only some legs' seconds are — so bucket width is unaffected and the prior design's
-"a stationary stretch shrinks the bucket width" defect is not reintroduced.
-Revision 1's trim did remove fixes and did need the default recomputed; that
-instruction is withdrawn along with the trim. *(Note the interaction is untested by
-the sample: all four captures sit at the 120-bucket cap.)*
+**Revision 1** — a 0.8 m/s speed floor over a 5 s window, an end-trim, and a dashed stop marker. Six
+Criticals: the detector deleted a leg at 1.90 m/s as standstill; at exactly 0.80 m/s it produced **no
+chart at all**; a degenerate window manufactured phantom multi-minute stops; its headline metric
+`(p95 − min)/(max − min)` was invalid — it saturates at 100% once six buckets are wrecked, and would
+have *rejected* this slice on a stop-and-go run; and the marker was unrenderable, because victory
+clips children to the first and last bucket **centre**, so on 3 of 4 captures every marker drew
+nothing.
 
-## 11. Rendering
+**Revision 2** — a hold-duration guard derived as
+`NEAR_STATIONARY_DEADBAND_M / NEAR_STATIONARY_SPEED_MPS` = 3 s. Analytically wrong: 3 s is the
+*infimum* of legitimate accrual, not the supremum, so it separated nothing. One 1001 ms interval
+reported a 0.4 m/s walker at **10:26** against a true 41:40. Four further Criticals were tests passing
+for the wrong reason — both standstill tests hard-coded `bucketCount` 20 and failed at the default,
+and the conservation test was the arithmetic identity `(n−0.5)·T/n + T/2n === T`, which a
+chart-collapsing mutant passed.
 
-**Unchanged.** No new chart element, no Skia import, no clip interaction, no draw
-order question, no `Line` name collision. `RunProfileChart` keeps its single pace
-`Line` and its existing inverted `paceDomain`, which now auto-fits to a range with
-no pole in it.
+**Revision 3** — a release-rate test at 0.25 m/s plus a head clause. Reviewers found the rate test
+fires on *decelerating* rather than standing (63 s of "standing" disclosed on a run with none, using
+the suite's own generator with no noise at all); the 3 m head margin is not a discriminator (§4); its
+constant was calibrated against a quantity the code does not compute; the head clause was already
+dead on 1 of 4 captures; and a single velocity-gated fix inside a stand restored two thirds of the
+original defect. A 10 s duration floor removed every false positive and simultaneously removed the
+benefit on 2 of 4 captures — because short stands and deceleration transitions are the same duration.
 
-The chart stays the only file importing victory-native (ADR 0024).
+**Two implementers refused to force a red test green**, and were right both times: once about a
+threshold in the plan, once about the rule itself. That instruction found more real defects than any
+single review.
 
-## 12. Accessibility
+**What survived every round:** §3's cadence measurement; §2's worst-bucket table; that no bucket goes
+null; that the x extent equals the stored distance exactly; and §1's fingerprint/OTA claim.
 
-`RunProfileCard`'s label is all VoiceOver gets, since the chart is a Skia canvas.
-Two corrections beyond §9's sentence:
-
-- The label quotes `run.distanceM`, and under this rule that is exactly the
-  chart's extent (§6), so the number is now true. Revision 1 kept the stored total
-  while trimming the axis, which would have announced 2.97 km for a 2.94 km chart
-  — using a claim about invisible x-ticks to excuse an error in the channel that
-  has no ticks.
-- The range sentence from `paceRange` improves for free: it stops announcing a
-  125:36 that told the listener nothing.
-
-## 13. Failure and degradation
-
-- **A run with no committing legs at all** — every leg inside a >3 s
-  non-committing run. Every bucket is null, `isDrawableProfile` returns false, and
-  the card renders nothing. `hasMeasuredDistance` already suppresses the whole
-  card for such a run. No fallback is needed, because unlike revision 1 this
-  cannot happen to a run that was actually moving (§6).
-- **No standstill anywhere** — output identical to today, since cases 2 and 3
-  never fire.
-- **A gap over `MAX_GAP_S`** — unchanged; still skipped.
-- **The fold throws** — unchanged: `useRunTrack`'s `foldProfile` already keeps the
-  route map alive when the pace fold fails, and the route's geometry is computed
-  independently of it.
-
-## 14. Testing
-
-Unit only, in `bun test` — `src/domain/run-profile.ts` is pure TS with no Expo or
-React Native import.
-
-The suite asserts **ground-truth band contrast** (§7's metric) on synthetics, never
-revision 1's p95 metric, and never a magic constant.
-
-- **A stationary head, a stationary tail, and a mid-run stop** each improve band
-  contrast, and a stop's slowest bucket is **independent of the stop's length**
-  (25 s, 60 s and 144 s must agree). This is the property; the pole's absence is
-  what the test pins.
-- **The slow-walker assertions the field data cannot cover** — and revision 1
-  omitted, testing only the direction that could not fail:
-  - a steady walker at 0.4 and 0.5 m/s is reported within ~1% of true pace, which
-    fails 4× wide without case 3's carry-forward;
-  - every steady speed from 0.4 to 1.4 m/s keeps all buckets measured, so no run
-    loses its chart;
-  - **a leg that committed distance is never excluded**, at any speed.
-- **Distance is conserved exactly** — the buckets sum to the run total, with no
-  residue clause.
-- **A gap over `MAX_GAP_S` is still skipped** — the existing gap tests must pass
-  unchanged.
-- The rewritten standstill test from §15.
-
-The four captures are **not** checked in — 180 kB each, carrying a real route.
-Their measurements live here as evidence. Worth reconsidering later: a decimated
-fixture of committed deltas and timestamps only, with lat/lng dropped, would make
-§7's table reproducible after the code lands without the privacy objection.
-
-**No E2E.** Simulated GPS motion is unreachable by Maestro (ADR 0001, 2026-07-31
-amendment). Verification is a simulator pass on a seeded run, plus the device
-checklist.
-
-## 15. What this reverses
-
-The shipped §5.2 states, and `run-profile.test.ts` pins:
-
-> A stop *without* a pause (a traffic light the runner ran through) still counts —
-> that is real elapsed time, and only a bare gap is unmeasured.
-
-That reasoning assumed a bucket could absorb a standstill. It cannot: §2 measures
-a 6 s stop costing its bucket **2:49 /km**, and §3 shows the fixes keep arriving so
-nothing else catches it. The time is still real — it is simply not the time in
-which that distance was covered — and the run's elapsed time is still reported in
-full by `RunStatGrid` from `activeDurationS`, with §9 disclosing the difference.
-
-§5.2 is amended with this measurement rather than silently contradicted.
-
-**The test rewrite is larger than revision 1 claimed.** That revision promised to
-keep the test's assertion "that the stop stays at its own position in the series".
-No such assertion exists: `run-profile.test.ts:210-226` asserts only
-`max > 1.2 × steady` and `min ≈ steady`. So the positional property is *unpinned*
-today and must be added, not preserved. Verified by running the shipped suite
-against a faithful implementation of this rule: **19 pass, 1 fail**, the failure
-being exactly that `max > 1.2 × steady` line.
-
-## 16. Review record
-
-Three independent adversarial reviews, 2026-08-05, each with its own angle and no
-knowledge of the others. Revision 1's diagnosis survived; its remedy did not.
-
-**Criticals that forced the rewrite:**
-
-1. §6 left `run-profile.ts:66-70`, the pole generator, in place while claiming to
-   fix it (§5).
-2. The window detector deleted real movement and retained real standstill — a leg
-   at 1.90 m/s excluded, 2 s of zero motion kept (§6).
-3. The 0.8 m/s floor deleted the chart entirely at exactly 0.80 m/s, inside the
-   band `MIN_MEASURED_SPEED_MPS` supports; the stated fallback did not fire (§6).
-4. A degenerate window resolved to "stationary", firing on every run's final fix
-   and manufacturing phantom multi-minute stops at 3–10 s fix intervals — reachable
-   because ADR 0008's locked-phone heartbeat does not guarantee 1 Hz.
-5. "Exclusion is unconditional at any duration" was false, making a listed
-   acceptance test unsatisfiable (§6).
-6. The chart's pace basis diverged from every other figure on the screen, silently
-   (§9).
-
-**The metric was invalid** (§7.1), so revision 1's headline table was ~2× inflated.
-
-**The marker layer was cut** after three findings (§8).
-
-**Two reviewers contradicted each other**, which is itself the strongest evidence
-for the under-specification finding: each reconstructed revision 1's detector
-differently from the same document and reached opposite conclusions about whether
-half the slice did anything. One concluded the standstill exclusion was worth
-nothing on three of four captures; that rested on a misidentified detector — it
-swept forward/backward/OR/AND applied uniformly, while the prototype used a forward
-window at the head and a backward one at the tail. This revision's rule has no
-direction, no window and no combination rule to misread.
-
-**Corrections to figures carried into this revision:** the `active` column was the
-fix wall span, not `activeDurationS` (`38f9634f` off by 38 s); §2's effect was
-7:19 and is 2:49; "two of four captures" was one of four; the creep range 1.9–4.0 m
-was 0.00–12.57 m; the 0.1% residue was ~0.33% and is now exactly 0; "144 s" and
-"173 s" were the same stretch; and two illustrative figures (a 1.56 m/s window
-reading, "1.0 m/s → 80%") did not reproduce, though both conclusions did.
-
-**The 0.9 m/s beginner-walk claim was unsupported** and is gone with the constant
-it justified. Every walk segment in the sample runs 1.43–1.95 m/s; there is no
-sustained sub-1.3 m/s walking, and extending revision 1's truncated sweep showed
-its own metric arguing for a 1.6–1.8 m/s floor — one that would delete the walk
-intervals. The current rule needs no such constant, and §14 tests the slow-walker
-case synthetically instead of asserting a belief about it.
-
-**A stricter variant was tested and rejected**, after §6's real-data limitation
-turned up during implementation verification. Defining a stop as a sustained run
-under the app's *existing* 0.5 m/s measurable floor (rather than under zero) does
-catch a wandering stand better — `38f9634f` reaches 15:30 instead of 16:22, band
-0.22 instead of 0.20 — but it recreates the failure that killed revision 1's floor,
-just lower down: at a steady **0.4 and 0.5 m/s it produces 0 of 120 buckets and no
-chart at all.** A marginal readability gain is not worth reintroducing a cliff for
-the app's slowest users, so the zero-committed rule stands.
-
-**Findings that survived all three reviews:** §3's cadence measurement, §2's
-worst-bucket table, "fold once, never re-fold from a trimmed head" (`smoothFix`
-re-seeds velocity on restart, so a re-fold shifts committed distances), "no bucket
-goes null, so there is nothing to bridge", and §1's fingerprint/OTA claim.
-
-## 17. Out of scope
+## 12. Out of scope
 
 - Elevation. Still unrendered, still waiting on barometer tuning (ADR 0015).
-- Any change to recorded distance, `activeDurationS`, splits, or Apple Health.
-- **The x-axis revisit.** The prior design chose distance for elevation's sake,
-  deferred elevation, and kept the axis as the owner's standing decision "revisited
-  when elevation lands". A reviewer argued this slice is that revisit and that a
-  time axis would dissolve the whole problem — a stop would be as wide as it is
-  long. That is a real question and it is not this slice's to answer; it belongs
-  with the elevation work the axis was chosen for.
-- Per-segment or segment-coloured pace. `segmentSeq` is already at the fold site
-  and `SegmentSplits` already reports per-interval pace; whether the chart should
-  use that structure is a design question, not a defect fix.
-- Clipping fixes to `[startedAt, endedAt]`. A reviewer found each capture's fix #0
-  precedes `startedAt` by 1.3–31.8 s at 0.00 m committed. It is free and
-  threshold-less, but under this rule those legs are already excluded as a stop,
-  so it would change nothing here. Worth remembering for the engine.
+- **The x-axis revisit.** The prior design chose distance for elevation's sake, deferred elevation,
+  and kept the axis as the owner's standing decision "revisited when elevation lands". A reviewer
+  argued a time axis dissolves this whole problem, since a stop would be as wide as it is long. It
+  belongs with the elevation work the axis was chosen for.
+- Per-segment or segment-coloured pace. `segmentSeq` is already at the fold site.
+- The 15–29 s pause defect (§9) — an engine concern, not a fold one.
+- **A fast-side bound** (§9). Symmetrising the clamp would tighten an axis stretched by a GPS
+  artifact, at the cost of hiding real fast running. Decide it against field captures, not here.
+- **Live validation.** The owner will run this on real sessions after it ships, and look again at the
+  percentile choice and at whether the clipped buckets read correctly on device.

@@ -30,6 +30,14 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
     `Pace profile over ${formatDistanceKm(run.distanceM)}.`,
     range &&
       `The chart spans ${paceParts(range.fastestSecPerKm).value} to ${formatPace(range.slowestSecPerKm)}.`,
+    // why a third sentence, and only when something is clipped: a sighted user sees the line exit
+    // the top of the plot, and this is the only channel a VoiceOver user has to be told the same
+    // thing (stationary-time design §8.1).
+    range &&
+      range.clippedCount > 0 &&
+      `${range.clippedCount} slower ${range.clippedCount === 1 ? 'point' : 'points'} ` +
+        `${range.clippedCount === 1 ? 'reaches' : 'reach'} ` +
+        `${formatPace(range.clippedSlowestSecPerKm)}, above the chart.`,
   ]
     .filter(Boolean)
     .join(' ');

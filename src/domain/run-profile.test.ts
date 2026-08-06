@@ -371,15 +371,51 @@ describe('paceRange', () => {
     expect(paceRange([point(null), point(null)])).toBeNull();
   });
 
-  test('reports the extremes, skipping unmeasured buckets', () => {
+  test('reports the domain, not the series, skipping unmeasured buckets', () => {
+    // Only two measured values, so the 95th percentile lands on the slower of the two — the same
+    // number the series' own max would give here, but sourced from `paceChartDomain`.
     expect(paceRange([point(400), point(null), point(300)])).toEqual({
       fastestSecPerKm: 300,
       slowestSecPerKm: 400,
+      clippedCount: 0,
+      clippedSlowestSecPerKm: null,
     });
   });
 
-  test('a single measured bucket is its own range', () => {
-    expect(paceRange([point(360)])).toEqual({ fastestSecPerKm: 360, slowestSecPerKm: 360 });
+  test('a single measured bucket gets the domain floor, not its own value, as the slow bound', () => {
+    // Mirrors `paceChartDomain`'s own single-point test: p95 of one value is that value, so the
+    // minimum-span floor is what actually sets `slowestSecPerKm` here (360 * 1.1 = 396).
+    expect(paceRange([point(360)])).toEqual({
+      fastestSecPerKm: 360,
+      slowestSecPerKm: 396,
+      clippedCount: 0,
+      clippedSlowestSecPerKm: null,
+    });
+  });
+
+  test('a pole is reported as clipped, never as the range', () => {
+    // The defect this pins (design §8.1): on a real capture the series' own max was 125:36 (7536
+    // s/km) while the visible axis topped out at 10:25 — a number no sighted user could see.
+    const profile = [
+      ...Array.from({ length: 116 }, () => point(300)),
+      point(400),
+      point(500),
+      point(600),
+      point(7536),
+    ];
+    const range = paceRange(profile)!;
+    expect(range.slowestSecPerKm).toBe(330); // the domain bound (p95 floor), never the pole
+    expect(range.clippedCount).toBe(4);
+    expect(range.clippedSlowestSecPerKm).toBe(7536);
+  });
+
+  test('a series with no outliers clips nothing', () => {
+    // why uniform, not a real profile: a full 120-bucket run always has a slowest 5% by
+    // construction (design §9) — "no outliers" only holds where nothing is slower than the
+    // domain's own floor-widened bound, as here.
+    const range = paceRange(Array.from({ length: 100 }, () => point(300)))!;
+    expect(range.clippedCount).toBe(0);
+    expect(range.clippedSlowestSecPerKm).toBeNull();
   });
 
   test('a W1D1 range spans both interval bands, and no half-vs-half trend could say so', () => {

@@ -107,28 +107,6 @@ export function isDrawableProfile(points: readonly ProfilePoint[]): boolean {
   );
 }
 
-export interface ProfilePaceRange {
-  fastestSecPerKm: number;
-  slowestSecPerKm: number;
-}
-
-/**
- * The pace axis's extent, for the card's VoiceOver label; null when nothing measured.
- *
- * why only a range, and no characterisation of the run: bucket means cannot support one here.
- * A C25K session puts the same run/walk mix in both halves by construction, so a first-half /
- * second-half comparison reported "steady" for every session in the program — including a W1D1
- * alternating eight times between 5:43 and 11:55 /km.
- */
-export function paceRange(points: readonly ProfilePoint[]): ProfilePaceRange | null {
-  const paces = points
-    .map((point) => point.paceSecPerKm)
-    .filter((pace): pace is number => pace !== null);
-  if (paces.length === 0) return null;
-
-  return { fastestSecPerKm: Math.min(...paces), slowestSecPerKm: Math.max(...paces) };
-}
-
 function percentile(sortedAscending: readonly number[], p: number): number {
   const index = Math.ceil((sortedAscending.length - 1) * p);
   return sortedAscending[Math.min(sortedAscending.length - 1, index)];
@@ -150,4 +128,43 @@ export function paceChartDomain(points: readonly ProfilePoint[]): [number, numbe
   const fast = paces[0];
   const slow = Math.max(percentile(paces, 0.95), fast + fast * MIN_PACE_DOMAIN_SPAN_FRACTION);
   return [slow, fast];
+}
+
+export interface ProfilePaceRange {
+  fastestSecPerKm: number;
+  slowestSecPerKm: number;
+  /** Points slower than `slowestSecPerKm`; 0 when the axis already holds the whole series. */
+  clippedCount: number;
+  /** The clipped points' own slowest pace — what a sighted user sees the line exit toward, above
+   * the plot. Null when `clippedCount` is 0. */
+  clippedSlowestSecPerKm: number | null;
+}
+
+/**
+ * The pace axis's VISIBLE extent, for the card's VoiceOver label — `paceChartDomain`'s bound, not
+ * the series' own min/max, so the label never names a number the axis doesn't show (stationary-time
+ * design §8.1). `clippedCount`/`clippedSlowestSecPerKm` say what that leaves off, so the label can
+ * still tell a listener what a sighted user sees the line do at the top of the plot. Null when
+ * nothing measured.
+ *
+ * why only a range, and no characterisation of the run: bucket means cannot support one here.
+ * A C25K session puts the same run/walk mix in both halves by construction, so a first-half /
+ * second-half comparison reported "steady" for every session in the program — including a W1D1
+ * alternating eight times between 5:43 and 11:55 /km.
+ */
+export function paceRange(points: readonly ProfilePoint[]): ProfilePaceRange | null {
+  const domain = paceChartDomain(points);
+  if (!domain) return null;
+  const [slowestSecPerKm, fastestSecPerKm] = domain;
+
+  const clipped = points
+    .map((point) => point.paceSecPerKm)
+    .filter((pace): pace is number => pace !== null && pace > slowestSecPerKm);
+
+  return {
+    fastestSecPerKm,
+    slowestSecPerKm,
+    clippedCount: clipped.length,
+    clippedSlowestSecPerKm: clipped.length > 0 ? Math.max(...clipped) : null,
+  };
 }

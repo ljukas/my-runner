@@ -448,14 +448,16 @@ describe('toRunProfile standstill', () => {
     // why: an untimed leg (seconds <= 0) must be transparent to the hold-run scan — treating it as
     // a terminator made a slow walker's every accrual run look like it never released (spec §5,
     // §16). Duplicating every 4th fix of a 0.4 m/s walk must still report ~41:40, not the 10:26 a
-    // terminating untimed leg produced.
+    // terminating untimed leg produced, and exclude nothing — the walker never stopped.
     const base = straightRun(600, 0.4);
     const withDuplicates: LocationFix[] = [];
     for (let i = 0; i < base.length; i += 1) {
       withDuplicates.push(base[i]);
       if (i % 4 === 3) withDuplicates.push({ ...base[i] });
     }
-    expect(meanPace(toRunProfile(withDuplicates))).toBeCloseTo(1000 / 0.4, -2);
+    const fold = foldRunProfile(withDuplicates);
+    expect(meanPace(fold.points)).toBeCloseTo(1000 / 0.4, -1);
+    expect(fold.excludedStandstillS).toBe(0);
   });
 
   test('a velocity-gated burst is not standing', () => {

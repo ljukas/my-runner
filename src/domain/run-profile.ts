@@ -1,6 +1,7 @@
 import {
   createSmootherState,
   MAX_GAP_S,
+  NEAR_STATIONARY_DEADBAND_M,
   NEAR_STATIONARY_SPEED_MPS,
   smoothFix,
   type LocationFix,
@@ -105,12 +106,21 @@ function stoppedLegs(legs: readonly Leg[]): boolean[] {
       end += 1;
     }
     const releasing = end < legs.length && legs[end].kind === 'moved' ? legs[end] : null;
-    // why the ends are their own case: mid-run a hold is judged by how fast its release arrives,
-    // but at the very start or end there is no run on the other side to compare against — someone
-    // who stands and then sets off briskly releases the whole residual at walking pace (spec §5).
-    const atEnds = index === 0 || end >= legs.length;
-    const releaseRate = releasing ? releasing.committedM / (seconds + releasing.seconds) : 0;
-    if (atEnds || releaseRate < STANDSTILL_RATE_MPS) {
+    // why a margin and not merely "at the start": a slow walker's very first hold run IS leg 0 —
+    // the deadband warming up — and excluding it disclosed standing on a run with none. A stand is
+    // distinguishable there by what releases it: someone who stood then set off covers far more
+    // than a deadband flush (21.8 m measured on a real 17 s head), where accrual releases ~1.5 m.
+    const standingStart =
+      index === 0 && releasing !== null && releasing.committedM > 2 * NEAR_STATIONARY_DEADBAND_M;
+    // why a null release is not a stop: the track simply ended mid-hold, so there is no evidence
+    // either way. Its seconds reach no bucket regardless (nothing commits after them), so the
+    // chart is unaffected — but claiming them as standing put a false "Excludes 0:05 standing" on
+    // a run whose runner never stopped.
+    const stop =
+      standingStart ||
+      (releasing !== null &&
+        releasing.committedM / (seconds + releasing.seconds) < STANDSTILL_RATE_MPS);
+    if (stop) {
       for (let i = index; i < end; i += 1) stopped[i] = true;
     }
     index = end;

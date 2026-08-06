@@ -180,7 +180,7 @@ need to set the x domain explicitly.
 four captures, so the buckets sum to the run total with no residue. Revision 1
 skipped real metres and needed a residue clause; this does not.
 
-**A stop's damage is bounded and independent of its length.** Synthetic
+**A clean stop's damage is bounded and independent of its length.** Synthetic
 300 s @2.8 m/s → stop → 300 s @2.8 m/s, 20 buckets, steady pace 5:57:
 
 | stop | slowest bucket | seconds excluded |
@@ -193,6 +193,21 @@ skipped real metres and needed a residue clause; this does not.
 Today those four produce progressively worse poles without limit. The residual
 6:38 against 5:57 is the Kalman velocity decay either side of the stop — real
 deceleration, correctly kept.
+
+**On real data the bound is weaker, and this is a known limitation.** A synthetic
+stop commits nothing, so every leg inside it is caught. A *real* stand wanders:
+`geo.ts:332` commits ~1.5 m whenever the drift clears the deadband, roughly every
+2–3 s, which splits the stand into non-committing runs mostly **shorter than the
+3 s guard**. Those are carried as accrual rather than excluded, so `38f9634f`'s
+173-second tail is only partly caught — its worst bucket lands at **16:22**, not
+the synthetic's 6:38. That is a large improvement on 125:36 and it is not the whole
+fix.
+
+The residue is exactly ADR 0021's own open item: the smoother *"does NOT fully
+suppress a stationary GPS wander — an out-and-back drift still commits"*.
+Separating wander from genuine slow progress needs net displacement, which the
+smoother deliberately does not do. This slice inherits that limit rather than
+solving it, and §16 records the variant that tried.
 
 **No run loses its chart.** All 120 buckets stay measured at every steady speed
 from 0.4 to 1.4 m/s. Revision 1's 0.8 m/s floor produced **0 of 120 buckets and no
@@ -211,18 +226,34 @@ The metric is **ground-truth band contrast**: `(walk pace − run pace) / axis s
 where the run and walk paces come from the capture's **own recorded segments**.
 Same form as the shipped `bandContrast`, with real ground truth in the numerator.
 
-| capture | run | walk | band | today | **after** |
-| --- | --- | --- | --- | --- | --- |
-| `3ff243b0` | 6:32 | 10:21 | 3:49 | 0.36 | **0.52** |
-| `38f9634f` | 6:35 | 8:51 | 2:15 | 0.02 | **0.27** |
-| `98459df2` | 6:42 | 9:07 | 2:25 | 0.18 | **0.38** |
-| `b4ae7b11` | 6:04 | 9:15 | 3:11 | 0.28 | **0.41** |
+Measured against the **implementation of §5**, not a prototype (see §7.2):
 
-Axis span, today → after: `5:46…16:19` → `5:46…13:02`; `5:11…125:36` →
-`5:11…13:26`; `5:51…18:56` → `5:51…12:07`; `5:13…16:32` → `5:13…12:56`.
+| capture | run | walk | band | today | **after** | axis after | excluded |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `3ff243b0` | 6:32 | 10:21 | 3:49 | 0.36 | **0.45** | `5:46…14:09` | 0:05 |
+| `38f9634f` | 6:35 | 8:51 | 2:15 | 0.02 | **0.20** | `5:11…16:22` | 2:42 |
+| `98459df2` | 6:42 | 9:07 | 2:25 | 0.18 | **0.25** | `5:51…15:32` | 0:10 |
+| `b4ae7b11` | 6:04 | 9:15 | 3:11 | 0.28 | **0.41** | `5:13…12:56` | 0:06 |
 
-`38f9634f` improves 13× and still only reaches 0.27, because its own run and walk
-paces are just 2:15 apart — that ceiling is a property of the run, not of the fix.
+Today's axes are `5:46…16:19`, `5:11…125:36`, `5:51…18:56`, `5:13…16:32`.
+
+`38f9634f` improves 10× and still only reaches 0.20 for two reasons, both honest:
+its own run and walk paces are just 2:15 apart, a ceiling belonging to the run; and
+its wandering 173-second tail is only partly caught (§6).
+
+### 7.2 These numbers are the implementation's, not a prototype's
+
+An earlier draft of this revision reported 0.45–0.52 / 0.27 / 0.38 / 0.41 with
+axes ending at 13:02 / 13:26 / 12:07 / 12:56. Those came from a prototype that
+**dropped** case 3's accrual seconds instead of carrying them forward — that is,
+from the 4×-too-fast bug §5 exists to prevent. Carrying the seconds correctly puts
+them back into the buckets, widening the axis and lowering the band. The corrected
+figures above are what the shipped rule produces.
+
+This is the same class of error the reviews found in revision 1: a headline table
+measured against something other than the specified rule. The lesson worth keeping
+is procedural — **measure the implementation, not the prototype**, which is why
+§14 asserts these properties in the suite rather than in a document.
 
 ### 7.1 Why revision 1's metric was thrown away
 
@@ -272,12 +303,15 @@ Excluding standstill time makes the chart's pace basis differ from
 `activeDurationS`, which every other figure on the summary uses. Measured as the
 chart's distance-weighted mean pace against the Avg Pace tile:
 
-| capture | today | after |
-| --- | --- | --- |
-| `3ff243b0` | +0.1% | −0.7% |
-| `38f9634f` | +0.4% | **−10.3%** |
-| `98459df2` | +0.2% | −0.8% |
-| `b4ae7b11` | +0.3% | −0.1% |
+| capture | today | after | excluded, as a share of active time |
+| --- | --- | --- | --- |
+| `3ff243b0` | +0.1% | −0.4% | 0:05 of 1415 s (0.4%) |
+| `38f9634f` | +0.4% | **−10.2%** | 2:42 of 1590 s (10.2%) |
+| `98459df2` | +0.2% | −0.7% | 0:10 of 1456 s (0.7%) |
+| `b4ae7b11` | +0.3% | −0.4% | 0:06 of 1469 s (0.4%) |
+
+The divergence is exactly the excluded share, by construction — which is what makes
+the disclosure below sufficient rather than approximate.
 
 The chart currently agrees with the tile to within 0.4% on all four; after this it
 diverges by 10.3% on the one capture with material standing time. That is the
@@ -295,7 +329,7 @@ standstill was excluded, because by §6 that already means a genuine stop was fo
 — inventing a second constant to decide when a stop is worth mentioning is what
 revision 1 did with its 5 s marker floor, and it went badly. On the sample that
 means the line reads *"Excludes 0:05 standing"* on `3ff243b0`, *0:10* on
-`98459df2`, *0:06* on `b4ae7b11` and *3:14* on `38f9634f`. Three of those are
+`98459df2`, *0:06* on `b4ae7b11` and *2:42* on `38f9634f`. Three of those are
 small, and saying so costs nothing; the alternative is a chart that quietly
 disagrees with the tile above it.
 
@@ -457,6 +491,15 @@ sustained sub-1.3 m/s walking, and extending revision 1's truncated sweep showed
 its own metric arguing for a 1.6–1.8 m/s floor — one that would delete the walk
 intervals. The current rule needs no such constant, and §14 tests the slow-walker
 case synthetically instead of asserting a belief about it.
+
+**A stricter variant was tested and rejected**, after §6's real-data limitation
+turned up during implementation verification. Defining a stop as a sustained run
+under the app's *existing* 0.5 m/s measurable floor (rather than under zero) does
+catch a wandering stand better — `38f9634f` reaches 15:30 instead of 16:22, band
+0.22 instead of 0.20 — but it recreates the failure that killed revision 1's floor,
+just lower down: at a steady **0.4 and 0.5 m/s it produces 0 of 120 buckets and no
+chart at all.** A marginal readability gain is not worth reintroducing a cliff for
+the app's slowest users, so the zero-committed rule stands.
 
 **Findings that survived all three reviews:** §3's cadence measurement, §2's
 worst-bucket table, "fold once, never re-fold from a trimmed head" (`smoothFix`

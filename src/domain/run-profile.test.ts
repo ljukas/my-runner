@@ -312,18 +312,34 @@ describe('toRunProfile standstill', () => {
     expect(Math.max(...slowest) - Math.min(...slowest)).toBeLessThan(1);
   });
 
-  test('a stationary head or tail no longer flattens the chart', () => {
+  test('a stationary head no longer flattens the chart', () => {
     const clean = bandContrast(toRunProfile(w1d1()));
     const withHead = bandContrast(
       toRunProfile(phasedRun([{ seconds: 45, mps: 0 }, ...w1d1Phases()])),
     );
-    const withTail = bandContrast(
-      toRunProfile(phasedRun([...w1d1Phases(), { seconds: 170, mps: 0 }])),
-    );
 
     expect(clean).toBeGreaterThan(0.8);
-    expect(withHead).toBeGreaterThan(0.8);
-    expect(withTail).toBeGreaterThan(0.8);
+    expect(withHead).toBeCloseTo(clean, 2);
+  });
+
+  test('a stationary tail costs a fixed deceleration, not a pole', () => {
+    // why no bandContrast bar like the head's: a moving→stationary transition decays velocity over
+    // ~3 fixes (geo.ts's Kalman lag), so ~1 m of real deceleration lands in the last bucket and
+    // costs the tail a fixed ~1:26 against steady walking. That is deceleration, correctly kept —
+    // excluding it would mean excluding legs that committed distance, the defect that sank an
+    // earlier design. What must hold is that the cost does not grow with the stand.
+    const worst = [30, 170, 600].map((standS) => {
+      const profile = toRunProfile(phasedRun([...w1d1Phases(), { seconds: standS, mps: 0 }]));
+      const paces = profile
+        .map((point) => point.paceSecPerKm)
+        .filter((pace): pace is number => pace !== null);
+      return Math.max(...paces);
+    });
+
+    for (const pace of worst) {
+      expect(pace).toBeLessThan((1000 / WALK_MPS) * 1.25);
+    }
+    expect(Math.max(...worst) - Math.min(...worst)).toBeLessThan(1);
   });
 
   test('a walker slower than the deadband is not reported faster than they ran', () => {

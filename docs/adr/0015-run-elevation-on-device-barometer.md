@@ -11,7 +11,9 @@ Proposed — draft for review. Flip to `Accepted` on approval. Numbered 0015 bec
 **Amended 2026-08-03** with measurements from the run-elevation-and-pace-chart
 slice — see [Amendment (2026-08-03)](#amendment-2026-08-03). **Amended 2026-08-04**
 with what the run-barometer-field-logging slice settled — see
-[Amendment (2026-08-04)](#amendment-2026-08-04).
+[Amendment (2026-08-04)](#amendment-2026-08-04). **Amended 2026-08-06** with the
+first real-hardware measurements, which close item 7 — see
+[Amendment (2026-08-06)](#amendment-2026-08-06).
 
 ## Context
 
@@ -93,6 +95,9 @@ decision, taken before Stage 4).
    background per its source). Implementation must verify this on-device
    (Milestone-style spike); if it cannot run backgrounded, gain is reconstructed
    from foreground samples plus the GPS fallback. The port hides which path won.
+   **Closed 2026-08-06:** measured on device — delivery is unaffected by
+   backgrounding, so the fallback is not needed. See
+   [Amendment (2026-08-06)](#amendment-2026-08-06).
 
 ## Consequences
 
@@ -331,3 +336,88 @@ event, nothing to log — because a thread cannot observe its own
 non-scheduling: the code that would write "I was blocked" cannot run while it
 is blocked. Any future analysis of a delivery gap has to treat these two causes
 as indistinguishable from the data alone.
+
+## Amendment (2026-08-06)
+
+Written after the first two field captures on real hardware — an iPhone on iOS
+26.5.2, two ordinary plan sessions of 31.5 and 28.8 minutes. Full analysis in
+[the capture analysis](../superpowers/research/2026-08-06-barometer-field-capture-analysis.md);
+per-capture metrics in [`docs/field-captures/`](../field-captures/).
+
+**This supersedes the 2026-08-04 amendment's central caveat.** That amendment
+recorded that "no real barometer reading has ever been recorded by this app, and
+its delivery cadence has never been measured." Both are now false. It remains
+correct about everything else, including that every verification *at that time*
+ran on a simulator with no barometer.
+
+**Item 7 is closed. Background delivery works, unchanged.** One capture spent
+1688 s of its 1725 s backgrounded — pocketed, screen locked — across four
+separate windows, and recorded **1585 altitude samples against 1586 expected:
+99.9% of nominal cadence, with no gap ever exceeding 1.14 s.** The other capture
+never left the foreground and shows the same cadence and the same zero gaps, so
+the two regimes are measurably identical. `expo-sensors` keeps `CMAltimeter`
+delivering under [ADR 0008](0008-background-execution-location-heartbeat.md)'s
+When-In-Use heartbeat, and item 7's fallback — reconstructing gain from
+foreground samples plus GPS — is not needed on this hardware. The heartbeat
+carried both sensors: the `tick` row held a 5.02 s median throughout and
+`fix_batch` receipt lag a 0.09 s median, so the JS thread was scheduled promptly
+rather than catching up in bursts.
+
+**The delivery cadence is ~1 Hz, not "every few seconds".** Measured at a
+**1.065 s median with a 2 ms spread between the 5th and 95th percentiles**,
+identical across both captures and both app states. `CMAltimeter.h`'s wording
+and this ADR's own prose implied something four times sparser, and the
+2026-08-04 amendment drew the consequence that a 31-sample median window "spans
+over two minutes of wall-clock time." **It spans 33 s.** The reducer's
+sample-counting window primitive therefore stands, and the field-logging spec's
+§8.6 escape hatch — switching to a time-based window or resample-then-median —
+does not need to fire. The render slice's deliverable can be an ordinary
+`(medianWindow, hysteresisM)` pair after all.
+
+**No rebase was observed, including across background transitions.** Zero
+`relativeAltitudeM` discontinuities greater than 1 m in either capture, across
+four background transitions. The corroborating evidence is stronger than the
+jump count: `relativeAltitudeM` tracks `−ΔP / 0.12 hPa·m⁻¹` to within 0.18 m
+over the full 28 m span of both runs, which no rebase can preserve. This
+confirms on hardware what the previous amendment could only read from source —
+`BarometerModule.swift` has no `OnAppEntersBackground` hook, so pocketing the
+phone does not restart the altimeter. It also confirms the pressure-continuity
+detector works, and establishes that `relativeAltitudeM` is a deterministic
+transform of `pressureHpa` carrying no independent information; the redundancy
+is the detector, and pressure is the primary series.
+
+`epoch` behaved exactly as the previous amendment's model predicts: constant
+within each run, and incremented by exactly one across two runs sharing a
+`processToken` — one app process spanned both captures, twelve hours apart.
+
+**Sensor noise is σ ≈ 0.9–1.9 cm per sample** (second-difference estimate;
+a lower bound, since vertical body motion aliases into a 1 Hz series). Pressure
+resolution is 0.00008 hPa, about 0.7 mm equivalent — quantisation is nowhere
+near a limiting factor. Against GPS vertical error of ±10–25 m this is three
+orders of magnitude better and settles this ADR's barometer-first premise as
+measured rather than argued.
+
+**The closure-error magnitudes in the previous amendment's table hold.**
+Two geodetically closed loops (2.6 m and 9.2 m start-to-end) closed
+barometrically to **−0.72 m and −2.04 m**, inside the predicted 1–3 m calm-day
+band. The doorstep-bracket requirement is justified, not over-cautious. These
+are drift diagnostics only — the field-logging spec §2.1 proves `|gain − loss|`
+measures `hysteresisM` plus drift and carries no accuracy information, and both
+captures reproduce that identity on real data.
+
+**GPS `altitudeAccuracy` is better than the 2026-08-03 amendment could
+simulate.** It is present and valid on every point of both runs, median 3.00 m,
+p95 4.7–5.3 m — better than that amendment's optimistic ±10 m column. This does
+not revive GPS altitude as a source (its raw span reads 76 m against the
+barometer's 28 m on the same run), but it means the ±25 m regime describes a
+worse world than this phone runs in, and any future GPS-fallback tuning should
+be measured rather than inherited from those simulations.
+
+**What is still open: the tuning itself.** Neither capture carries ground truth —
+both are plan sessions with no stationary bracket, no tape-measured vertical and
+no flat route — so no configuration can be scored yet. The protocol's captures 1
+(stationary, a certain zero) and 2 (stairwell, an exact nonzero) remain the
+blocking work, in that order, and item 5's gain/loss storage stays unwritten
+until they select a configuration. What has changed is that the capture harness
+is now proven end to end on real hardware, so taking them no longer risks
+discovering the instrument was broken all along.

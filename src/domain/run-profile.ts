@@ -1,7 +1,6 @@
 import {
   createSmootherState,
   MAX_GAP_S,
-  NEAR_STATIONARY_DEADBAND_M,
   NEAR_STATIONARY_SPEED_MPS,
   smoothFix,
   type LocationFix,
@@ -29,18 +28,31 @@ function bucketAt(distanceM: number, width: number, bucketCount: number): number
   return Math.min(bucketCount - 1, Math.max(0, Math.floor(distanceM / width)));
 }
 
-// why derived and not chosen: the longest the smoother's deadband can legitimately hold distance
-// for a runner still moving at the measurable floor. A tuned speed threshold here deleted the
-// chart outright for slow walkers — see the slice design §16.
-const ACCRUAL_GUARD_S = NEAR_STATIONARY_DEADBAND_M / NEAR_STATIONARY_SPEED_MPS;
+// why a rate, not the hold's duration: geo.ts:332 only releases the deadband above 0.5 m/s, so the
+// hold needs MORE than NEAR_STATIONARY_DEADBAND_M / NEAR_STATIONARY_SPEED_MPS (3 s) to clear it —
+// that figure is a LOWER bound on legitimate accrual, not an upper one (spec §5).
+export const STANDSTILL_RATE_MPS = NEAR_STATIONARY_SPEED_MPS / 2;
+
+type LegKind = 'moved' | 'held' | 'gated' | 'gap' | 'untimed';
 
 interface Leg {
   fromM: number;
   toM: number;
   seconds: number;
   committedM: number;
-  /** False for a gap or a non-monotonic timestamp: unmeasured, which is not the same as stopped. */
-  measured: boolean;
+  kind: LegKind;
+}
+
+function classifyLeg(
+  seconds: number,
+  committedM: number,
+  gated: boolean,
+  restarted: boolean,
+): LegKind {
+  if (seconds <= 0) return 'untimed'; // duplicate or backwards timestamp
+  if (seconds > MAX_GAP_S || restarted) return 'gap';
+  if (committedM > 0) return 'moved';
+  return gated ? 'gated' : 'held';
 }
 
 function legsOf(fixes: readonly LocationFix[]): { legs: Leg[]; total: number } {
@@ -54,95 +66,113 @@ function legsOf(fixes: readonly LocationFix[]): { legs: Leg[]; total: number } {
       distanceM: cumulative,
       timestamp: fix.timestamp,
       committedM: step.acceptedDeltaMeters,
+      gated: step.smoothedPoint === null,
+      restarted: step.restarted,
     };
   });
 
   const legs: Leg[] = [];
   for (let i = 1; i < walked.length; i += 1) {
-    const seconds = (walked[i].timestamp - walked[i - 1].timestamp) / 1000;
+    const from = walked[i - 1];
+    const to = walked[i];
+    const seconds = (to.timestamp - from.timestamp) / 1000;
     legs.push({
-      fromM: walked[i - 1].distanceM,
-      toM: walked[i].distanceM,
+      fromM: from.distanceM,
+      toM: to.distanceM,
       seconds,
-      committedM: walked[i].committedM,
-      measured: seconds > 0 && seconds <= MAX_GAP_S,
+      committedM: to.committedM,
+      kind: classifyLeg(seconds, to.committedM, to.gated, to.restarted),
     });
   }
   return { legs, total: cumulative };
 }
 
-/**
- * Which legs fall inside a stop: a run of measured legs that committed nothing, lasting longer
- * than the deadband could legitimately hold. A shorter run is accrual, and its time is carried
- * rather than dropped (`toRunProfile`).
- */
+// why untimed legs are transparent below: a duplicate/backwards timestamp carries no time and no
+// distance, so it is not evidence the hold ended — treating it as a terminator made every
+// accrual run look like it never released (spec §5, §16).
 function stoppedLegs(legs: readonly Leg[]): boolean[] {
   const stopped = new Array<boolean>(legs.length).fill(false);
   let index = 0;
   while (index < legs.length) {
-    if (!legs[index].measured || legs[index].committedM > 0) {
+    if (legs[index].kind !== 'held') {
       index += 1;
       continue;
     }
     let end = index;
     let seconds = 0;
-    while (end < legs.length && legs[end].measured && legs[end].committedM === 0) {
+    while (end < legs.length && (legs[end].kind === 'held' || legs[end].kind === 'untimed')) {
       seconds += legs[end].seconds;
       end += 1;
     }
-    if (seconds > ACCRUAL_GUARD_S) for (let i = index; i < end; i += 1) stopped[i] = true;
+    const releasing = end < legs.length && legs[end].kind === 'moved' ? legs[end] : null;
+    // why the ends are their own case: mid-run a hold is judged by how fast its release arrives,
+    // but at the very start or end there is no run on the other side to compare against — someone
+    // who stands and then sets off briskly releases the whole residual at walking pace (spec §5).
+    const atEnds = index === 0 || end >= legs.length;
+    const releaseRate = releasing ? releasing.committedM / (seconds + releasing.seconds) : 0;
+    if (atEnds || releaseRate < STANDSTILL_RATE_MPS) {
+      for (let i = index; i < end; i += 1) stopped[i] = true;
+    }
     index = end;
   }
   return stopped;
 }
 
-/** Seconds the pace fold discarded as standstill, for the card to disclose. 0 when the runner never stopped. */
-export function excludedStandstillSeconds(fixes: readonly LocationFix[]): number {
-  const { legs } = legsOf(fixes);
-  const stopped = stoppedLegs(legs);
-  return legs.reduce((sum, leg, index) => (stopped[index] ? sum + leg.seconds : sum), 0);
+export interface RunProfileFold {
+  points: ProfilePoint[];
+  /** Seconds the fold discarded as standstill. A LOWER BOUND on standing time (§6's wander case), 0 when the runner never stopped. */
+  excludedStandstillS: number;
 }
 
 /**
- * Fixes → the chart's pace series, resampled onto a uniform distance grid. A standstill's time is
- * excluded from the fold, per the slice design §4. Inputs must already pass `accuracyFilter`.
- * Returns [] for a run that covered no ground, or a `bucketCount` that is not a positive integer.
+ * Fixes → the chart's pace series, resampled onto a uniform distance grid, plus the seconds folded
+ * out as standstill so the card can disclose them (spec §9). Distance is folded with the SAME
+ * smoother the stored distance used (ADR 0021 §3), so the chart's x extent agrees with the
+ * summary's headline figure — and that smoother's deadband accrual and release (ADR 0021 §2d) is
+ * now also what the standstill rule itself rides on. Inputs must already pass `accuracyFilter`.
+ * Returns an empty fold for a run that covered no ground, or a `bucketCount` that is not a
+ * positive integer.
  */
-export function toRunProfile(
+export function foldRunProfile(
   fixes: readonly LocationFix[],
   bucketCount = bucketCountFor(fixes.length),
-): ProfilePoint[] {
-  if (fixes.length === 0) return [];
-  if (!Number.isInteger(bucketCount) || bucketCount < 1) return [];
+): RunProfileFold {
+  if (fixes.length === 0) return { points: [], excludedStandstillS: 0 };
+  if (!Number.isInteger(bucketCount) || bucketCount < 1) {
+    return { points: [], excludedStandstillS: 0 };
+  }
 
   const { legs, total } = legsOf(fixes);
-  if (total <= 0) return [];
+  if (total <= 0) return { points: [], excludedStandstillS: 0 };
   const stopped = stoppedLegs(legs);
 
   const width = total / bucketCount;
   const meters = new Array<number>(bucketCount).fill(0);
   const seconds = new Array<number>(bucketCount).fill(0);
-  let heldSeconds = 0;
+  let carried = 0;
+  let excluded = 0;
 
   // Legs are split across the buckets they cross so a long one cannot step over a bucket and
   // leave it empty; both measurements behind this are in the pace chart design §5.2.
   for (let i = 0; i < legs.length; i += 1) {
     const leg = legs[i];
-    // why the reset: a gap is unmeasured time, so it cannot carry accrued seconds across itself.
-    if (!leg.measured) {
-      heldSeconds = 0;
+    if (leg.kind === 'untimed') continue; // no elapsed time; must not drop the carry
+    if (leg.kind === 'gap') {
+      carried = 0; // unmeasured; accrual cannot cross it
       continue;
     }
-    if (stopped[i]) continue;
-
-    const legMeters = leg.toM - leg.fromM;
-    if (legMeters <= 0) {
-      heldSeconds += leg.seconds;
+    if (stopped[i]) {
+      excluded += leg.seconds;
+      continue;
+    }
+    if (leg.kind !== 'moved') {
+      carried += leg.seconds; // held or gated: ride forward onto the leg that finally commits
       continue;
     }
 
-    const legSeconds = leg.seconds + heldSeconds;
-    heldSeconds = 0;
+    const legMeters = leg.committedM;
+    const legSeconds = leg.seconds + carried;
+    carried = 0;
     const first = bucketAt(leg.fromM, width, bucketCount);
     const last = bucketAt(leg.toM, width, bucketCount);
     for (let bucket = first; bucket <= last; bucket += 1) {
@@ -153,11 +183,22 @@ export function toRunProfile(
     }
   }
 
-  return meters.map((bucketMeters, index) => ({
-    distanceM: (index + 0.5) * width,
-    paceSecPerKm:
-      bucketMeters > 0 && seconds[index] > 0 ? (seconds[index] / bucketMeters) * 1000 : null,
-  }));
+  return {
+    points: meters.map((bucketMeters, index) => ({
+      distanceM: (index + 0.5) * width,
+      paceSecPerKm:
+        bucketMeters > 0 && seconds[index] > 0 ? (seconds[index] / bucketMeters) * 1000 : null,
+    })),
+    excludedStandstillS: excluded,
+  };
+}
+
+/** The array form of `foldRunProfile`, for the existing call sites that don't need the excluded figure. */
+export function toRunProfile(
+  fixes: readonly LocationFix[],
+  bucketCount = bucketCountFor(fixes.length),
+): ProfilePoint[] {
+  return foldRunProfile(fixes, bucketCount).points;
 }
 
 /**

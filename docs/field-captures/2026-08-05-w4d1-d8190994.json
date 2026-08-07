@@ -89,7 +89,9 @@
     "startEndDisplacementM": 2.645917982708145,
     "firstToLastM": 0.08455657958984375,
     "bracketMeanM": -0.7169933319091797,
-    "bracketSamples": 60
+    "bracketSamples": 60,
+    "maxDisplacementM": 897.2959658169002,
+    "isZeroTruth": false
   },
   "gps": {
     "n": 1810,

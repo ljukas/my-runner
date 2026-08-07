@@ -10,9 +10,11 @@ captures; see immediately below.)
 Design: [2026-08-03 barometer field-logging spec](superpowers/specs/2026-08-03-run-barometer-field-logging-design.md).
 Decision it serves: [ADR 0015](adr/0015-run-elevation-on-device-barometer.md). Its
 open item 7 — whether the barometer keeps delivering on a locked phone — **was
-closed on 2026-08-06** by two ordinary training runs, not by these captures. What
-is left, and all these captures are now for, is the **tuning**: `medianWindow` and
-`hysteresisM`.
+closed on 2026-08-06** by two ordinary training runs, not by these captures.
+
+**Captures 1 and 2 are both done (2026-08-07), and between them they showed the
+reducer needs a design change rather than better constants** — so what remains
+below is validation and two loose ends, not the critical path.
 
 **The harness is proven, and two things below are now measured rather than
 guessed** ([capture analysis](superpowers/research/2026-08-06-barometer-field-capture-analysis.md)):
@@ -77,17 +79,27 @@ drift demands `≥ 5`, and no median window reconciles them because widening it
 erases the stairs outright. See
 [ADR 0015](adr/0015-run-elevation-on-device-barometer.md#capture-2-2026-08-07-the-deliverable-is-not-a-window-hysteresis-pair).
 
-Two small follow-ups would tighten the ground truth. Neither blocks anything, and
-neither requires walking the stairs again:
+Two follow-ups remain. Neither blocks the render slice's design decision:
 
-- [ ] **Re-measure one riser**, vertical face only, no nosing. One minute. The
-      barometer read 2.103 m per flight against the taped 2.664 m; if the riser is
-      really ~175 mm the discrepancy dissolves entirely.
-- [ ] **A four-minute settling capture** (optional, and it settles the above
-      independently): stand at the bottom 60 s, walk up once, stand at the top
-      60 s, walk down, stand 60 s. The settled top-minus-bottom difference is the
-      flight's true barometric height with lag excluded — and comparing it to the
-      moving legs measures the lag itself.
+- [ ] **Capture 7 — the settling capture. ~6 minutes, no exertion.** The barometer
+      read 2.103 m per flight against a correctly taped 2.664 m, and the gap is the
+      sensor's *dynamic* response, not the tape and not air density (that would
+      need 91 °C stairwell air). Lag vanishes at steady state, so:
+      - [ ] Bottom, standing still, **90 s**. Start the capture first, then leave
+            the phone alone.
+      - [ ] Walk **up** once at normal pace. **Top, standing still, 90 s.**
+      - [ ] Walk **down**. Bottom, standing still, **90 s**.
+      - [ ] Then **3 quick up-down reps** at capture 2's pace, and stand still 30 s.
+      - [ ] End.
+
+      Why this shape: 90 s is not for settling (τ ≈ 2 s needs ~10 s) but to average
+      down the 0.20 m low-frequency wander and to pin the drift line — drift runs
+      5–11 m/hour, so a five-minute capture drifts 0.4–0.9 m, the same size as the
+      effect being measured, and two bottom brackets let it be interpolated out.
+      The three quick reps put the moving and settled amplitudes in one capture
+      under identical drift, so the comparison depends on nothing external. Any
+      weather will do — the design subtracts drift rather than assuming it away.
+      While there, confirm it is 12 *risers* floor-to-floor, not 12 treads.
 - [ ] **A stationary capture on a calm day**, to bound the drift range. The one
       taken had a brisk 0.68 hPa/hour rise, so its 5 m/hour is a worst case.
 
@@ -101,7 +113,7 @@ neither requires walking the stairs again:
 >
 > **Worth one retake on a settled day, eventually.** 0.68 hPa/hour is a brisk
 > pressure rise, so the drift figure is an active-day worst case. A calm-day
-> stationary capture would bound the other end. Not blocking — capture 2 is.
+> stationary capture would bound the other end. Not blocking anything.
 >
 > When analysing it, pass `--zero-truth`: GPS cannot tell that a phone was
 > stationary, and this one accumulated 858 m of indoor jitter while never leaving
@@ -367,7 +379,7 @@ The six:
 | # | Capture | Date | Weather / temp | Phone | Export filename | Flights Climbed | Notes |
 |---|---|---|---|---|---|---|---|
 | ~~1~~ | ~~Stationary~~ **DONE** | 2026-08-07 | rising 0.68 hPa/h | on desk | `runbro-20260807-0513-940b8bb0.txt` | — | 54.2 min · 3052 samples · 1.065 s · σ=3.2 mm · **drift −5.05 m** · median filter ≈ useless |
-| ~~2~~ | ~~Stairwell~~ **DONE** | 2026-08-07 | — | in hand | `runbro-20260807-0701-f3b38786.txt` | | riser: 222 mm *(disputed — barometer implies 175)* · steps/flight: 12 · **reps: 16** (recovered from trace) · samples: 318 · **w≥15 reports 0.00 m** |
+| ~~2~~ | ~~Stairwell~~ **DONE** | 2026-08-07 | — | in hand | `runbro-20260807-0701-f3b38786.txt` | | riser: 222 mm (spiral stair, confirmed) · steps/flight: 12 · **reps: 16** (recovered from trace) · samples: 318 · **w≥15 reports 0.00 m** · sensor reads 79% of a 10 s climb |
 | 3 | Flat loop, pocket | | | pocket: | | | |
 | 4 | Flat loop, repeat | | | pocket: | | | |
 | 5 | Hilly loop + pause | | | pocket: | | | pause: __ min |

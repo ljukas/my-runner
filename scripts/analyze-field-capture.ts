@@ -265,12 +265,12 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   const maxDisplacementM = coords.length
     ? Math.max(...coords.map((c) => haversineM(coords[0]!, c)))
     : null;
-  const distanceM = Number(header.run.distanceM ?? 0);
-  // why displacement-from-start and never accumulated `distanceM`: capture 1 never left a 16.8 m
-  // radius yet accumulated 858 m, because indoor jitter walks back and forth. Displacement
-  // separates cleanly — 16.8 m stationary against 785 m and 897 m for the two real runs.
-  const isZeroTruth =
-    declaredZeroTruth || (maxDisplacementM === null ? distanceM < 50 : maxDisplacementM < 25);
+  // why declared and NEVER inferred: auto-detection was tried and failed in both directions on the
+  // first two real captures. Capture 1 sat on a desk yet accumulated 858 m of indoor GPS jitter, so
+  // distance said "moving"; capture 2 was a stairwell, which is horizontally stationary inside a
+  // 10.4 m radius, so displacement said "still" about the most vertically active capture taken.
+  // GPS geometry cannot see the vertical axis this whole exercise is about. Only the operator knows.
+  const isZeroTruth = declaredZeroTruth;
 
   // Drift only means anything against a known-flat truth; on a moving capture a "linear trend" is
   // just terrain, so this block is gated on the zero-truth claim.

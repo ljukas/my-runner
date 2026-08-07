@@ -464,7 +464,52 @@ absorb it.
 active-day figure and should be treated as a worst case until a second stationary
 capture on a settled day bounds the calm end.
 
-**Capture 2 is now the single blocking input.** Capture 1 alone is minimised by
-reporting nothing, so scoring against it without the stairwell's exact nonzero
-selects the degenerate configuration outright — the rank inversion the spec's
-§2.1 was rewritten to prevent.
+### Capture 2 (2026-08-07): the deliverable is not a `(window, hysteresis)` pair
+
+The stairwell capture — 318 samples, `field-test` mode, a single 12-step flight
+walked up and down **16 times** (the repetition count was not recorded but is
+unambiguous in the trace: 32 clean legs, amplitude sd 7%) — settles the question
+§8.6 of the field-logging spec left open.
+
+**Every median window of 15 samples or more reports 0.00 m gain on sixteen
+ascents of a real staircase**, including this ADR's shipped `w31 h10`:
+
+| config | gain | loss |
+|---|---|---|
+| w1 h0 | 35.41 | 35.41 |
+| w5 h1 | 18.67 | 18.03 |
+| w15 h1 · w31 h3 · **w31 h10** · w61 h1 | **0.00** | **0.00** |
+
+A stair leg takes ~9.3 samples, so a 15-sample window spans longer than a whole
+leg: the median of any window centred on a peak already contains both adjoining
+troughs and the oscillation is erased before hysteresis sees it.
+
+**Taken with capture 1, this forecloses the parameter pair.** The two captures
+impose incompatible requirements that no `medianWindow` reconciles:
+
+| requirement | measured in | forces |
+|---|---|---|
+| See a ~2.1 m flight of stairs | capture 2 | `hysteresisM ≤ 1` |
+| Reject 5 m of monotone weather drift | capture 1 | `hysteresisM ≥ 5` |
+
+Widening the window does not mediate: capture 1 shows it buys ~20% of noise, and
+capture 2 shows it destroys the terrain a small threshold exists to catch.
+
+**So the render slice's deliverable is a changed primitive, not a tuned pair** —
+the outcome the field-logging spec's §8.6 reserved, now forced by measurement.
+The direction follows from drift being slow and monotone, therefore *separable*:
+estimate and subtract it, then run a small hysteresis that can still see terrain.
+Hysteresis was being asked to reject a monotone trend, which it structurally
+cannot do — it re-anchors on every banked move, so it only postpones drift. This
+also promotes the protocol's 90-second doorstep brackets from a diagnostic to the
+mechanism the reducer depends on.
+
+**One measurement is still loose.** The flight reads **2.103 m** by barometer
+(sd 0.152 m over 33 legs) against **2.664 m** by tape (12 × 222 mm) — 79%. Either
+the tape reading is off (2.103 m over 12 risers implies 175 mm, the ordinary
+Swedish residential stair) or the sensor attenuates fast excursions (leg
+amplitude does correlate with leg duration, r = 0.63). The capture cannot separate
+them: it contains no settled dwell and ends mid-repetition. This does not disturb
+the ordering above — 0.00 m is 0.00 m at any scale — but `truthGain` is currently
+known only to about ±20%, so item 5's stored totals should not be calibrated
+against it until a re-measured riser or a short settling capture closes the gap.

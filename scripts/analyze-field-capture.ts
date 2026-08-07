@@ -255,6 +255,17 @@ function analyze(path: string, text: string) {
     i = j > i ? j + 1 : i + 1;
   }
 
+  // Capture 1 is a *certain* zero — the phone does not move at all — so every metre the reducer
+  // banks on it is phantom gain, the one term that punishes under-smoothing (spec §8.5). Detected
+  // rather than declared, because an indoor capture may log no GPS at all: `distanceM` then carries
+  // it. A capture that never leaves a 25 m circle has no terrain to confuse phantom gain with.
+  const maxDisplacementM = coords.length
+    ? Math.max(...coords.map((c) => haversineM(coords[0]!, c)))
+    : null;
+  const distanceM = Number(header.run.distanceM ?? 0);
+  const isZeroTruth =
+    (maxDisplacementM === null ? distanceM < 50 : maxDisplacementM < 25) && distanceM < 50;
+
   // --- the shipped reducer over this capture (descriptive only without ground truth, spec §8.5) ---
   const samples: AltitudeSample[] = alt.map((r, i) => ({ timestamp: at[i]!, altitudeM: rel[i] }));
   const grid = CONFIG_GRID.map((config) => {
@@ -334,6 +345,9 @@ function analyze(path: string, text: string) {
         ? meanOf(relOk.slice(-bracket)) - meanOf(relOk.slice(0, bracket))
         : null,
       bracketSamples: bracket,
+      maxDisplacementM,
+      /** True when ground truth is a certain 0 m gain / 0 m loss — capture 1. */
+      isZeroTruth,
     },
     gps: {
       n: pts.length,
@@ -414,19 +428,34 @@ function report(s: Summary): void {
     `  start->end GPS displacement=${f(s.closure.startEndDisplacementM, 1)} m   ` +
       `barometric closure=${f(s.closure.bracketMeanM)} m (mean of ${s.closure.bracketSamples} samples each end)`,
   );
-  console.log(
-    `  stationary windows >=60s: ${s.stationaryWindows.length}` +
-      (s.stationaryWindows.length
-        ? ` -> ${s.stationaryWindows.map((w) => `t+${f(w.fromS, 0)}..${f(w.toS, 0)}s`).join(', ')}`
-        : '  (no doorstep brackets — drift is not separable)'),
-  );
+  if (s.closure.isZeroTruth) {
+    console.log(
+      `  ZERO-TRUTH capture: ` +
+        (s.closure.maxDisplacementM === null
+          ? `no GPS points at all, recorded distance ${f(Number(s.run.distanceM), 0)} m`
+          : `never left a ${f(s.closure.maxDisplacementM, 1)} m radius`) +
+        `. Ground truth is 0.00 m gain, 0.00 m loss.`,
+    );
+  } else {
+    console.log(
+      `  stationary windows >=60s: ${s.stationaryWindows.length}` +
+        (s.stationaryWindows.length
+          ? ` -> ${s.stationaryWindows.map((w) => `t+${f(w.fromS, 0)}..${f(w.toS, 0)}s`).join(', ')}`
+          : '  (no doorstep brackets — drift is not separable)'),
+    );
+  }
   console.log(
     `  GPS altitudeAccuracy median=${f(s.gps.altitudeAccuracyM?.median)} p95=${f(s.gps.altitudeAccuracyM?.p95)} m  ` +
       `invalid=${s.gps.invalidAltitudeAccuracy}`,
   );
 
-  console.log(`\nREDUCER GRID  (descriptive — NOT a score without captures 1 and 2)`);
-  console.log(`      config |  window |    gain |    loss |   |g-l|`);
+  if (s.closure.isZeroTruth) {
+    console.log(`\nPHANTOM GAIN  (ground truth is 0.00 — every metre below is fabricated)`);
+    console.log(`      config |  window | phantom | phantom |   |g-l|`);
+  } else {
+    console.log(`\nREDUCER GRID  (descriptive — NOT a score without captures 1 and 2)`);
+    console.log(`      config |  window |    gain |    loss |   |g-l|`);
+  }
   for (const g of s.reducerGrid) {
     const label = `w${g.medianWindow} h${g.hysteresisM}`;
     console.log(

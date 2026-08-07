@@ -1,16 +1,20 @@
 # Barometer field capture — the first hardware measurements
 
-Date: 2026-08-06
+Date: 2026-08-06 (extended 2026-08-07 with captures 1 and 2)
 Status: **measured.** Discharges [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md)
 item 7 and the cadence gate in
 [the field-logging spec](../specs/2026-08-03-run-barometer-field-logging-design.md) §8.6.
-The tuning itself stays open — captures 1 and 2 are still outstanding.
 
-Two run exports were taken on a physical iPhone (iOS 26.5.2) on 2026-08-05 and
-2026-08-06 and analysed with `scripts/analyze-field-capture.ts`. They are the first
-real barometer readings this app has ever recorded: every prior verification ran on
-the simulator, which has no barometer, and ADR 0015's 2026-08-04 amendment says so
-explicitly. Derived metrics are committed per capture in
+**Read §6a and §6b before acting on §3.** Captures 1 and 2 are now in, and they
+overturn this document's own first conclusion: §3 argued the reducer's parameter
+pair survives, and §6b shows it does not. The render slice's deliverable is a
+changed primitive, not a tuned pair.
+
+Four captures on a physical iPhone (iOS 26.5.2), analysed with
+`scripts/analyze-field-capture.ts`: two ordinary plan sessions on 2026-08-05/06 —
+the first real barometer readings this app ever recorded, every prior verification
+having run on a barometer-less simulator — then protocol captures 1 and 2 on
+2026-08-07. Derived metrics are committed per capture in
 [`docs/field-captures/`](../../field-captures/); the exports themselves stay in
 gitignored `field-data/` because each contains the runner's home address.
 
@@ -78,11 +82,19 @@ both app states. At that rate:
 - the GPS-era tuning's *window duration* assumption was approximately right, having
   been measured against 1 Hz fixes.
 
-**Consequence: spec §8.6's escape hatch does not need to fire.** It reserved the right
-to change the window *primitive* — a time-based window, or resample-then-median — if
-the cadence came back slow or irregular. It came back fast and near-perfectly regular,
-so the existing sample-counting primitive in `src/domain/elevation.ts` stands, and the
-render slice's deliverable can be an ordinary `(medianWindow, hysteresisM)` pair.
+**Consequence: spec §8.6's escape hatch does not fire *for this reason*.** It reserved
+the right to change the window *primitive* — a time-based window, or
+resample-then-median — if the cadence came back slow or irregular. It came back fast
+and near-perfectly regular, so nothing about the **cadence** invalidates a
+sample-counting window.
+
+> **Superseded in part by §6a and §6b.** This section originally concluded that the
+> render slice's deliverable could therefore be an ordinary
+> `(medianWindow, hysteresisM)` pair. Captures 1 and 2 show it cannot: §8.6's escape
+> hatch fires after all, for a reason this section could not see — median filtering
+> targets a kind of noise the barometer does not have, and any window wide enough to
+> matter erases real terrain. The sample-counting *mechanism* is sound; the median
+> filter is the wrong instrument.
 
 This also removes the reason the spec had for deriving capture 2's length from capture
 1 (§8.3.5). The cadence is known now, so **capture 2 can be sized immediately**: 5 ×
@@ -323,35 +335,70 @@ hysteresis that can still see terrain. Hysteresis was being asked to do a job
 (reject a monotone trend) that it structurally cannot do, since it re-anchors on
 every banked move and therefore only postpones drift.
 
-### Unresolved: the flight is 2.10 m by barometer, 2.66 m by tape
+### The sensor under-reads a fast climb by 21% — and it is dynamic, not physics
 
 The measured amplitude per flight is **2.103 m** (raw, sd 0.152 m across 33
-legs). The tape measurement — 12 risers × 222 mm — predicts **2.664 m**. The
-barometer reads **79%** of it, and that gap is unresolved:
+legs). The tape says 12 risers × 222 mm = **2.664 m**. The barometer reads
+**79%**.
 
-- **The ground truth may be wrong.** 2.103 m over 12 risers implies a **175 mm**
-  riser, which is the ordinary Swedish residential stair. 222 mm would be
-  unusually steep. A tape reading that caught the nosing overhang, or a diagonal
-  rather than the vertical face, would produce exactly this.
-- **Or the sensor attenuates fast excursions.** Leg amplitude does correlate with
-  leg duration (r = 0.63; the slowest third of legs read 2.20 m against 2.00 m
-  for the fastest), which is the signature of a lagged response to a ~10 s ramp.
+**The ground truth is sound.** The stairwell is a *spiral* staircase, where a
+222 mm riser is ordinary rather than the steep outlier it would be on a straight
+residential flight — and 12 × 222 mm = 2.664 m is a textbook storey height, which
+corroborates the tape independently. (An earlier draft of this section guessed the
+tape was wrong because 2.103 m over 12 risers implies 175 mm, the straight-stair
+norm. That inference was reasonable and wrong: it assumed a stair geometry nobody
+had established.)
 
-**The capture cannot separate them**, because it contains no settled dwell: it
-never stands still at either end, and it ends mid-repetition. Both effects are
-probably present; their split is unknown.
+**Air density cannot explain it either.** iOS's own conversion comes out at
+**0.1191 hPa/m** across these legs — the standard atmosphere, implying 14.4 °C.
+For the true 2.664 m to have produced the pressure swing actually recorded
+(0.2505 hPa per leg), the stairwell air would have to be at **91 °C**. The
+conversion is right; the *pressure readings themselves* do not keep up with the
+climb.
 
-This does not affect §6b's conclusion — that a 15-sample window reports 0.00 m
-holds at any absolute scale — but it does mean **`truthGain` is not yet pinned to
-the centimetre §8.5 assumes.** Two cheap ways to close it, neither requiring the
-stairs to be walked again:
+So the shortfall is the sensor's dynamic response, and it decomposes:
 
-1. **Re-measure one riser**, vertical face only. One minute. If it reads ~175 mm,
-   the sensor is accurate and the discrepancy dissolves.
-2. **A four-minute settling capture:** stand at the bottom 60 s, walk up once,
-   stand at the top 60 s, walk down, stand 60 s. The settled top-to-bottom
-   difference is the flight's true barometric height with lag fully excluded —
-   which also measures the lag itself by comparison with the moving legs.
+| component | size |
+|---|---|
+| Sampling — the apex falls between 1.065 s samples | ~0.143 m |
+| **Sensor/OS lag** | **~0.417 m** |
+| total shortfall | 0.561 m |
+
+Fitting a first-order lag to the residual gives **τ ≈ 2 s**, consistent with the
+duration/amplitude correlation already noted (r = 0.63) and plausible for
+`CMAltimeter`'s internal filtering.
+
+**If τ ≈ 2 s holds, the error is specific to fast excursions and nearly absent
+from running terrain:**
+
+| climb duration | predicted attenuation |
+|---|---|
+| 10 s (this stairwell) | ~15% |
+| 30 s | ~2% |
+| 60 s | ~0.5% |
+
+That would make **this stairwell a harsher magnitude test than any real run** —
+near the sensor's response limit rather than representative of it. It matters
+because §8.5 uses capture 2 as `truthGain`: scoring a configuration against a
+21%-attenuated reference would bias the whole sweep toward under-smoothing.
+
+**This is a one-point fit, not an established constant.** It is settled by a
+**settling capture**, which is cheap and does not require walking the stairs
+properly again — lag vanishes at steady state by definition:
+
+> Bottom, still, 90 s → up → **top, still, 90 s** → down → bottom, still, 90 s →
+> then 3 quick up-down reps → still, 30 s. About six minutes.
+
+The bottom-top-bottom shape is what makes it work: drift runs at 5–11 m/hour, so
+a five-minute capture drifts 0.4–0.9 m — the same size as the effect being
+measured — and two bottom brackets let it be interpolated out. The three quick
+reps at the end put the *moving* and *settled* amplitudes in one capture under
+identical drift, so the comparison depends on nothing external. The exponential
+approach after stopping at the top yields τ directly.
+
+None of this disturbs §6b's ordering: a 15-sample window reports 0.00 m at any
+absolute scale. It bears on `truthGain`'s calibration, not on which
+configurations are viable.
 
 ### Was 318 samples enough? Yes — the ≥605 rule was superseded by its own evidence
 
@@ -440,7 +487,7 @@ Extend as captures arrive. Full metrics per row live in
 | — (validation) | `…-d8190994` | 2026-08-05 | plan `w4d1` | 1774 | 1.065 s | 0% | 0 | −0.72 m | cadence; foreground control |
 | — (validation) | `…-19615682` | 2026-08-06 | plan `w2d1` | 1620 | 1.064 s | 97.8% | 0 | −2.04 m | **item 7**; no-rebase; repeatability |
 | **1 — stationary** | `…-940b8bb0` | 2026-08-07 | **`field-test`** | 3052 | 1.065 s | 98.9% | 0 | **−5.05 m** | certain zero; σ=3.2 mm; **median filter ≈ useless (§6a)** |
-| **2 — stairwell** | `…-f3b38786` | 2026-08-07 | **`field-test`** | 318 | 1.064 s | 57.0% | 0 | −0.57 m | 16 reps × 12 steps; **w≥15 reports 0.00 m (§6b)** |
+| **2 — stairwell** | `…-f3b38786` | 2026-08-07 | **`field-test`** | 318 | 1.064 s | 57.0% | 0 | −0.57 m | 16 reps × 12 steps; **w≥15 reports 0.00 m**; sensor reads 79% of a 10 s climb (§6b) |
 | 3 — flat loop | | | | | | | | | phantom gain under motion |
 | 4 — flat repeat | | | | | | | | | repeatability |
 | 5 — hilly + pause | | | | | | | | | rebase-at-pause, gap distribution |

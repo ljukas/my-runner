@@ -504,12 +504,28 @@ cannot do — it re-anchors on every banked move, so it only postpones drift. Th
 also promotes the protocol's 90-second doorstep brackets from a diagnostic to the
 mechanism the reducer depends on.
 
-**One measurement is still loose.** The flight reads **2.103 m** by barometer
-(sd 0.152 m over 33 legs) against **2.664 m** by tape (12 × 222 mm) — 79%. Either
-the tape reading is off (2.103 m over 12 risers implies 175 mm, the ordinary
-Swedish residential stair) or the sensor attenuates fast excursions (leg
-amplitude does correlate with leg duration, r = 0.63). The capture cannot separate
-them: it contains no settled dwell and ends mid-repetition. This does not disturb
-the ordering above — 0.00 m is 0.00 m at any scale — but `truthGain` is currently
-known only to about ±20%, so item 5's stored totals should not be calibrated
-against it until a re-measured riser or a short settling capture closes the gap.
+**A second finding: the sensor under-reads a fast climb by 21%, dynamically.**
+The flight reads **2.103 m** by barometer (sd 0.152 m over 33 legs) against
+**2.664 m** by tape. The ground truth stands — it is a *spiral* staircase, where
+a 222 mm riser is ordinary, and 12 × 222 mm is a textbook storey height. Air
+density does not explain the gap either: iOS's conversion comes out at
+0.1191 hPa/m (the standard atmosphere, implying 14.4 °C), and for 2.664 m to have
+produced the recorded 0.2505 hPa the stairwell air would need to be at **91 °C**.
+The conversion is right; the pressure readings do not keep up.
+
+The shortfall splits into ~0.143 m of sampling loss (the apex falls between
+1.065 s samples) and ~0.417 m of lag, a first-order fit giving **τ ≈ 2 s** —
+consistent with the observed duration/amplitude correlation (r = 0.63) and
+plausible for `CMAltimeter`'s internal filtering.
+
+If that holds, the error is confined to fast excursions: ~15% at this stairwell's
+10 s legs, ~2% at 30 s, ~0.5% at 60 s. **Real running terrain would be
+essentially unaffected, and this stairwell is a harsher magnitude test than any
+run** — which matters because the spec's §8.5 uses capture 2 as `truthGain`, and
+a 21%-attenuated reference would bias the sweep toward under-smoothing. It is a
+one-point fit pending a settling capture (bottom/top/bottom brackets plus a few
+quick reps, ~6 minutes), which measures τ directly and cancels drift.
+
+This does not disturb the ordering above — 0.00 m is 0.00 m at any scale — but
+item 5's stored totals should not be calibrated against capture 2 until that
+settling capture lands.

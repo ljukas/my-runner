@@ -417,7 +417,54 @@ be measured rather than inherited from those simulations.
 both are plan sessions with no stationary bracket, no tape-measured vertical and
 no flat route — so no configuration can be scored yet. The protocol's captures 1
 (stationary, a certain zero) and 2 (stairwell, an exact nonzero) remain the
-blocking work, in that order, and item 5's gain/loss storage stays unwritten
-until they select a configuration. What has changed is that the capture harness
-is now proven end to end on real hardware, so taking them no longer risks
-discovering the instrument was broken all along.
+blocking work, and item 5's gain/loss storage stays unwritten until they select a
+configuration. What has changed is that the capture harness is now proven end to
+end on real hardware, so taking them no longer risks discovering the instrument
+was broken all along.
+
+### Capture 1 (2026-08-07): the median window is the wrong instrument
+
+The protocol's capture 1 — 54 minutes stationary on a desk, in `field-test` mode,
+3052 samples with zero drops and zero gaps — was taken the following day and
+changes what the reducer should be. Detail in
+[the capture analysis](../superpowers/research/2026-08-06-barometer-field-capture-analysis.md#6a-capture-1-2026-08-07--and-the-finding-that-reframes-the-tuning).
+
+**Per-sample white noise is σ = 0.0032 m — and it is not the problem.** After
+removing a linear trend, the residual has sd 0.202 m and a 1.50 m peak-to-peak:
+**63× the white component.** The error that survives is low-frequency wander, and
+a median filter is a spike-rejector. Measured on this capture, widening the
+window from *none* to 121 samples (129 s) reduces the residual only from 0.202 m
+to 0.162 m — **a 20% gain for a two-minute window.**
+
+`medianWindow` was sized in this ADR's §4 against GPS, whose error genuinely is
+largely per-sample. On the barometer it is close to a free parameter, and should
+be chosen for acceptable lag rather than for noise rejection. **This is the
+field-logging spec's §8.6 escape hatch coming due — but for the opposite reason
+to the one it named.** §8.6 expected a slow or irregular cadence to invalidate a
+sample-counting window; the cadence is fine. What is actually wrong is that
+median filtering targets a kind of noise this sensor does not have.
+
+**Drift, not noise, is the dominant error — and hysteresis only postpones it.**
+The stationary phone's barometer fell 5.05 m monotonically (9 of 9 five-minute
+bins) as pressure rose 0.68 hPa/hour. Because `elevationStep` re-anchors on every
+banked move, accumulated drift banks as soon as it exceeds `hysteresisM` and the
+anchor follows it, so **a long enough run banks arbitrary drift at any
+threshold**; the shipped `h10` reads 0.00 m on this capture only because the
+total never reached 10 m. At `h3` the same capture fabricates 3.00 m of descent.
+
+That reframes the remedy. Drift is slow and monotone, which makes it *separable*
+in a way white noise is not: it can be estimated and subtracted. The protocol's
+90-second doorstep brackets are what enable that, and this is a considerably
+stronger argument for them than "a measured covariate" — they are the mechanism
+that addresses the dominant error term. The render slice should treat drift
+correction as part of the reducer's job rather than expecting a threshold to
+absorb it.
+
+**Generality caveat:** 0.68 hPa/hour is a brisk rise, so 5 m/hour is an
+active-day figure and should be treated as a worst case until a second stationary
+capture on a settled day bounds the calm end.
+
+**Capture 2 is now the single blocking input.** Capture 1 alone is minimised by
+reporting nothing, so scoring against it without the stairwell's exact nonzero
+selects the degenerate configuration outright — the rank inversion the spec's
+§2.1 was rewritten to prevent.

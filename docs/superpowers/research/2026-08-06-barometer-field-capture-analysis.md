@@ -173,29 +173,124 @@ method, so a shared systematic bias would cancel and go unseen. It bounds the *r
 component, not accuracy. The comparison is reproducible via
 `scripts/analyze-field-capture.ts … --compare`.
 
+## 6a. Capture 1 (2026-08-07) — and the finding that reframes the tuning
+
+Capture 1 was taken correctly: `sessionKey: field-test`, 54.2 minutes with the
+phone flat on a desk, **3052 altitude samples against 3052 expected, zero drops,
+zero gaps, 100.0% coverage**, `epoch` constant, no rebase, and 98.9% of it
+backgrounded. It confirms the 1.065 s cadence a third time.
+
+Two results from it matter more than the confirmation.
+
+### The white noise is 3.2 mm, and the median filter is nearly useless
+
+Stationary on a desk, with no body motion to alias, the per-sample white noise is
+**σ = 0.0032 m**. That is the sensor's true noise floor — the runs' 0.9–1.9 cm
+was inflated by running motion.
+
+But the capture does not sit still at 3 mm. After removing a linear trend the
+residual has **sd 0.202 m and a peak-to-peak of 1.50 m** — **63× the white
+component**. The error is *low-frequency wander*, and a median filter is a
+spike-rejector, so it barely touches it:
+
+| median window | span | residual sd | vs unfiltered |
+|---|---|---|---|
+| w1 (none) | 1.1 s | 0.2019 m | — |
+| w5 | 5.3 s | 0.2014 m | −0.2% |
+| w15 | 16.0 s | 0.1934 m | −4.2% |
+| w31 | 33.0 s | 0.1796 m | −11.0% |
+| w61 | 65.0 s | 0.1696 m | −16.0% |
+| w121 | 128.9 s | 0.1618 m | −19.8% |
+
+**A 129-second median window buys a 20% noise reduction.** The reducer's
+`medianWindow` was sized against GPS, whose error *is* largely per-sample; on the
+barometer it is close to a free parameter. That inverts the tuning problem: the
+burden falls almost entirely on `hysteresisM`, and `medianWindow` should be
+chosen for lag, not for noise.
+
+This is spec §8.6's "the deliverable may not be a `(medianWindow, hysteresisM)`
+pair" arriving — but for the opposite reason to the one it anticipated. §8.6
+expected a slow or irregular cadence to break the sample-counting window. The
+cadence is fine. What is wrong is that **median filtering addresses a kind of
+noise this sensor does not have.**
+
+### The drift is real weather, and hysteresis only postpones it
+
+Over the 54 minutes the barometer fell **5.05 m**, monotonically — **9 of 9
+five-minute bins fell** — as pressure rose 1001.06 → 1001.60 hPa, a rate of
+**0.68 hPa/hour**. Monotone at that scale is synoptic weather, not sensor wander;
+the phone genuinely did not move, so all 5 m is atmospheric.
+
+The consequence is visible in the phantom-gain grid, and it is not what the
+scoring function assumes:
+
+| config | phantom gain | phantom loss |
+|---|---|---|
+| w1 h0 | 18.94 | 24.07 |
+| w5 h1 | 0.00 | **5.05** |
+| w15 h3 / w31 h3 / w61 h3 | 0.00 | **3.00–3.07** |
+| w31 h10, w61 h30, w121 h60 | 0.00 | 0.00 |
+
+Every non-zero figure below `h10` is drift being banked as descent. And the
+mechanism generalises badly: because `elevationStep` re-anchors on every banked
+move, **hysteresis does not reject drift, it only delays it.** Once accumulated
+drift exceeds `hysteresisM` it banks and re-anchors, so a long enough run banks
+arbitrary drift at any threshold. `h10` reads 0.00 here only because the total
+drift (5.05 m) never reached 10 m.
+
+Extrapolating at this rate, a 30-minute run drifts ~2.8 m — so on a genuinely
+flat run, `h3` would fabricate roughly 0–3 m, which is the whole of the error
+capture 3 is meant to measure.
+
+**What this argues for the render slice:** drift is slow and monotone, which
+makes it *separable* in a way white noise never is. The honest fix is to estimate
+and subtract it — which is exactly what the protocol's doorstep brackets exist to
+enable — rather than asking a threshold to absorb it. That is a stronger reason
+for the brackets than the protocol currently gives.
+
+**One caveat on generality.** 0.68 hPa/hour is a brisk pressure rise, so this is
+an *active-day* drift figure, not a calm-day one. It brackets the bad end. A
+second stationary capture on a settled day would bound the other, and until one
+exists the scoring should treat 5 m/hour as a worst case rather than the norm.
+
+### Two incidental findings
+
+- **A stationary phone recorded 858 m of distance.** Indoors, over 54 minutes,
+  GPS wandered enough to accumulate 858 m of path while never leaving a 16.8 m
+  radius, with `altitudeAccuracy` median 18.88 m against 3.00 m outdoors. It does
+  not affect elevation, and no plan session is taken indoors at a desk, so
+  nothing here is broken — but it is worth knowing that accumulated distance is
+  not a reliable stationarity test, which is why the analyzer uses displacement.
+- **Auto-detecting a zero-truth capture from GPS is unreliable**, for the same
+  reason. `--zero-truth` exists so the operator can declare what only they know.
+
 ## 7. What these captures still cannot decide
 
 The tuning. Spec §8.5 scores a configuration as
-`|gain − truthGain| + |loss − truthLoss| + λ · phantomGain`, and every input is
-missing:
+`|gain − truthGain| + |loss − truthLoss| + λ · phantomGain`. Capture 1 supplies
+the `phantomGain` term; the rest is still missing:
 
-1. **No certain zero.** No stationary window of even 60 s exists in either run, so
-   there is no jitter-against-truth and no `phantomGain` term. Nothing here punishes
-   over-smoothing — which is exactly the rank inversion that made spec revision 1
-   select a configuration reporting zero elevation forever.
+1. ~~**No certain zero.**~~ **Supplied by capture 1** (§6a) — though with the large
+   caveat that its 5 m of monotone weather drift means the term measures *drift
+   rejection* at least as much as noise rejection, and on an active day.
 2. **No exactly-known nonzero.** Without capture 2's tape-measured stairwell there is
-   no `truthGain`/`truthLoss`.
+   no `truthGain`/`truthLoss`. **This is now the single blocking input**, and §6a
+   sharpens why: capture 1 alone is minimised by making the reducer report nothing,
+   so scoring against it without capture 2 selects the degenerate configuration
+   outright — precisely the rank inversion that made spec revision 1 pick a
+   configuration reporting zero elevation forever.
 3. **No doorstep brackets**, so drift cannot be subtracted as a covariate per run —
-   only estimated end-to-end, as in §6.
+   only estimated end-to-end, as in §6. §6a makes this materially more important than
+   it looked: drift, not noise, is the dominant error.
 4. **No flat route.** Both runs carry ~28 m of real relief, so neither can stand in
    for capture 3.
 5. **No 5-minute pause.** Run 2's only pause is 2.4 s at the finish. The rebase-at-pause
    test is unexercised — though run 2's four background transitions are a stronger
    version of the same question, and it passed.
 
-**Captures 1 and 2 remain the blocking work, in that order.** What has changed is that
-the harness they depend on is now proven on real hardware, so taking them is no longer
-a risk of discovering the instrument was broken all along.
+**Capture 2 is now the blocking work.** The harness is proven, the cadence is known,
+and the zero reference exists; what is missing is the one measurement that punishes
+a configuration for reporting too little.
 
 For illustration only — **not a score** — the shipped reducer over run 2:
 
@@ -235,7 +330,7 @@ Extend as captures arrive. Full metrics per row live in
 |---|---|---|---|---|---|---|---|---|---|
 | — (validation) | `…-d8190994` | 2026-08-05 | plan `w4d1` | 1774 | 1.065 s | 0% | 0 | −0.72 m | cadence; foreground control |
 | — (validation) | `…-19615682` | 2026-08-06 | plan `w2d1` | 1620 | 1.064 s | 97.8% | 0 | −2.04 m | **item 7**; no-rebase; repeatability |
-| 1 — stationary | | | | | | | | | certain zero, jitter, n=50 resample |
+| **1 — stationary** | `…-940b8bb0` | 2026-08-07 | **`field-test`** | 3052 | 1.065 s | 98.9% | 0 | **−5.05 m** | certain zero; σ=3.2 mm; **median filter ≈ useless (§6a)** |
 | 2 — stairwell | | | | | | | | | the magnitude reference |
 | 3 — flat loop | | | | | | | | | phantom gain under motion |
 | 4 — flat repeat | | | | | | | | | repeatability |

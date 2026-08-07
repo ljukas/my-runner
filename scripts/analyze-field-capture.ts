@@ -152,7 +152,7 @@ function parseDetail(raw: string): Record<string, unknown> | null {
   }
 }
 
-function analyze(path: string, text: string) {
+function analyze(path: string, text: string, declaredZeroTruth = false) {
   const { header, sections, trailerTotal } = parseExport(text, path);
   const runStart = ms(String(header.run.startedAt));
   const runEnd = ms(String(header.run.endedAt));
@@ -256,15 +256,60 @@ function analyze(path: string, text: string) {
   }
 
   // Capture 1 is a *certain* zero — the phone does not move at all — so every metre the reducer
-  // banks on it is phantom gain, the one term that punishes under-smoothing (spec §8.5). Detected
-  // rather than declared, because an indoor capture may log no GPS at all: `distanceM` then carries
-  // it. A capture that never leaves a 25 m circle has no terrain to confuse phantom gain with.
+  // banks on it is phantom, the one term that punishes under-smoothing (spec §8.5).
+  //
+  // why `--zero-truth` must be declarable, with detection only as a fallback: capture 1 of
+  // 2026-08-07 sat on a desk for 54 minutes and still recorded 858 m of distance and 11.1 m of
+  // displacement, because indoor GPS wanders (its altitudeAccuracy median was 18.9 m against 3.0 m
+  // outdoors). GPS cannot testify that a phone was stationary; only the operator can.
   const maxDisplacementM = coords.length
     ? Math.max(...coords.map((c) => haversineM(coords[0]!, c)))
     : null;
   const distanceM = Number(header.run.distanceM ?? 0);
+  // why displacement-from-start and never accumulated `distanceM`: capture 1 never left a 16.8 m
+  // radius yet accumulated 858 m, because indoor jitter walks back and forth. Displacement
+  // separates cleanly — 16.8 m stationary against 785 m and 897 m for the two real runs.
   const isZeroTruth =
-    (maxDisplacementM === null ? distanceM < 50 : maxDisplacementM < 25) && distanceM < 50;
+    declaredZeroTruth || (maxDisplacementM === null ? distanceM < 50 : maxDisplacementM < 25);
+
+  // Drift only means anything against a known-flat truth; on a moving capture a "linear trend" is
+  // just terrain, so this block is gated on the zero-truth claim.
+  //
+  // The split matters more than either half: median filtering attacks *white* noise, and this
+  // sensor has almost none, while what actually corrupts a total is slow wander plus synoptic
+  // drift, which no median window can touch. `medianFilterGain` measures exactly that.
+  let drift = null;
+  if (isZeroTruth && relOk.length > 10) {
+    const secs = relOk.map((_, i) => (at[i]! - runStart) / 1000);
+    const mx = secs.reduce((a, b) => a + b, 0) / secs.length;
+    const my = relOk.reduce((a, b) => a + b, 0) / relOk.length;
+    const slope =
+      secs.reduce((acc, x, i) => acc + (x - mx) * (relOk[i]! - my), 0) /
+      secs.reduce((acc, x) => acc + (x - mx) ** 2, 0);
+    const residual = relOk.map((y, i) => y - (my + slope * (secs[i]! - mx)));
+    const medianOf = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+    const bins: number[] = [];
+    for (let m = 0; (m + 5) * 60 <= secs[secs.length - 1]!; m += 5) {
+      const seg = relOk.filter((_, i) => secs[i]! >= m * 60 && secs[i]! < (m + 5) * 60);
+      if (seg.length) bins.push(seg.reduce((a, b) => a + b, 0) / seg.length);
+    }
+    const steps = bins.slice(1).map((v, i) => v - bins[i]!);
+    drift = {
+      linearMPerHour: slope * 3600,
+      pressureHpaPerHour: -slope * 3600 * 0.12,
+      totalM: slope * (secs[secs.length - 1]! - secs[0]!),
+      monotoneBins: { steps: steps.length, falling: steps.filter((d) => d < 0).length },
+      residualSdM: stats(residual).sd,
+      residualP2pM: Math.max(...residual) - Math.min(...residual),
+      medianFilterGain: [1, 5, 15, 31, 61, 121].map((w) => {
+        const sm: number[] = [];
+        for (let i = w - 1; i < residual.length; i += 1) {
+          sm.push(medianOf(residual.slice(i + 1 - w, i + 1)));
+        }
+        return { window: w, residualSdM: sm.length ? stats(sm).sd : null };
+      }),
+    };
+  }
 
   // --- the shipped reducer over this capture (descriptive only without ground truth, spec §8.5) ---
   const samples: AltitudeSample[] = alt.map((r, i) => ({ timestamp: at[i]!, altitudeM: rel[i] }));
@@ -346,6 +391,7 @@ function analyze(path: string, text: string) {
         : null,
       bracketSamples: bracket,
       maxDisplacementM,
+      drift,
       /** True when ground truth is a certain 0 m gain / 0 m loss — capture 1. */
       isZeroTruth,
     },
@@ -448,6 +494,32 @@ function report(s: Summary): void {
     `  GPS altitudeAccuracy median=${f(s.gps.altitudeAccuracyM?.median)} p95=${f(s.gps.altitudeAccuracyM?.p95)} m  ` +
       `invalid=${s.gps.invalidAltitudeAccuracy}`,
   );
+
+  const d = s.closure.drift;
+  if (d) {
+    console.log(`\nDRIFT  (zero-truth capture: all of this is the atmosphere, not the terrain)`);
+    console.log(
+      `  linear ${f(d.linearMPerHour)} m/hour (= ${f(d.pressureHpaPerHour, 3)} hPa/hour), ` +
+        `total ${f(d.totalM)} m over the capture`,
+    );
+    console.log(
+      `  monotone: ${d.monotoneBins.falling}/${d.monotoneBins.steps} five-minute bins fall ` +
+        `-> ${d.monotoneBins.falling === d.monotoneBins.steps ? 'a steady synoptic trend, not sensor wander' : 'mixed'}`,
+    );
+    console.log(
+      `  after detrending: residual sd=${f(d.residualSdM, 4)} m  p2p=${f(d.residualP2pM, 3)} m  ` +
+        `(white-noise sigma is ${f(s.altitude.noiseSigmaM, 4)} m)`,
+    );
+    console.log(`  what a median window actually removes:`);
+    for (const g of d.medianFilterGain) {
+      const base = d.medianFilterGain[0]?.residualSdM ?? null;
+      const pct = base && g.residualSdM ? (100 * (base - g.residualSdM)) / base : 0;
+      console.log(
+        `    w${String(g.window).padEnd(4)} (${f(g.window * (s.altitude.cadenceS?.median ?? 0), 1).padStart(5)}s) ` +
+          `-> residual sd=${f(g.residualSdM, 4)} m   ${pct >= 0 ? '-' : '+'}${f(Math.abs(pct), 1)}% vs unfiltered`,
+      );
+    }
+  }
 
   if (s.closure.isZeroTruth) {
     console.log(`\nPHANTOM GAIN  (ground truth is 0.00 — every metre below is fabricated)`);
@@ -561,7 +633,11 @@ const files = args.filter((a, i) => !a.startsWith('--') && !(jsonAt >= 0 && i ==
 
 if (files.length === 0) {
   console.error(
-    'usage: bun scripts/analyze-field-capture.ts <export.txt> [...] [--json <outdir>] [--compare]',
+    'usage: bun scripts/analyze-field-capture.ts <export.txt> [...] ' +
+      '[--json <outdir>] [--compare] [--zero-truth]',
+  );
+  console.error(
+    '  --zero-truth  the phone did not move (capture 1). GPS cannot detect this indoors.',
   );
   process.exit(1);
 }
@@ -578,7 +654,7 @@ if (args.includes('--compare')) {
 }
 
 for (const path of files) {
-  const summary = analyze(path, await Bun.file(path).text());
+  const summary = analyze(path, await Bun.file(path).text(), args.includes('--zero-truth'));
   report(summary);
   if (jsonDir) {
     const name = `${String(summary.run.startedAt).slice(0, 10)}-${summary.run.sessionKey}-${summary.run.id}.json`;

@@ -108,6 +108,7 @@
     "bracketMeanM": -2.044010289510091,
     "bracketSamples": 60,
     "maxDisplacementM": 784.9464530259011,
+    "drift": null,
     "isZeroTruth": false
   },
   "gps": {

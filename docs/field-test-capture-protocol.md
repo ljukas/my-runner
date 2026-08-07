@@ -70,13 +70,27 @@ reports zero elevation forever (spec §2.1) — a failure the 2026-08-06 validat
 runs reproduced on real data, where `w61 h30` and `w121 h60` both reported 0.00 m
 of gain and loss on a run containing 28 m of real relief.
 
-Take these two first. **The order between them no longer matters:** it was
-capture 1's job to measure the cadence that sizes capture 2, and the cadence is
-now measured, so capture 2 carries its own duration below. Capture 1 is still the
-cheaper of the two to take — the phone sits on a table — so it remains the
-natural starting point.
+**Capture 1 is done (2026-08-07). Capture 2 is the one thing still blocking the
+tuning** — and capture 1 sharpened why it cannot be skipped: scored on its own,
+capture 1 is minimised by a reducer that reports nothing at all, so a sweep
+against it *alone* would pick the degenerate configuration outright. The
+stairwell's exact nonzero is the only term pulling the other way.
 
-### Capture 1 — Stationary · **indoors** · 40–45 min · no walking
+### ~~Capture 1~~ — **TAKEN 2026-08-07.** Stationary · **indoors** · 40–45 min · no walking
+
+> **Done, and it is a keeper** — 54.2 min, 3052 samples, zero drops, zero gaps.
+> Keep this section for the retake case below. Two results from it are recorded in
+> [ADR 0015](adr/0015-run-elevation-on-device-barometer.md#capture-1-2026-08-07-the-median-window-is-the-wrong-instrument):
+> the sensor's white noise is 3.2 mm and the **median window buys almost nothing**,
+> while the real error is **−5.05 m of monotone weather drift** over the capture.
+>
+> **Worth one retake on a settled day, eventually.** 0.68 hPa/hour is a brisk
+> pressure rise, so the drift figure is an active-day worst case. A calm-day
+> stationary capture would bound the other end. Not blocking — capture 2 is.
+>
+> When analysing it, pass `--zero-truth`: GPS cannot tell that a phone was
+> stationary, and this one accumulated 858 m of indoor jitter while never leaving
+> a 16.8 m radius.
 
 Ground truth: exactly 0 m gain, 0 m loss. Also the only clean read of
 sensor jitter, and a long pure-noise record that can be resampled to the 50 seeds
@@ -321,7 +335,7 @@ The six:
 
 | # | Capture | Date | Weather / temp | Phone | Export filename | Flights Climbed | Notes |
 |---|---|---|---|---|---|---|---|
-| 1 | Stationary 40–45 min | | indoor temp: | on table | | — | room: __ · samples: __ (expect ~2250 at 40 min) · minutes: __ · median interval: __ s |
+| ~~1~~ | ~~Stationary~~ **DONE** | 2026-08-07 | rising 0.68 hPa/h | on desk | `runbro-20260807-0513-940b8bb0.txt` | — | 54.2 min · 3052 samples · 1.065 s · σ=3.2 mm · **drift −5.05 m** · median filter ≈ useless |
 | 2 | Stairwell ≥11 min | | — | in hand | | | riser: __ mm · steps/flight: __ · flights/rep: __ · reps: __ · samples: __ (≥605) |
 | 3 | Flat loop, pocket | | | pocket: | | | |
 | 4 | Flat loop, repeat | | | pocket: | | | |

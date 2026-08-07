@@ -20,6 +20,13 @@ requests while the underlying captures stay private.
 bun scripts/analyze-field-capture.ts field-data/<export>.txt --json docs/field-captures
 ```
 
+For a capture where the phone did not move — capture 1, or any retake of it — add
+`--zero-truth`. That switches the reducer grid to a phantom-gain reading (ground
+truth is 0.00 m) and adds the drift analysis. Pass it explicitly rather than
+trusting detection: capture 1 accumulated **858 m** of indoor GPS jitter while
+never leaving a 16.8 m radius, so recorded distance says nothing about whether a
+phone was still.
+
 Then add a row to the ledger table in
 [the capture analysis](../superpowers/research/2026-08-06-barometer-field-capture-analysis.md#9-capture-ledger)
 and, if it is one of the six protocol captures, to the Log table in

@@ -264,6 +264,110 @@ exists the scoring should treat 5 m/hour as a worst case rather than the norm.
 - **Auto-detecting a zero-truth capture from GPS is unreliable**, for the same
   reason. `--zero-truth` exists so the operator can declare what only they know.
 
+## 6b. Capture 2 (2026-08-07) — the median window destroys real terrain
+
+Taken in `field-test` mode: 5.6 minutes, 318 samples, zero drops, zero gaps, no
+rebase. A single flight of **12 steps**, walked up and down repeatedly.
+
+**The repetition count was not written down, so it was recovered from the trace**
+— and unambiguously: 32 clean one-way legs, i.e. **16 complete up-down
+repetitions**, each leg ~9.9 s, amplitude sd only 7%. The peak/trough structure
+is so regular that the count is not in doubt.
+
+### The result: every window ≥ 15 samples reports 0.00 m
+
+Scored against the recovered 16 repetitions:
+
+| config | gain | loss | vs 42.62 m truth (222 mm riser) |
+|---|---|---|---|
+| w1 h0 | 35.41 | 35.41 | 83% |
+| w5 h0.5 | 25.35 | 24.68 | 59% |
+| w5 h1 | 18.67 | 18.03 | 44% |
+| w15 h1 | **0.00** | **0.00** | **0%** |
+| w31 h3 | **0.00** | **0.00** | **0%** |
+| **w31 h10 (shipped GPS pair)** | **0.00** | **0.00** | **0%** |
+| w61 h1 | **0.00** | **0.00** | **0%** |
+
+**A stair leg takes ~9.3 samples. A 15-sample median window spans 16 s — longer
+than a whole leg — so the median of any window centred on a peak already contains
+both adjoining troughs, and the oscillation is erased before hysteresis ever sees
+it.** The shipped `w31 h10` reports zero elevation for sixteen ascents of a real
+staircase.
+
+This is the over-smoothing punishment §8.5 needs, and it is far sharper than
+expected. Combined with §6a it settles the shape of the answer:
+
+- **§6a:** widening the median window buys ~20% noise reduction.
+- **§6b:** widening it past ~10 samples destroys real terrain outright.
+
+There is no version of "widen the window" that helps. The viable region is
+`medianWindow ≤ 5` and `hysteresisM ≤ 1`.
+
+### The tension the two captures create, and why the primitive must change
+
+§6a and §6b pull in opposite directions and the median window cannot mediate:
+
+| requirement | from | forces |
+|---|---|---|
+| See a 2.1 m flight | capture 2 | `hysteresisM ≤ 1` |
+| Reject 5 m of weather drift | capture 1 | `hysteresisM ≥ 5` |
+
+These are incompatible, and no `medianWindow` reconciles them — §6b shows
+widening it erases the terrain that `hysteresisM ≤ 1` exists to catch.
+
+**So the deliverable is not a `(medianWindow, hysteresisM)` pair.** Spec §8.6
+reserved exactly this outcome, and it is now forced by measurement rather than
+suspected. The way out follows from §6a's other finding: drift is *slow and
+monotone*, so it is separable — estimate and subtract it, then run a small
+hysteresis that can still see terrain. Hysteresis was being asked to do a job
+(reject a monotone trend) that it structurally cannot do, since it re-anchors on
+every banked move and therefore only postpones drift.
+
+### Unresolved: the flight is 2.10 m by barometer, 2.66 m by tape
+
+The measured amplitude per flight is **2.103 m** (raw, sd 0.152 m across 33
+legs). The tape measurement — 12 risers × 222 mm — predicts **2.664 m**. The
+barometer reads **79%** of it, and that gap is unresolved:
+
+- **The ground truth may be wrong.** 2.103 m over 12 risers implies a **175 mm**
+  riser, which is the ordinary Swedish residential stair. 222 mm would be
+  unusually steep. A tape reading that caught the nosing overhang, or a diagonal
+  rather than the vertical face, would produce exactly this.
+- **Or the sensor attenuates fast excursions.** Leg amplitude does correlate with
+  leg duration (r = 0.63; the slowest third of legs read 2.20 m against 2.00 m
+  for the fastest), which is the signature of a lagged response to a ~10 s ramp.
+
+**The capture cannot separate them**, because it contains no settled dwell: it
+never stands still at either end, and it ends mid-repetition. Both effects are
+probably present; their split is unknown.
+
+This does not affect §6b's conclusion — that a 15-sample window reports 0.00 m
+holds at any absolute scale — but it does mean **`truthGain` is not yet pinned to
+the centimetre §8.5 assumes.** Two cheap ways to close it, neither requiring the
+stairs to be walked again:
+
+1. **Re-measure one riser**, vertical face only. One minute. If it reads ~175 mm,
+   the sensor is accurate and the discrepancy dissolves.
+2. **A four-minute settling capture:** stand at the bottom 60 s, walk up once,
+   stand at the top 60 s, walk down, stand 60 s. The settled top-to-bottom
+   difference is the flight's true barometric height with lag fully excluded —
+   which also measures the lag itself by comparison with the moving legs.
+
+### Was 318 samples enough? Yes — the ≥605 rule was superseded by its own evidence
+
+The protocol demanded ≥605 samples, derived as 5× the widest candidate window
+(121). **That grid is now known to be invalid:** §6a showed wide windows buy
+almost nothing and §6b shows they report zero on real stairs. The widest *viable*
+window is ~5 samples, needing ~25; this capture has 318, a 12× margin over the
+region that matters.
+
+The missing 60-second brackets cost less than feared, too: drift was recovered
+from the trough envelope at −11.2 m/hour, and over 5.6 minutes that is ~0.86 m
+against a ~35 m signal, i.e. 2–3%.
+
+**The capture is a keeper.** Its one real gap is the riser question above, and
+that is answerable with a tape rather than a retake.
+
 ## 7. What these captures still cannot decide
 
 The tuning. Spec §8.5 scores a configuration as
@@ -273,24 +377,29 @@ the `phantomGain` term; the rest is still missing:
 1. ~~**No certain zero.**~~ **Supplied by capture 1** (§6a) — though with the large
    caveat that its 5 m of monotone weather drift means the term measures *drift
    rejection* at least as much as noise rejection, and on an active day.
-2. **No exactly-known nonzero.** Without capture 2's tape-measured stairwell there is
-   no `truthGain`/`truthLoss`. **This is now the single blocking input**, and §6a
-   sharpens why: capture 1 alone is minimised by making the reducer report nothing,
-   so scoring against it without capture 2 selects the degenerate configuration
-   outright — precisely the rank inversion that made spec revision 1 pick a
-   configuration reporting zero elevation forever.
+2. ~~**No exactly-known nonzero.**~~ **Supplied by capture 2** (§6b), with one
+   qualification: the repetition count was recovered from the trace (16, unambiguous)
+   but the per-flight height is 2.103 m by barometer against 2.664 m by tape, and the
+   two have not been reconciled. So the *ordering* of configurations is settled —
+   every window ≥15 samples reports 0.00 m — while `truthGain` itself is known only
+   to about ±20%.
 3. **No doorstep brackets**, so drift cannot be subtracted as a covariate per run —
-   only estimated end-to-end, as in §6. §6a makes this materially more important than
-   it looked: drift, not noise, is the dominant error.
+   only estimated end-to-end, as in §6. §6a and §6b together make this the
+   **central** problem rather than a refinement: drift is the dominant error, and
+   §6b proves neither a wider window nor a larger threshold can absorb it without
+   erasing terrain.
 4. **No flat route.** Both runs carry ~28 m of real relief, so neither can stand in
    for capture 3.
 5. **No 5-minute pause.** Run 2's only pause is 2.4 s at the finish. The rebase-at-pause
    test is unexercised — though run 2's four background transitions are a stronger
    version of the same question, and it passed.
 
-**Capture 2 is now the blocking work.** The harness is proven, the cadence is known,
-and the zero reference exists; what is missing is the one measurement that punishes
-a configuration for reporting too little.
+**Nothing is blocking the analysis any more.** Captures 1 and 2 are both in, and
+together they show the deliverable is not a `(medianWindow, hysteresisM)` pair (§6b).
+What the render slice needs next is a *design* decision — drift estimation and
+subtraction — not another capture. Captures 3–6 remain valuable as validation of
+whatever that design produces, and two small measurements would tighten the
+ground truth: a re-measured riser, and a stationary capture on a calm day.
 
 For illustration only — **not a score** — the shipped reducer over run 2:
 
@@ -331,7 +440,7 @@ Extend as captures arrive. Full metrics per row live in
 | — (validation) | `…-d8190994` | 2026-08-05 | plan `w4d1` | 1774 | 1.065 s | 0% | 0 | −0.72 m | cadence; foreground control |
 | — (validation) | `…-19615682` | 2026-08-06 | plan `w2d1` | 1620 | 1.064 s | 97.8% | 0 | −2.04 m | **item 7**; no-rebase; repeatability |
 | **1 — stationary** | `…-940b8bb0` | 2026-08-07 | **`field-test`** | 3052 | 1.065 s | 98.9% | 0 | **−5.05 m** | certain zero; σ=3.2 mm; **median filter ≈ useless (§6a)** |
-| 2 — stairwell | | | | | | | | | the magnitude reference |
+| **2 — stairwell** | `…-f3b38786` | 2026-08-07 | **`field-test`** | 318 | 1.064 s | 57.0% | 0 | −0.57 m | 16 reps × 12 steps; **w≥15 reports 0.00 m (§6b)** |
 | 3 — flat loop | | | | | | | | | phantom gain under motion |
 | 4 — flat repeat | | | | | | | | | repeatability |
 | 5 — hilly + pause | | | | | | | | | rebase-at-pause, gap distribution |

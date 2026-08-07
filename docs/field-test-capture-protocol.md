@@ -70,11 +70,26 @@ reports zero elevation forever (spec §2.1) — a failure the 2026-08-06 validat
 runs reproduced on real data, where `w61 h30` and `w121 h60` both reported 0.00 m
 of gain and loss on a run containing 28 m of real relief.
 
-**Capture 1 is done (2026-08-07). Capture 2 is the one thing still blocking the
-tuning** — and capture 1 sharpened why it cannot be skipped: scored on its own,
-capture 1 is minimised by a reducer that reports nothing at all, so a sweep
-against it *alone* would pick the degenerate configuration outright. The
-stairwell's exact nonzero is the only term pulling the other way.
+**Both are done (2026-08-07), and together they answered more than the tuning.**
+They showed the reducer cannot be fixed by choosing constants at all: seeing a
+2.1 m flight of stairs demands `hysteresisM ≤ 1`, rejecting the measured weather
+drift demands `≥ 5`, and no median window reconciles them because widening it
+erases the stairs outright. See
+[ADR 0015](adr/0015-run-elevation-on-device-barometer.md#capture-2-2026-08-07-the-deliverable-is-not-a-window-hysteresis-pair).
+
+Two small follow-ups would tighten the ground truth. Neither blocks anything, and
+neither requires walking the stairs again:
+
+- [ ] **Re-measure one riser**, vertical face only, no nosing. One minute. The
+      barometer read 2.103 m per flight against the taped 2.664 m; if the riser is
+      really ~175 mm the discrepancy dissolves entirely.
+- [ ] **A four-minute settling capture** (optional, and it settles the above
+      independently): stand at the bottom 60 s, walk up once, stand at the top
+      60 s, walk down, stand 60 s. The settled top-minus-bottom difference is the
+      flight's true barometric height with lag excluded — and comparing it to the
+      moving legs measures the lag itself.
+- [ ] **A stationary capture on a calm day**, to bound the drift range. The one
+      taken had a brisk 0.68 hPa/hour rise, so its 5 m/hour is a worst case.
 
 ### ~~Capture 1~~ — **TAKEN 2026-08-07.** Stationary · **indoors** · 40–45 min · no walking
 
@@ -167,7 +182,23 @@ anyway, so a regression would surface without being looked for:
       returns, then confirm altitude readings are still arriving afterward.
       That's a future dev-time task, not part of this capture protocol.
 
-### Capture 2 — Stairwell · **indoors** · ≥11 min of repetitions · the magnitude reference
+### ~~Capture 2~~ — **TAKEN 2026-08-07.** Stairwell · **indoors** · the magnitude reference
+
+> **Done, and it is the decisive capture** — 16 repetitions of a 12-step flight,
+> 318 samples, zero drops. Every median window ≥15 samples reports **0.00 m** on
+> it, the shipped `w31 h10` included.
+>
+> **It came in at 318 samples against the ≥605 below, and that is fine** — the 605
+> figure was 5× the widest *candidate* window (121), and this capture is what
+> proved those wide windows report nothing at all. The widest viable window is ~5
+> samples, needing ~25; 318 is a 12× margin over the region that matters. The rule
+> below is kept only for a retake against some future grid.
+>
+> **The missing 60-second brackets cost little:** drift was recovered from the
+> trough envelope (−11.2 m/hour), worth ~0.86 m over 5.6 minutes against a ~35 m
+> signal. **The unrecorded repetition count cost nothing:** 16 was recovered
+> unambiguously from the trace. Do still record both next time — recovery worked
+> here because the stairwell is a clean square wave, and no run is.
 
 Ground truth: `steps × riser height`, exact to the centimetre. This is the only
 capture that tells us whether a configuration can still *see* real terrain — the
@@ -336,7 +367,7 @@ The six:
 | # | Capture | Date | Weather / temp | Phone | Export filename | Flights Climbed | Notes |
 |---|---|---|---|---|---|---|---|
 | ~~1~~ | ~~Stationary~~ **DONE** | 2026-08-07 | rising 0.68 hPa/h | on desk | `runbro-20260807-0513-940b8bb0.txt` | — | 54.2 min · 3052 samples · 1.065 s · σ=3.2 mm · **drift −5.05 m** · median filter ≈ useless |
-| 2 | Stairwell ≥11 min | | — | in hand | | | riser: __ mm · steps/flight: __ · flights/rep: __ · reps: __ · samples: __ (≥605) |
+| ~~2~~ | ~~Stairwell~~ **DONE** | 2026-08-07 | — | in hand | `runbro-20260807-0701-f3b38786.txt` | | riser: 222 mm *(disputed — barometer implies 175)* · steps/flight: 12 · **reps: 16** (recovered from trace) · samples: 318 · **w≥15 reports 0.00 m** |
 | 3 | Flat loop, pocket | | | pocket: | | | |
 | 4 | Flat loop, repeat | | | pocket: | | | |
 | 5 | Hilly loop + pause | | | pocket: | | | pause: __ min |

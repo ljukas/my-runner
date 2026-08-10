@@ -529,3 +529,52 @@ quick reps, ~6 minutes), which measures τ directly and cancels drift.
 This does not disturb the ordering above — 0.00 m is 0.00 m at any scale — but
 item 5's stored totals should not be calibrated against capture 2 until that
 settling capture lands.
+
+### The settling capture (2026-08-10): lag confirmed; score against the signal, not the tape
+
+The settling capture was taken, and an **air-to-air heat pump on the top floor
+was running** — visible in the data as 0.46 m step changes between consecutive
+samples and a top-bracket sd of 0.278 against 0.14–0.23 at the bottom.
+Atmospheric pressure does not step; a cycling pump does. It contaminated exactly
+the bracket the measurement depended on, so the estimator became the plateau
+immediately adjacent to each transition instead:
+
+| measurement | pace | height | % of 2.664 m |
+|---|---|---|---|
+| Descent, with dwell | ~11 s | 2.647 m | 99% |
+| Ascent, with dwell | ~10.6 s | 2.360 m | 89% |
+| Capture 2 legs | 9.9 s | 2.103 m | 79% |
+| Quick reps | 7.4 s | 1.851 m | 69% |
+
+**Monotone in dwell and pace — lag confirmed**, with the two dwelled measurements
+bracketing the tape truth rather than falling short of it systematically.
+**It is not a slow time constant, though:** on arrival the reading reaches its
+value within ~2 s and holds it for 12 s at sd 0.018. The attenuation is that a
+fast traverse *reverses before the reading completes*, not that the sensor takes
+a minute to catch up. The exact figure stays unpinned because of the pump; a
+repeat with it switched off would close that, and nothing depends on it.
+
+**The consequence that matters is for scoring: a reducer cannot recover what the
+sensor never recorded.** Scoring a configuration against the tape's 42.62 m
+(16 × 2.664) would penalise it for instrument attenuation that no `medianWindow`
+or `hysteresisM` affects. Capture 2's scoring target is therefore the
+**barometric content** of the signal — 16 × 2.103 = **33.6 m** — with the gap to
+the tape recorded separately as a known instrument limit.
+
+**Real terrain is unaffected.** At 10.6 s the reading is already 89–99% complete,
+and a hill is climbed over 30–120 s. The attenuation belongs to this stairwell
+test, which sits near the sensor's response limit, not to the terrain the app
+measures.
+
+### Replication (six captures, 2026-08-05 → 2026-08-10)
+
+Two further verification runs (`w4d2`, `w4d1`; 30.5 and 30.0 min) replicate every
+instrument finding. Across all captures now recorded: **cadence 1.065 s with no
+variation past the third decimal on six captures; ~100% delivery on three
+backgrounded runs; zero rebases in any capture ever taken.** Their closures
+(−1.36 m, −0.29 m) are far gentler than capture 1's −5.05 m over 54 minutes,
+confirming that figure as an active-day worst case rather than the norm.
+
+**Run-to-run repeatability is sd ≈ 0.4–0.6 m** over ~27 m of relief, now from
+three independent same-route pairs (0.55, 0.58, 0.36 m) rather than one. That is
+the honest precision a rendered total should be understood to carry.

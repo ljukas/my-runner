@@ -44,6 +44,12 @@ Health — and the app has no way to delete a run afterwards.
 - [ ] Location: *While Using the App*, Precise Location **ON**.
 - [ ] **Low Power Mode OFF** for every capture — it throttles background work and
       would make a delivery gap unattributable.
+- [ ] **Switch off any heat pump, HVAC or fan** in the building, for every indoor
+      capture. Learned the expensive way on 2026-08-10: an air-to-air heat pump
+      running on the top floor put **0.46 m step changes between consecutive
+      samples** into the stairwell's top bracket and cost that capture its
+      precision. It is the same artifact capture 1's room checklist warns about,
+      and 0.46 m is comparable to the entire effect being measured.
 - [ ] Battery ≥ 60 %.
 - [ ] A tape measure (millimetres) for capture 2.
 - [ ] Somewhere to note things by hand — the table at the bottom of this file, or
@@ -81,25 +87,20 @@ erases the stairs outright. See
 
 Two follow-ups remain. Neither blocks the render slice's design decision:
 
-- [ ] **Capture 7 — the settling capture. ~6 minutes, no exertion.** The barometer
-      read 2.103 m per flight against a correctly taped 2.664 m, and the gap is the
-      sensor's *dynamic* response, not the tape and not air density (that would
-      need 91 °C stairwell air). Lag vanishes at steady state, so:
-      - [ ] Bottom, standing still, **90 s**. Start the capture first, then leave
-            the phone alone.
-      - [ ] Walk **up** once at normal pace. **Top, standing still, 90 s.**
-      - [ ] Walk **down**. Bottom, standing still, **90 s**.
-      - [ ] Then **3 quick up-down reps** at capture 2's pace, and stand still 30 s.
-      - [ ] End.
-
-      Why this shape: 90 s is not for settling (τ ≈ 2 s needs ~10 s) but to average
-      down the 0.20 m low-frequency wander and to pin the drift line — drift runs
-      5–11 m/hour, so a five-minute capture drifts 0.4–0.9 m, the same size as the
-      effect being measured, and two bottom brackets let it be interpolated out.
-      The three quick reps put the moving and settled amplitudes in one capture
-      under identical drift, so the comparison depends on nothing external. Any
-      weather will do — the design subtracts drift rather than assuming it away.
-      While there, confirm it is 12 *risers* floor-to-floor, not 12 treads.
+- [x] ~~**Capture 7 — the settling capture.**~~ **TAKEN 2026-08-10.** It confirmed
+      the lag: dwelled traverses read 99% and 89% of the taped height where moving
+      legs read 79% and 69%, monotone in pace. The exact magnitude stays unpinned,
+      because an **air-to-air heat pump on the top floor was running** and put
+      0.46 m single-sample steps into the top bracket — the one bracket the
+      measurement depended on. A repeat with it switched off would pin τ; nothing
+      the render slice needs depends on that.
+- [ ] **If repeating it**, the shape was right and worth reusing: bottom still
+      90 s → up → top still 90 s → down → bottom still 90 s → 3 quick up-down reps
+      → still 30 s. The 90 s is not for settling (the reading arrives within ~2 s)
+      but to average down the 0.20 m low-frequency wander and pin the drift line;
+      the two bottom brackets interpolate drift out, and the quick reps put moving
+      and settled amplitudes in one file under identical conditions. **Switch the
+      heat pump off first**, and confirm it is 12 *risers* floor-to-floor.
 - [ ] **A stationary capture on a calm day**, to bound the drift range. The one
       taken had a brisk 0.68 hPa/hour rise, so its 5 m/hour is a worst case.
 
@@ -373,6 +374,8 @@ cadence. Recorded here so the six below are not confused with them:
 |---|---|---|---|---|---|---|---|
 | validation | 2026-08-05 | plan `w4d1` | 1774 | 1.065 s | 0% | 0 | −0.72 m |
 | validation | 2026-08-06 | plan `w2d1` | 1620 | 1.064 s | 97.8% | 0 | −2.04 m |
+| verification | 2026-08-07 | plan `w4d2` | 1718 | 1.065 s | 99.3% | 0 | −1.36 m |
+| verification | 2026-08-08 | plan `w4d1` | 1693 | 1.065 s | 99.5% | 0 | −0.29 m |
 
 The six:
 
@@ -384,3 +387,4 @@ The six:
 | 4 | Flat loop, repeat | | | pocket: | | | |
 | 5 | Hilly loop + pause | | | pocket: | | | pause: __ min |
 | 6 | Flat loop, in hand | | | hand | | | |
+| ~~7~~ | ~~Settling~~ **DONE** | 2026-08-10 | — | in hand | `runbro-20260810-1054-246a1081.txt` | — | 339 samples · lag confirmed (99%/89% dwelled vs 79%/69% moving) · **top bracket spoiled by the top-floor heat pump** |

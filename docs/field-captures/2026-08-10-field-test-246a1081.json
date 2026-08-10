@@ -1,0 +1,214 @@
+{
+  "schema": 1,
+  "file": "runbro-20260810-1054-246a1081.txt",
+  "run": {
+    "id": "246a1081",
+    "sessionKey": "field-test",
+    "startedAt": "2026-08-10T10:54:00.929Z",
+    "wallS": 361.906,
+    "activeDurationS": 362,
+    "distanceM": 68.5515570159959,
+    "isFieldTestMode": true
+  },
+  "device": {
+    "deviceName": "iPhone",
+    "osVersion": "26.5.2",
+    "appVersion": "0.0.1",
+    "updateId": "828a8612-dc10-46c0-b3a8-dc5be090afaa",
+    "anySamplesRecorded": true,
+    "motionPermission": "granted",
+    "timezoneOffsetMin": -120
+  },
+  "counts": {
+    "segments": 1,
+    "points": 292,
+    "altitude": 339,
+    "log": 380,
+    "events": 2
+  },
+  "dropped": 0,
+  "complete": true,
+  "altitude": {
+    "n": 339,
+    "nullRelative": 0,
+    "coverageS": 360.051,
+    "coveragePct": 99.48743596403486,
+    "firstOffsetS": 1.147,
+    "epochs": [
+      1
+    ],
+    "seqGaps": 0,
+    "cadenceS": {
+      "n": 338,
+      "min": 1.03,
+      "max": 1.331,
+      "mean": 1.065239644970413,
+      "sd": 0.015102959147858542,
+      "p05": 1.064,
+      "median": 1.065,
+      "p95": 1.066
+    },
+    "sensorCadenceS": {
+      "n": 338,
+      "min": 0.19391199998790398,
+      "max": 1.0649890000058804,
+      "mean": 1.061879215976337,
+      "sd": 0.04741812294795605,
+      "p05": 1.0647618499977398,
+      "median": 1.0648480000090785,
+      "p95": 1.0649362999829464
+    },
+    "impliedHz": 0.9389671361502347,
+    "gaps": {
+      "gt2s": 0,
+      "gt5s": 0,
+      "gt10s": 0,
+      "gt30s": 0,
+      "gt60s": 0
+    },
+    "clockDriftMs": 1135.8249187469482,
+    "relativeAltitudeSpanM": 3.8657073974609375,
+    "pressureSpanHpa": 0.4583740234375,
+    "pressureQuantumHpa": 0.0000762939453125,
+    "noiseSigmaM": 0.02733878254200451,
+    "maxRelativeStepM": 0.46240234375,
+    "rebaseCount": 0,
+    "relativeJumpCount": 0,
+    "pressureRelativeMaxDeviationM": 0.03136189778645804
+  },
+  "background": {
+    "windowCount": 2,
+    "totalS": 37.09500000000001,
+    "pctOfRun": 10.249899145081876,
+    "samples": 35,
+    "expectedSamples": 35,
+    "deliveryPct": 100.48524059846336,
+    "windows": [
+      {
+        "fromS": 26.296,
+        "toS": 29.266
+      },
+      {
+        "fromS": 106.33,
+        "toS": 140.455
+      }
+    ]
+  },
+  "closure": {
+    "startEndDisplacementM": 9.088891621961155,
+    "firstToLastM": -0.0792694091796875,
+    "bracketMeanM": -0.3238035259824811,
+    "bracketSamples": 33,
+    "maxDisplacementM": 10.561403051489355,
+    "drift": null,
+    "isZeroTruth": false
+  },
+  "gps": {
+    "n": 292,
+    "altitudeAccuracyM": {
+      "n": 292,
+      "min": 3,
+      "max": 73.47380065917969,
+      "mean": 7.203983595508147,
+      "sd": 6.025437808483392,
+      "p05": 3,
+      "median": 5.616826499496064,
+      "p95": 13.076831199138642
+    },
+    "invalidAltitudeAccuracy": 0,
+    "negativeSpeedCount": 4
+  },
+  "stationaryWindows": [
+    {
+      "fromS": 15.068,
+      "toS": 358.071,
+      "durationS": 343.003
+    }
+  ],
+  "log": {
+    "kinds": {
+      "cue": 1,
+      "tick": 74,
+      "battery": 1,
+      "sensor": 1,
+      "fix_batch": 294,
+      "lifecycle": 6,
+      "fix_rejected": 2,
+      "pedometer": 1
+    },
+    "sensor": {
+      "available": true,
+      "permission": "granted",
+      "processToken": "msn461kl-vw8kn509waj"
+    },
+    "steps": 105,
+    "tickMedianS": 5.017000198364258,
+    "tickMaxS": 5.0290000438690186
+  },
+  "reducerGrid": [
+    {
+      "medianWindow": 1,
+      "hysteresisM": 0,
+      "windowSpanS": 1.065,
+      "gainM": 13.8193359375,
+      "lossM": 13.898605346679688,
+      "netM": -0.0792694091796875
+    },
+    {
+      "medianWindow": 5,
+      "hysteresisM": 1,
+      "windowSpanS": 5.324999999999999,
+      "gainM": 5.7047576904296875,
+      "lossM": 6.7828216552734375,
+      "netM": -1.07806396484375
+    },
+    {
+      "medianWindow": 15,
+      "hysteresisM": 3,
+      "windowSpanS": 15.975,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 31,
+      "hysteresisM": 3,
+      "windowSpanS": 33.015,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 31,
+      "hysteresisM": 10,
+      "windowSpanS": 33.015,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 61,
+      "hysteresisM": 3,
+      "windowSpanS": 64.965,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 61,
+      "hysteresisM": 30,
+      "windowSpanS": 64.965,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 121,
+      "hysteresisM": 60,
+      "windowSpanS": 128.86499999999998,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    }
+  ]
+}

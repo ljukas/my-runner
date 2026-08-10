@@ -10,11 +10,12 @@ overturn this document's own first conclusion: §3 argued the reducer's paramete
 pair survives, and §6b shows it does not. The render slice's deliverable is a
 changed primitive, not a tuned pair.
 
-Four captures on a physical iPhone (iOS 26.5.2), analysed with
+Seven captures on a physical iPhone (iOS 26.5.2), analysed with
 `scripts/analyze-field-capture.ts`: two ordinary plan sessions on 2026-08-05/06 —
 the first real barometer readings this app ever recorded, every prior verification
 having run on a barometer-less simulator — then protocol captures 1 and 2 on
-2026-08-07. Derived metrics are committed per capture in
+2026-08-07, a settling capture on 2026-08-10, and two further verification runs.
+Derived metrics are committed per capture in
 [`docs/field-captures/`](../../field-captures/); the exports themselves stay in
 gitignored `field-data/` because each contains the runner's home address.
 
@@ -415,6 +416,102 @@ against a ~35 m signal, i.e. 2–3%.
 **The capture is a keeper.** Its one real gap is the riser question above, and
 that is answerable with a tape rather than a retake.
 
+## 6c. The settling capture (2026-08-10) — lag confirmed, magnitude not pinned
+
+Taken as designed: bottom bracket, up, top bracket, down, bottom bracket, three
+quick reps. 339 samples over 6.0 minutes.
+
+**An air-to-air heat pump on the top floor was running**, which the operator
+noted afterwards, and the data shows it plainly: the two *bottom* brackets are
+calm (sd 0.14 and 0.23) while the *top* bracket is not (sd 0.278), carrying
+**step changes of 0.46 m between consecutive samples**. Atmospheric pressure
+does not move like that; a cycling pump does. This is precisely the artifact the
+protocol's capture-1 checklist warns about — "away from an HVAC vent or a fan…
+building pressure differentials are worth up to ~2 m of apparent altitude" —
+and it lands on the one bracket the measurement depends on.
+
+So the 90-second top bracket is unusable, and the estimator has to be the
+**plateau immediately adjacent to each transition** instead: short enough that
+both drift (≈0.03 m over 20 s) and the 35 s wander contribute little.
+
+| measurement | leg duration | height | % of 2.664 m truth |
+|---|---|---|---|
+| Descent, adjacent plateaus | ~11 s + dwell | **2.647 m** | **99%** |
+| Ascent, adjacent plateaus | ~10.6 s + dwell | **2.360 m** | **89%** |
+| Capture 2 moving legs | 9.9 s, no dwell | 2.103 m | 79% |
+| This capture's quick reps | 7.4 s, no dwell | 1.851 m | 69% |
+
+**The ordering is monotone in dwell and pace, which is what lag looks like**, and
+the two dwelled measurements bracket the tape truth rather than falling short of
+it systematically. Combined with the physics already ruling out any density
+explanation, the conclusion holds: **the shortfall in capture 2 is the sensor's
+dynamic response, not the tape.**
+
+**But it is not a slow time constant.** After arriving at the top the reading
+reaches 2.164 m within ~2 s and holds it for 12 s at sd 0.018 — it settles almost
+immediately. The attenuation is therefore not "the sensor takes a minute to catch
+up"; it is that a *fast traverse reverses before the reading completes*. The
+earlier τ ≈ 2 s estimate is consistent with this and is not revised, but it is
+also not confirmed to a useful precision, because the pump contaminated the one
+bracket that would have pinned it.
+
+### The consequence for scoring, which matters more than the exact number
+
+**A reducer cannot recover what the sensor never recorded.** Scoring a
+configuration against the tape's 42.62 m (16 × 2.664) would penalise it for the
+instrument's attenuation, which no choice of `medianWindow` or `hysteresisM`
+affects.
+
+So capture 2's scoring target is the **barometric content** of the signal —
+16 × 2.103 = **33.6 m** — and the gap to 42.62 m is recorded separately as a known
+instrument limit. A perfect reducer scores 33.6 m on capture 2; it cannot score
+42.6 m.
+
+### Why this does not threaten real runs
+
+At 10.6 s the reading is already 89–99% complete, and real running terrain is an
+order of magnitude slower — a hill climbed over 30–120 s. The attenuation is a
+property of *this stairwell test*, which sits near the sensor's response limit,
+not of the terrain the app will actually measure. **Capture 2 is a harsher
+magnitude reference than any run**, which is the useful thing to know about it.
+
+**Optional, not blocking:** a repeat of this capture with the heat pump off would
+pin τ and give a clean settled height. Everything the render slice needs is
+already settled without it.
+
+## 6d. Verification runs (2026-08-07, 2026-08-08)
+
+Two further plan sessions, `w4d2` and `w4d1`, 30.5 and 30.0 minutes:
+
+| | `d2e6a7b8` | `2d8d4091` |
+|---|---|---|
+| Cadence | 1.065 s | 1.065 s |
+| Coverage / gaps > 2 s | 99.9% / **0** | 99.9% / **0** |
+| Backgrounded | 99.3% | 99.5% |
+| Delivery while backgrounded | **100.1%** | **100.1%** |
+| Rebases | **0** | **0** |
+| Noise σ | 0.0114 m | 0.0104 m |
+| Closure | −1.36 m | −0.29 m |
+
+Everything the earlier captures established replicates: the cadence is now
+confirmed on **six** independent captures with no variation past the third
+decimal, background delivery at ~100% on **three** backgrounded runs, and not one
+rebase in any capture yet recorded. The closures (−1.36 m, −0.29 m) are much
+gentler than capture 1's −5.05 m over 54 minutes, confirming that figure as an
+active-day worst case rather than the norm.
+
+**Repeatability now rests on three independent pairs**, not one:
+
+| pair | shared cells | relief | drift-corrected sd |
+|---|---|---|---|
+| 2026-08-05 vs 2026-08-06 | 73 | 26.2 m | 0.55 m |
+| 2026-08-05 vs 2026-08-08 (both `w4d1`) | 84 | 26.6 m | 0.58 m |
+| 2026-08-07 vs 2026-08-08 | 106 | 29.9 m | 0.36 m |
+
+**Run-to-run repeatability is sd ≈ 0.4–0.6 m** over ~27 m of real relief. That is
+the number a render slice should quote as the honest precision of a reported
+total, and it is now measured rather than assumed.
+
 ## 7. What these captures still cannot decide
 
 The tuning. Spec §8.5 scores a configuration as
@@ -488,6 +585,9 @@ Extend as captures arrive. Full metrics per row live in
 | — (validation) | `…-19615682` | 2026-08-06 | plan `w2d1` | 1620 | 1.064 s | 97.8% | 0 | −2.04 m | **item 7**; no-rebase; repeatability |
 | **1 — stationary** | `…-940b8bb0` | 2026-08-07 | **`field-test`** | 3052 | 1.065 s | 98.9% | 0 | **−5.05 m** | certain zero; σ=3.2 mm; **median filter ≈ useless (§6a)** |
 | **2 — stairwell** | `…-f3b38786` | 2026-08-07 | **`field-test`** | 318 | 1.064 s | 57.0% | 0 | −0.57 m | 16 reps × 12 steps; **w≥15 reports 0.00 m**; sensor reads 79% of a 10 s climb (§6b) |
+| **7 — settling** | `…-246a1081` | 2026-08-10 | **`field-test`** | 339 | 1.065 s | — | 0 | — | lag confirmed; top bracket spoiled by a heat pump (§6c) |
+| — (verification) | `…-d2e6a7b8` | 2026-08-07 | plan `w4d2` | 1718 | 1.065 s | 99.3% | 0 | −1.36 m | cadence + item 7 replication (§6d) |
+| — (verification) | `…-2d8d4091` | 2026-08-08 | plan `w4d1` | 1693 | 1.065 s | 99.5% | 0 | −0.29 m | replication; repeatability pair (§6d) |
 | 3 — flat loop | | | | | | | | | phantom gain under motion |
 | 4 — flat repeat | | | | | | | | | repeatability |
 | 5 — hilly + pause | | | | | | | | | rebase-at-pause, gap distribution |

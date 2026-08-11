@@ -8,6 +8,17 @@ changed and why). Revision 3 adds §8.0: the owner pointed out that none of the
 captures fits the app's session model, and that borrowing a plan day for a
 stairwell capture would corrupt the training record irreversibly.
 
+> **Outcome (2026-08-06).** The slice shipped and the first hardware captures are
+> in. Two things this spec reasons about at length are now measured, and the
+> reasoning below should be read as design-time context rather than open questions:
+> the **delivery cadence is 1.065 s (~0.94 Hz)**, four times denser than the
+> "every few seconds" §1 builds its window-smearing worry on — so §8.6's option to
+> change the window *primitive* does not need to be taken — and **background
+> delivery is unaffected** (99.9% of nominal across 28 backgrounded minutes, no
+> rebase), closing ADR 0015 item 7. The tuning §8.5 scores is still open, because
+> captures 1 and 2 have not been taken. See
+> [the capture analysis](../research/2026-08-06-barometer-field-capture-analysis.md).
+
 Implements the capture half of [ADR 0015](../../adr/0015-run-elevation-on-device-barometer.md)
 and discharges its open item 7 with field data instead of a spike. Follows the
 [run elevation & pace chart slice](2026-08-02-run-elevation-and-pace-chart-design.md),

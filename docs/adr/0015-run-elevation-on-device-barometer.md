@@ -460,9 +460,12 @@ that addresses the dominant error term. The render slice should treat drift
 correction as part of the reducer's job rather than expecting a threshold to
 absorb it.
 
-**Generality caveat:** 0.68 hPa/hour is a brisk rise, so 5 m/hour is an
-active-day figure and should be treated as a worst case until a second stationary
-capture on a settled day bounds the calm end.
+**Generality, revised 2026-08-11:** this was first recorded as an active-day
+worst case. A second hour-long stationary capture on a different day came in at
+**−4.79 m/hour**, within 20% of the first, so **~5 m/hour should be read as
+typical rather than extreme**. The calm end of the range remains unmeasured — no
+genuinely settled day has been caught yet — so there is no established lower
+bound, only two agreeing observations.
 
 ### Capture 2 (2026-08-07): the deliverable is not a `(window, hysteresis)` pair
 
@@ -571,9 +574,17 @@ measures.
 Two further verification runs (`w4d2`, `w4d1`; 30.5 and 30.0 min) replicate every
 instrument finding. Across all captures now recorded: **cadence 1.065 s with no
 variation past the third decimal on six captures; ~100% delivery on three
-backgrounded runs; zero rebases in any capture ever taken.** Their closures
-(−1.36 m, −0.29 m) are far gentler than capture 1's −5.05 m over 54 minutes,
-confirming that figure as an active-day worst case rather than the norm.
+backgrounded runs; zero rebases in any capture ever taken.**
+
+**Drift, across all six captures, runs 0.6–5.6 m/hour**, with the two hour-long
+stationary captures at the top (−5.59 and −5.02 m/hour) and the runs spread
+below (−4.27, −2.68, −1.37, −0.58). A second stationary hour taken on 2026-08-11
+agreed with capture 1 to within 20%, which is why the "active-day worst case"
+reading above is withdrawn — ~5 m/hour is what a stationary hour indoors
+actually looks like. Whether the indoor excess is busier weather or
+building-envelope pressure is not separable from this data. **A 30-minute run
+should be expected to carry roughly 0.3–2.5 m of drift**, comparable to a real
+hill, which is the error term the reducer must handle.
 
 **Run-to-run repeatability is sd ≈ 0.4–0.6 m** over ~27 m of relief, now from
 three independent same-route pairs (0.55, 0.58, 0.36 m) rather than one. That is

@@ -101,8 +101,12 @@ Two follow-ups remain. Neither blocks the render slice's design decision:
       the two bottom brackets interpolate drift out, and the quick reps put moving
       and settled amplitudes in one file under identical conditions. **Switch the
       heat pump off first**, and confirm it is 12 *risers* floor-to-floor.
-- [ ] **A stationary capture on a calm day**, to bound the drift range. The one
-      taken had a brisk 0.68 hPa/hour rise, so its 5 m/hour is a worst case.
+- [ ] **A stationary capture on a genuinely calm day**, to bound the low end of
+      the drift range. Attempted 2026-08-11 and the weather did not cooperate: it
+      came back at −4.79 m/hour against the first capture's −5.69, so **~5 m/hour
+      now looks typical rather than extreme** and the calm end is still unmeasured.
+      Check a barometer trend before spending an hour on this — it only pays off on
+      a genuinely settled day.
 
 ### ~~Capture 1~~ — **TAKEN 2026-08-07.** Stationary · **indoors** · 40–45 min · no walking
 
@@ -112,9 +116,9 @@ Two follow-ups remain. Neither blocks the render slice's design decision:
 > the sensor's white noise is 3.2 mm and the **median window buys almost nothing**,
 > while the real error is **−5.05 m of monotone weather drift** over the capture.
 >
-> **Worth one retake on a settled day, eventually.** 0.68 hPa/hour is a brisk
-> pressure rise, so the drift figure is an active-day worst case. A calm-day
-> stationary capture would bound the other end. Not blocking anything.
+> **Repeated 2026-08-11, and the drift replicated:** −4.79 m/hour against this
+> capture's −5.69, so ~5 m/hour is **typical rather than an active-day worst
+> case**. The calm end of the range is still unmeasured. Not blocking anything.
 >
 > When analysing it, pass `--zero-truth`: GPS cannot tell that a phone was
 > stationary, and this one accumulated 858 m of indoor jitter while never leaving
@@ -388,3 +392,4 @@ The six:
 | 5 | Hilly loop + pause | | | pocket: | | | pause: __ min |
 | 6 | Flat loop, in hand | | | hand | | | |
 | ~~7~~ | ~~Settling~~ **DONE** | 2026-08-10 | — | in hand | `runbro-20260810-1054-246a1081.txt` | — | 339 samples · lag confirmed (99%/89% dwelled vs 79%/69% moving) · **top bracket spoiled by the top-floor heat pump** |
+| ~~8~~ | ~~Stationary #2~~ **DONE** | 2026-08-11 | rising 0.575 hPa/h | on desk | `runbro-20260811-0756-bb35dbab.txt` | — | 60.0 min · 3380 samples · **drift −4.79 m/h** · day was not calm · froze the app on auto-complete ([#60](https://github.com/ljukas/my-runner/issues/60)) |

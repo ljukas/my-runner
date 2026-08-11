@@ -10,11 +10,12 @@ overturn this document's own first conclusion: §3 argued the reducer's paramete
 pair survives, and §6b shows it does not. The render slice's deliverable is a
 changed primitive, not a tuned pair.
 
-Seven captures on a physical iPhone (iOS 26.5.2), analysed with
+Eight captures on a physical iPhone (iOS 26.5.2), analysed with
 `scripts/analyze-field-capture.ts`: two ordinary plan sessions on 2026-08-05/06 —
 the first real barometer readings this app ever recorded, every prior verification
 having run on a barometer-less simulator — then protocol captures 1 and 2 on
-2026-08-07, a settling capture on 2026-08-10, and two further verification runs.
+2026-08-07, a settling capture on 2026-08-10, two further verification runs, and a
+second stationary hour on 2026-08-11.
 Derived metrics are committed per capture in
 [`docs/field-captures/`](../../field-captures/); the exports themselves stay in
 gitignored `field-data/` because each contains the runner's home address.
@@ -496,9 +497,10 @@ Two further plan sessions, `w4d2` and `w4d1`, 30.5 and 30.0 minutes:
 Everything the earlier captures established replicates: the cadence is now
 confirmed on **six** independent captures with no variation past the third
 decimal, background delivery at ~100% on **three** backgrounded runs, and not one
-rebase in any capture yet recorded. The closures (−1.36 m, −0.29 m) are much
-gentler than capture 1's −5.05 m over 54 minutes, confirming that figure as an
-active-day worst case rather than the norm.
+rebase in any capture yet recorded. Their closures (−1.36 m, −0.29 m over ~30
+minutes) work out to −2.68 and −0.58 m/hour, at the gentle end of the observed
+range — see the rate table in §6e, which supersedes the earlier reading of
+capture 1's figure as an outlier.
 
 **Repeatability now rests on three independent pairs**, not one:
 
@@ -511,6 +513,71 @@ active-day worst case rather than the norm.
 **Run-to-run repeatability is sd ≈ 0.4–0.6 m** over ~27 m of real relief. That is
 the number a render slice should quote as the honest precision of a reported
 total, and it is now measured rather than assumed.
+
+## 6e. The second stationary hour (2026-08-11) — ~5 m/hour drift is typical, not extreme
+
+A second stationary capture was taken to bound the *calm* end of the drift range,
+running the full 3600 s segment: 3380 samples, zero drops, 99.2% backgrounded,
+100.0% delivery, no rebase.
+
+**It did not bound the calm end, because the day was not calm.** Drift came in at
+**−4.79 m/hour** (pressure rising 0.575 hPa/hour), monotone across 10 of 10
+five-minute bins — within 20% of capture 1's −5.69 m/hour.
+
+That is itself the finding. Capture 1's figure was recorded here and in ADR 0015
+as "an active-day worst case"; **two independent hour-long stationary captures on
+different days now agree at ~5 m/hour**, so that reading was wrong. Every
+capture's drift rate, for reference:
+
+| capture | kind | drift rate |
+|---|---|---|
+| `940b8bb0` | stationary, 54 min | **−5.59 m/hour** |
+| `bb35dbab` | stationary, 60 min | **−5.02 m/hour** |
+| `19615682` | run, 29 min | −4.27 m/hour |
+| `d2e6a7b8` | run, 31 min | −2.68 m/hour |
+| `d8190994` | run, 32 min | −1.37 m/hour |
+| `2d8d4091` | run, 30 min | −0.58 m/hour |
+
+Observed rates span **0.6 to 5.6 m/hour**, with the two long stationary captures
+at the top. Two readings of that are available and the data does not separate
+them: either the indoor captures caught busier weather, or an indoor capture also
+picks up **building-envelope pressure changes** that an outdoor run does not — the
+latter being what the protocol already warns about for capture 1's room. Note the
+shortest-drift capture is a run and the longest is stationary, but a run at
+−4.27 m/hour sits between them, so the split is not clean.
+
+**The practical consequence is unchanged and does not depend on resolving it:**
+a 30-minute run should be expected to carry roughly **0.3–2.5 m** of drift, which
+is the error term the reducer has to handle and is comparable to a real hill.
+
+Everything else replicates capture 1 closely:
+
+| | capture 1 (54 min) | capture 8 (60 min) |
+|---|---|---|
+| White noise σ | 0.0032 m | 0.0063 m |
+| Detrended residual sd | 0.202 m | 0.300 m |
+| Median filter gain at w121 | −19.8% | **−17.9%** |
+| Drift | −5.69 m/hour | −4.79 m/hour |
+| Phantom loss at `h1` / `h3` / `h10` | 5.05 / 3.07 / 0.00 | 5.14 / 3.00 / 0.00 |
+
+The median-filter result (§6a) is confirmed independently: **a 129-second window
+still buys under 20%.** And the phantom-gain column reproduces almost exactly,
+including the `h10` zero that only holds because total drift stayed under 10 m.
+
+**One incidental note:** GPS `altitudeAccuracy` read a median of 12.92 m indoors
+against 3.00 m outdoors, and the capture logged only 446 fixes in an hour
+(≈0.12 Hz) against ~1 Hz outdoors. Indoor GPS is barely functional, which matters
+only in that it is another reason `--zero-truth` must be declared rather than
+inferred.
+
+**A bug was found by this capture, and it is not an elevation bug.** The run
+auto-completed at the hour while the phone was untouched and backgrounded, and
+the app was afterwards black and unresponsive. The capture pipeline was
+unaffected — the run finalized, persisted all 3380 samples and exported cleanly —
+so this is a UI-layer failure on an unattended auto-complete. Filed as
+[issue #60](https://github.com/ljukas/my-runner/issues/60); the `lifecycle` rows
+this slice added are what identified it, since they show this is the only capture
+of eight that finalized with no visible window.
 
 ## 7. What these captures still cannot decide
 
@@ -588,6 +655,7 @@ Extend as captures arrive. Full metrics per row live in
 | **7 — settling** | `…-246a1081` | 2026-08-10 | **`field-test`** | 339 | 1.065 s | — | 0 | — | lag confirmed; top bracket spoiled by a heat pump (§6c) |
 | — (verification) | `…-d2e6a7b8` | 2026-08-07 | plan `w4d2` | 1718 | 1.065 s | 99.3% | 0 | −1.36 m | cadence + item 7 replication (§6d) |
 | — (verification) | `…-2d8d4091` | 2026-08-08 | plan `w4d1` | 1693 | 1.065 s | 99.5% | 0 | −0.29 m | replication; repeatability pair (§6d) |
+| **8 — stationary #2** | `…-bb35dbab` | 2026-08-11 | **`field-test`** | 3380 | 1.065 s | 99.2% | 0 | **−5.02 m** | ~5 m/h drift is typical, not extreme (§6e); surfaced [#60](https://github.com/ljukas/my-runner/issues/60) |
 | 3 — flat loop | | | | | | | | | phantom gain under motion |
 | 4 — flat repeat | | | | | | | | | repeatability |
 | 5 — hilly + pause | | | | | | | | | rebase-at-pause, gap distribution |

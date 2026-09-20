@@ -18,10 +18,11 @@ export function materialTheme(scheme: Scheme): Record<ThemeColor, string> {
   const theme: Record<ThemeColor, string> = {
     text: m.onSurface,
     background: m.surface,
+    // Filled cards sit two tonal steps above the page, or they read as the same surface.
     backgroundElement: m.surfaceContainerHigh,
     backgroundSelected: m.surfaceContainerHighest,
     backgroundGrouped: m.surface,
-    backgroundCard: m.surfaceContainerLow,
+    backgroundCard: m.surfaceContainerHighest,
     textSecondary: m.onSurfaceVariant,
     primary: m.primary,
     primaryForeground: m.onPrimary,

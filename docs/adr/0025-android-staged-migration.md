@@ -110,12 +110,17 @@ date in an amendment to this ADR.
   `health-status-row`, `run-export-row`) have `.android.tsx` stubs that render
   nothing, so the summary screen file is untouched and the stubs vanish as their
   stages ship.
-- Four shared files under `src/app/` changed, each behaviour-identical on iOS:
+- Six shared files under `src/app/` changed, each behaviour-identical on iOS:
   the run screen's keep-awake goes through `runHoldsScreenAwake(locked)` (iOS
   branch `locked`); the tab layout gained `md` icon names; the root layout calls
-  `applyPlatformTheme()` (a no-op on iOS); and the iOS Settings screen's
-  location-label record gained the `'unsupported'` key its type now requires
-  (never returned by the iOS adapter). The Plan row was promoted out of both
+  `applyPlatformTheme()` (a no-op on iOS), takes its navigation theme from
+  `navigationTheme()` (iOS returns React Navigation's own themes; Android maps
+  the Material palette so headers match the surface) and spreads `sheetOptions`
+  into the form sheets (empty on iOS; Material's 28 dp corners on Android); the
+  session sheet and the run summary carry Uniwind `android:` classes for the
+  bottom safe-area offset and the header gap (compiled out on iOS); and the iOS
+  Settings screen's location-label record gained the `'unsupported'` key its
+  type now requires (never returned by the iOS adapter). The Plan row was promoted out of both
   route files into a `plan-session-row` pair (ADR 0013 §1), a verbatim move on
   iOS.
 

@@ -1,9 +1,10 @@
 import { type ImperativeRouter } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
+import { Platform } from 'react-native';
 
 import { createOnboarding, ONBOARDING_STEPS, type OnboardingStepId } from './onboarding';
 
-export const onboarding = createOnboarding(Storage);
+export const onboarding = createOnboarding(Storage, Platform.OS === 'android' ? 'android' : 'ios');
 
 /**
  * Mark this step done, then go to the next pending step or leave onboarding.

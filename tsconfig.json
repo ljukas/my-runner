@@ -13,6 +13,7 @@
       ]
     }
   },
+  "exclude": ["**/*.android.ts", "**/*.android.tsx"],
   "include": [
     "**/*.ts",
     "**/*.tsx",

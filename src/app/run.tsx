@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { KeepAwakeWhileMounted } from '@/components/keep-awake-while-mounted';
+import { KeepAwakeWhileMounted, runHoldsScreenAwake } from '@/components/keep-awake-while-mounted';
 import { RunLocationBanner } from '@/components/run-location-banner';
 import { RunLock } from '@/components/run-lock';
 import { RunPhaseHeader } from '@/components/run-phase-header';
@@ -75,7 +75,7 @@ export default function RunScreen() {
       className="flex-1 bg-background px-6"
       style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}
     >
-      {locked ? <KeepAwakeWhileMounted /> : null}
+      {runHoldsScreenAwake(locked) ? <KeepAwakeWhileMounted /> : null}
 
       {locationStatus !== null && locationStatus !== 'granted' ? (
         <RunLocationBanner status={locationStatus} locked={locked} />

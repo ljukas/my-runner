@@ -1,6 +1,6 @@
 # 6. Every modal surface is an expo-router screen with native presentation
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: stage 1 (built 2026-09-20)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 1 (built 2026-09-20): the form sheet and full-screen modal, verified on the emulator. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-11
 

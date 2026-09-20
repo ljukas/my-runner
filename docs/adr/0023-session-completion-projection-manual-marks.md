@@ -3,7 +3,7 @@
 > **Scope note.** The completion model below (a table, a pure union projection, the
 > sequencing it feeds) is platform-neutral TypeScript + SQLite. Only the *surface
 > affordances* — swipe/long-press to mark done, collapsible week groups — are iOS-only
-> today ([ADR 0020](0020-ios-only-android-deferred.md)); a future Android pass re-skins the
+> today ([ADR 0025](0025-android-staged-migration.md)); a future Android pass re-skins the
 > surface without touching the seam.
 
 Date: 2026-07-26

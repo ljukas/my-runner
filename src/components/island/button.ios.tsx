@@ -8,9 +8,8 @@ import {
   padding,
   tint,
 } from '@expo/ui/swift-ui/modifiers';
-import { PixelRatio, Platform } from 'react-native';
+import { PixelRatio } from 'react-native';
 
-import { Button as PillButton } from '@/components/ui/button';
 import { useTheme } from '@/hooks/use-theme';
 import { isGlassAvailable } from '@/lib/glass';
 
@@ -33,9 +32,9 @@ export function islandButtonHeight(): number {
  * `secondary` and `destructive` variants. Threads `useTheme()` /
  * `isGlassAvailable()` internally so screens stop hand-rolling the stack.
  *
- * Standalone by default — it brings its own `Host` and the Android `ui/Button`
- * fallback (ADR 0005 §4). Pass `inline` to render a bare `<Button>` for use
- * inside a screen's existing SwiftUI tree (iOS-only run/session screens). `fill`
+ * Standalone by default — it brings its own `Host`; the Android side is
+ * `button.android.tsx` (ADR 0025 §2). Pass `inline` to render a bare `<Button>`
+ * for use inside a screen's existing SwiftUI tree (run/session screens). `fill`
  * makes the label span the width via the label-frame trick (the bottom CTA).
  */
 export function IslandButton({
@@ -56,18 +55,6 @@ export function IslandButton({
   testID?: string;
 }) {
   const colors = useTheme();
-
-  if (!inline && Platform.OS !== 'ios') {
-    return (
-      <PillButton
-        testID={testID}
-        variant={variant}
-        label={label}
-        onPress={onPress}
-        disabled={disabled}
-      />
-    );
-  }
 
   // Unlike the icon button, the bordered styles dim themselves when disabled:
   // the label carries no explicit foreground color to outrank the treatment.

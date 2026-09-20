@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "moduleSuffixes": [".android", ".native", ""]
+  },
+  "exclude": [
+    "**/*.ios.ts",
+    "**/*.ios.tsx",
+    "src/app/(tabs)/(index)/index.tsx",
+    "src/app/(tabs)/log/index.tsx",
+    "src/app/(tabs)/settings/index.tsx"
+  ]
+}

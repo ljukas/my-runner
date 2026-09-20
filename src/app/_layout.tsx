@@ -12,8 +12,10 @@ import { Colors } from '@/constants/theme';
 import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
 import { useTheme } from '@/hooks/use-theme';
+import { applyPlatformTheme } from '@/lib/platform-theme';
 import { onboarding } from '@/services/onboarding-store';
 
+applyPlatformTheme();
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 400, fade: true });
 

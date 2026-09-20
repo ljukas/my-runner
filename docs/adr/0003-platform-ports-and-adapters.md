@@ -1,6 +1,6 @@
 # 3. Platform capabilities behind ports & adapters
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: stage 1 (built 2026-09-20)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 1 (built 2026-09-20): the `adapter.android.ts` re-entry, with the tsconfig split amended below. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-11
 
@@ -107,3 +107,24 @@ interface — implemented by per-platform **adapters**.
   the default: it adds a dead runtime file whose declared types can drift,
   while `moduleSuffixes` is the official TypeScript mechanism (TS ≥ 4.7,
   built for React Native) and composes cleanly with `expo/tsconfig.base`.
+
+## Amendment (2026-09-20): the Android tsconfig is a second project, not a second pass
+
+Decision item 3 expected `tsconfig.android.json` to join CI so that "both
+resolutions are checked" over the same file set. Stage 1 of the Android
+migration (ADR 0025) found that cannot work once forks disagree in shape: under
+the iOS anchor a `.android.tsx` fork resolves `@/components/island` to the
+SwiftUI island and fails on props only the Compose island has, and vice versa.
+So the two projects partition the tree instead: `tsconfig.json` excludes
+`**/*.android.*`, `tsconfig.android.json` excludes `**/*.ios.*` and the three
+unsuffixed route fallbacks whose bodies are SwiftUI. Every file is checked in
+exactly one project, against its own platform's types. ESLint's type-aware
+rules take both projects, and its TypeScript import resolver is given Expo's
+platform extension list, which it otherwise lacks for tsconfig-path aliases.
+
+Two further rules from the same stage: a component that imports a platform
+`@expo/ui` vocabulary directly is renamed to `.ios.tsx` when it gains an
+`.android.tsx` sibling (shared importers keep the unsuffixed name); and
+because expo-router bundles every platform's route files into both bundles,
+anything a route fork imports must resolve on both platforms — hence the
+occasional `.ios.tsx` stub that renders nothing.

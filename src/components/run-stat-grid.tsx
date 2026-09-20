@@ -18,13 +18,13 @@ export function RunStatGrid({ run, segments }: { run: Run; segments: RunSegment[
   return (
     <StatGrid>
       <StatGrid.Tile
-        icon="figure.run"
+        icon={{ ios: 'figure.run', android: 'directions_run' }}
         color={stat.running}
         label="Running"
         {...clockParts(stats.timeRunningS)}
       />
       <StatGrid.Tile
-        icon="stopwatch.fill"
+        icon={{ ios: 'stopwatch.fill', android: 'timer' }}
         color={stat.activeTime}
         label="Active Time"
         {...clockParts(run.activeDurationS)}
@@ -32,13 +32,13 @@ export function RunStatGrid({ run, segments }: { run: Run; segments: RunSegment[
       {distanceM !== null ? (
         <>
           <StatGrid.Tile
-            icon="location.fill"
+            icon={{ ios: 'location.fill', android: 'my_location' }}
             color={stat.distance}
             label="Distance"
             {...distanceParts(distanceM)}
           />
           <StatGrid.Tile
-            icon="speedometer"
+            icon={{ ios: 'speedometer', android: 'speed' }}
             color={stat.pace}
             label="Avg Pace"
             {...paceParts(paceSecPerKm(distanceM, run.activeDurationS))}

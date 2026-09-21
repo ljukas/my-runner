@@ -572,11 +572,10 @@ export interface ViewportDp {
 const mercatorY = (latDeg: number) => Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG_TO_RAD) / 2));
 
 /**
- * Smallest Google Maps camera containing `bbox` in a viewport of known size. `zoom` is Google's
- * convention — the world is 256·2^zoom dp wide, Web-Mercator on latitude — NOT the isotropic one
- * `CameraFit.zoom` documents for Apple, and it depends on the view's dp size, which is why the
- * adapter measures itself rather than the port carrying pixels (ADR 0010). Pole- and
- * antimeridian-naive like `boundingBox`; clamped to Google's 3–21 range.
+ * Smallest Google Maps camera containing `bbox`. `zoom` is Google's convention — the world is
+ * 256·2^zoom dp wide, Web-Mercator on latitude — not the isotropic `CameraFit.zoom` Apple uses,
+ * and it depends on the viewport's dp size. Pole- and antimeridian-naive like `boundingBox`;
+ * clamped to Google's 3–21 range.
  */
 export function googleCameraForBoundingBox(
   bbox: BoundingBox,
@@ -621,9 +620,8 @@ export const ENDPOINT_MERGE_M = 25;
 const ENDPOINT_RADIUS_RATIO = 0.015;
 const ENDPOINT_RADIUS_FLOOR_M = 4;
 
-/** Start/finish dot radius in metres: a fixed share of the route's extent so the dots scale with the
- * route, floored so a route at the `MIN_ROUTE_EXTENT_M` gate still shows one (Google draws circles in
- * metres, not points — ADR 0010's Android amendment). */
+/** Start/finish dot radius in metres (Google circles are metric, ADR 0010 Android amendment), floored
+ * so a route at the `MIN_ROUTE_EXTENT_M` gate still shows a dot. */
 export function endpointRadiusM(bbox: BoundingBox): number {
   return Math.max(ENDPOINT_RADIUS_FLOOR_M, ENDPOINT_RADIUS_RATIO * boundingBoxDiagonalM(bbox));
 }

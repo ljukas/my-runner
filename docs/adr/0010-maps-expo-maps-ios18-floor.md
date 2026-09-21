@@ -1,6 +1,6 @@
 # 10. Maps: expo-maps (alpha) with an iOS 17.0 floor, react-native-maps as pre-approved fallback
 
-> **Android: stage 4 (maps)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 4 (maps): the `GoogleMaps.View` adapter. Check ADR 0025's stage table for whether they have shipped.
+> **Android: stage 4 (built 2026-09-21)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 4 (built 2026-09-21): the `GoogleMaps.View` adapter, described in this ADR's 2026-09-21 amendment. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-11
 

@@ -49,9 +49,7 @@ const manifestChunks = new Map();
 // The Android Maps key (`android.config.googleMaps.apiKey`, ADR 0010 item 5) is baked into the
 // manifest at prebuild and never read by JS, so a tree with the key and one without must hash the
 // same — yet the whole normalised Expo config is a `contents` source on BOTH platforms (measured:
-// adding the key moved the iOS hash). The price is that a key rotation alone no longer forces a
-// native build, which is safe because an old binary keeps its own baked key (ADR 0012, 2026-09-21
-// amendment).
+// adding the key moved the iOS hash). Trade-off per ADR 0012's 2026-09-21 amendment.
 function withoutGoogleMapsKey(chunk) {
   if (typeof chunk !== 'string') return chunk;
   const cfg = JSON.parse(chunk);

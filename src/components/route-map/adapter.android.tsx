@@ -12,7 +12,7 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 import type { RouteMapProps } from './port';
 
-/** Read-only styling: no selection, no 3D blocks over the route at street zoom, no location layer (spec §3). */
+// why isBuildingEnabled off: 3D blocks hide the route at street zoom (spec §3).
 const PROPERTIES: GoogleMaps.MapProperties = {
   selectionEnabled: false,
   isBuildingEnabled: false,
@@ -21,7 +21,6 @@ const PROPERTIES: GoogleMaps.MapProperties = {
   mapType: GoogleMaps.MapType.NORMAL,
 };
 
-/** Every default-on Google control suppressed, including the marker toolbar and the +/− buttons. */
 const UI_SETTINGS: GoogleMaps.MapUISettings = {
   compassEnabled: false,
   indoorLevelPickerEnabled: false,
@@ -73,8 +72,7 @@ export function RouteMap({
   );
 
   // why circles, not markers: GoogleMapsMarker cannot be tinted or given a symbol without a
-  // SharedRef image from expo-image, a native dependency on both platforms (ADR 0010 Android
-  // amendment). Radius is in metres, so it is scaled to the route's extent.
+  // SharedRef image from expo-image, a native dependency on both platforms (ADR 0010 Android amendment).
   const circles = useMemo(() => {
     if (!endpoints) return [];
     const radius = endpointRadiusM(bbox);
@@ -91,8 +89,8 @@ export function RouteMap({
     return [start, dot('finish', endpoints.finish, colors.success)];
   }, [endpoints, bbox, colors, pixelRatio]);
 
-  // why measured here, not across the port: Google's zoom is pixel-based, so the fit needs the
-  // view's dp size and the port deliberately carries only an aspect ratio (ADR 0010 amendment 8).
+  // why measured here: Google zoom is pixel-based; the port carries only an aspect ratio (ADR 0010
+  // amendment 8).
   // why frozen: GoogleMapsView.kt re-creates its camera state on every cameraPosition change, so the
   // fit is taken once from the first non-zero layout — a later re-fit would yank a panned view. The
   // map mounts only after that layout, so its first camera is already the fit and nothing snaps.

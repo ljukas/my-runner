@@ -76,7 +76,7 @@ screens.
 | **1 — Basics** | All plan weeks; run screen with clock, progress, transport, lock; vibration-only cues; run summary without map, health, export; Plan, Log, Settings; onboarding = welcome only. No location, no speech, no map, no Health, no elevation. Screen held awake for the whole run. | Every port's `adapter.android.ts`; `island/*.android.tsx`; Plan/Log/Settings route forks; run-transport, run-lock, run-unavailable, stat-grid forks. | **Built 2026-09-20**, verified on the emulator (plan → session → run → pause/skip/lock/unlock/end → summary → log → settings; onboarding gating). |
 | 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner`'s `'unsupported'` branch goes dead, not removed (see the 2026-09-21 amendment). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-2-location-heartbeat.md); mechanics and measurements in ADR 0008's 2026-09-21 amendment. |
 | 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md); mechanics and measurements in ADR 0009's 2026-09-21 amendment. |
-| 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | Planned |
+| 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card and viewer mount and degrade correctly; tile and overlay rendering awaits a real Maps key (see the amendment below). |
 | 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | Planned |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | Planned |
 | 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | Planned |
@@ -346,3 +346,49 @@ engine and the iOS adapter are untouched, and the ducking mechanics are in ADR
   every row below it; another dev client launched on the same emulator mid-run
   takes the taps meant for this app; and argent boots emulators muted, so
   audibility needs `boot-device` with `sound: true`.
+
+## Amendment (2026-09-21): stage 4 built — maps
+
+Stage 4 shipped as planned and as decided (circles for endpoints, the key from
+the environment, an iOS-only viewer toolbar): `route-map/adapter.android.tsx` is
+a real `GoogleMaps.View` adapter, the card stub is deleted, the port, hooks and
+route files are untouched, and the map mechanics are in ADR 0010's amendment of
+the same date. What the stage adds to this record:
+
+- **A missing Maps key crashes; an invalid one degrades.** The plan assumed a
+  keyless checkout would show grey tiles. Measured: with no
+  `com.google.android.geo.API_KEY` meta-data the Maps SDK throws from
+  `MapView.onCreate` and takes the app down the first time a route renders.
+  `app.config.ts` therefore always bakes a key, falling back to
+  `MISSING_GOOGLE_MAPS_ANDROID_API_KEY`, and `fingerprint.config.js` strips the
+  field from the `expoConfig` source so keyed, keyless and placeholder trees hash
+  the same on both platforms (ADR 0012 amendment). The iOS hash did not move
+  across the stage (`99862a79…` under `APP_VARIANT=development`, `9061ec14…`
+  variant-less).
+- **The key restriction needs prebuild's debug keystore SHA-1**
+  (`5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`, from
+  `android/app/debug.keystore`), not `~/.android/debug.keystore`'s. Until Lukas
+  creates the key, tiles and overlays are unverified; everything around them is.
+- **The route fixture is a real-plan run ended by hand, not a compressed one.**
+  A 1-minute compressed run under the `adb emu geo fix` feed recorded 17 fixes
+  and a 52 m extent — under the 100 m gate — and became the under-gate fixture
+  instead. Four minutes of a 29-minute session with the feed running, ended via
+  the transport's End → "End run", recorded 239 points and 0.67 km. Feed the
+  emulator *before* starting: the first fix is the emulator's last known
+  position, so a feed started elsewhere leaves a 500 m spur the velocity gate
+  then drops.
+- **Emulator storage at ~620 MB free fails even `adb install -r`** for the
+  337 MB debug APK (`INSTALL_FAILED_INSUFFICIENT_STORAGE`). The way through
+  without touching the other dev client on the shared emulator: back up
+  `files/SQLite/{runbro.db,runbro.db-wal,runbro.db-shm,ExpoSQLiteStorage}` with
+  `run-as … cat`, `adb uninstall`, `adb install -r`, push the four files back
+  through `/data/local/tmp` and `run-as … cp` *before* the first launch, then
+  `pm grant` both location permissions (a reinstall resets them). Opening the
+  backup with `sqlite3` checkpoints the WAL into the main file, which is fine.
+- **Small traps:** a fresh dev-client install shows a developer-menu sheet over
+  the first screen, and its "Continue" opens the full menu (close it with back);
+  `await-ui-element` on `TOOLS` also matches the dev client's floating "Tools"
+  button; `dumpsys activity top` is how to see whether Compose attached a native
+  `MapView` (`AndroidViewsHandler → ViewFactoryHolder → MapView`); Metro's
+  `head`-piped log is empty (pipe buffering) — read logcat instead; and the
+  debugger attaches by Metro's logical id when two devices share the port.

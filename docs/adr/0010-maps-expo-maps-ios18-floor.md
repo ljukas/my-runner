@@ -238,3 +238,82 @@ independent reviewers.
    to any later `cameraPosition`, so the adapter takes the fit once in `useState`'s
    initializer, and a re-fit would yank a view the user has panned. The math
    remains a pure, unit-tested helper in `domain/geo.ts`.
+
+## Amendment (2026-09-21): Android realised — `GoogleMaps.View` behind the same port
+
+Written on building Android stage 4 (ADR 0025). The port (`port.ts`), the iOS
+adapter, the hooks and both route files are untouched; the Android adapter is
+`route-map/adapter.android.tsx`, and the stage-1 `route-map-card.android.tsx`
+stub is gone. What Android added to the record:
+
+1. **Google's zoom is pixel-based, so the adapter measures itself.** Google's
+   `CameraPosition.fromLatLngZoom` shows a world `256 · 2^zoom` dp wide,
+   Web-Mercator on latitude — the fit depends on the view's *size in dp*, not
+   only its aspect ratio, so `cameraForBoundingBox` (isotropic degrees, Apple's
+   convention, item 4) cannot be reused. Amendment item 8's decision stands: the
+   port still carries `bbox` + `aspectRatio` and no library convention crosses it.
+   The Android adapter reads its own first non-zero `onLayout`, fits with the new
+   pure helper `googleCameraForBoundingBox(bbox, { widthDp, heightDp })`
+   (`domain/geo.ts`, unit-tested: binding axis fills exactly `1/(1+2p)` of the
+   view, clamped to Google's 3–21), and mounts `GoogleMaps.View` only *after* that
+   layout so its first `cameraPosition` is already the fit. The fit is frozen like
+   iOS's: `GoogleMapsView.kt` rebuilds its `CameraPositionState` on every
+   `cameraPosition` change, so a re-fit would yank a panned view.
+2. **Polyline `width` is in pixels** (handed straight to Compose's `Polyline`),
+   so `ROUTE_STROKE_W`/`ROUTE_STROKE_W_RUN` are multiplied by `PixelRatio.get()`;
+   without it the run/walk width channel (spec §7.3) is ~3× too thin. Polyline `id`
+   defaults to a fresh UUID on Android too (`Records.kt`), so the port's
+   deterministic id is passed through (item 5 holds on both platforms).
+3. **Endpoints are `circles`, not markers.** `GoogleMapsMarker` cannot be tinted
+   or given a symbol; a custom icon needs an `expo-image` `SharedRef`, a native
+   dependency on *both* platforms that would move the iOS fingerprint. Start and
+   finish are filled circles in `colors.primary` / `colors.success` with a
+   `colors.background` ring, radius `endpointRadiusM(bbox)` (1.5 % of the bbox
+   diagonal, floored at 4 m so a route at the extent gate still shows a dot),
+   merged below `ENDPOINT_MERGE_M` as on iOS. Circles are composed after polylines
+   in expo-maps' content. Custom `figure.run`/`flag.checkered` icons are the
+   deferred follow-up, to bundle with another native bump.
+4. **The interaction lock is real on Google** (`scrollGesturesEnabled`,
+   `zoomGesturesEnabled`, `rotationGesturesEnabled`, `tiltGesturesEnabled`,
+   `scrollGesturesEnabledDuringRotateOrZoom: false`) — item 6's Google aside
+   confirmed. The RN `Pressable` + `pointerEvents="none"` wrapper is kept anyway
+   for the press and the a11y role. Default-on controls that a read-only map must
+   suppress on Google: `zoomControlsEnabled`, `mapToolbarEnabled`,
+   `compassEnabled`, `myLocationButtonEnabled`, `indoorLevelPickerEnabled`,
+   `scaleBarEnabled`, `properties.selectionEnabled`, plus `isBuildingEnabled`
+   (3D blocks over the route at street zoom). `colorScheme: FOLLOW_SYSTEM`,
+   `mapType: NORMAL`; Google has no equivalent of Apple's `MUTED` emphasis — a
+   POI-hiding `mapStyleOptions` JSON is a later nicety.
+5. **The key (item 5) is baked by Expo's prebuild core, not by expo-maps**, from
+   `android.config.googleMaps.apiKey` into a `<meta-data
+   android:name="com.google.android.geo.API_KEY">` (plus `org.apache.http.legacy`).
+   `app.config.ts` reads `GOOGLE_MAPS_ANDROID_API_KEY` from the environment
+   (gitignored `.env.local` locally; an EAS environment variable in stage 7) and
+   falls back to `MISSING_GOOGLE_MAPS_ANDROID_API_KEY`, because **no meta-data at
+   all crashes the app** — `MapView.onCreate` throws `IllegalStateException: API
+   key not found` the first time a route renders (measured) — while an *invalid*
+   key only logs `Authorization failure` and paints nothing. The field would have
+   moved the iOS fingerprint; ADR 0012's amendment of the same date has the strip.
+   A bare `android.*` field change needs `bun run prebuild:dev:android` and a
+   Gradle rebuild before anything changes on the emulator. **Key restriction:**
+   the dev build is signed with the debug keystore Expo prebuild writes to
+   `android/app/debug.keystore` — the classic React Native one, SHA-1
+   `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25` as the Maps SDK
+   itself reports in logcat — **not** `~/.android/debug.keystore`'s
+   fingerprint that the stage plan quoted.
+6. **What an unauthorised map looks like, so nobody debugs the adapter for it.**
+   maps-compose 6.10 composes its `AndroidView(MapView)` only once its
+   `GoogleMapsInitializer` reports success (a few hundred ms after the first
+   map mounts; the fixed camera means no visible snap). The first `MapView` of the
+   process is created — Google's logo draws, the renderer logs `Model is not
+   recognized` — then `Authorization failure` arrives and the SDK shuts its
+   renderer down (`Shutting down renderer while it's not idle - phase is
+   INVALID`); every later `MapView` in that process is withheld (an empty
+   `AndroidViewsHandler` in `dumpsys activity top`). No tiles, no overlays, no
+   logo, no crash. Verified on the emulator with the placeholder key: the card
+   mounts at 3:2 with "Map of your 0.67 km route", the viewer mounts full-bleed
+   with "Your 0.67 km route", back returns to the summary, and the treadmill /
+   no-location / under-gate degradations (spec §8) all show the right card.
+   **Still to verify with a real key:** polyline colours and run/walk widths at
+   card zoom, circle paint order above the lines, `FOLLOW_SYSTEM` dark tiles,
+   first-paint time of the card.

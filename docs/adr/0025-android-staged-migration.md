@@ -75,7 +75,7 @@ screens.
 | --- | --- | --- | --- |
 | **1 — Basics** | All plan weeks; run screen with clock, progress, transport, lock; vibration-only cues; run summary without map, health, export; Plan, Log, Settings; onboarding = welcome only. No location, no speech, no map, no Health, no elevation. Screen held awake for the whole run. | Every port's `adapter.android.ts`; `island/*.android.tsx`; Plan/Log/Settings route forks; run-transport, run-lock, run-unavailable, stat-grid forks. | **Built 2026-09-20**, verified on the emulator (plan → session → run → pause/skip/lock/unlock/end → summary → log → settings; onboarding gating). |
 | 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner`'s `'unsupported'` branch goes dead, not removed (see the 2026-09-21 amendment). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-2-location-heartbeat.md); mechanics and measurements in ADR 0008's 2026-09-21 amendment. |
-| 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | Planned — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md) |
+| 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md); mechanics and measurements in ADR 0009's 2026-09-21 amendment. |
 | 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | Planned |
 | 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | Planned |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | Planned |
@@ -301,3 +301,43 @@ foresee, and what changed beyond it:
   roughly twice that free, with failed installs leaving a copy in
   `/data/local/tmp`; after a permission reset (a force-stop) the `runbrodev://`
   link can resolve to another installed dev client, so launch by package first.
+
+## Amendment (2026-09-21): stage 3 built — spoken cues over audio focus
+
+Stage 3 shipped as planned and as decided: `cue-service/adapter.android.ts` is a
+real expo-speech adapter, the composition seam, the release scheduler, the
+engine and the iOS adapter are untouched, and the ducking mechanics are in ADR
+0009's amendment of the same date. What the stage adds to this record:
+
+- **The repo's first local native module, `modules/audio-focus/`** (Expo Modules
+  API, Kotlin, ~60 lines, `platforms: ["android"]`, no config plugin).
+  Autolinking discovers it from the default `modules/` directory; its TS wrapper
+  is `index.android.ts`, reached through a new `@/modules/*` tsconfig path
+  alias (beside `@/assets/*`) and imported only from `adapter.android.ts`, so the
+  iOS TypeScript project and the iOS bundle never see it. The plan's iOS/web stub
+  was unnecessary for the same reason. `modules/` is now where native code the
+  app owns lives; `app.json` + config plugins remain the way to configure
+  third-party native code.
+- **The iOS fingerprint did not move** (`9061ec14…` before and after the module
+  landed): an Android-only local module is not an iOS autolinking source, so
+  this stage — unlike the plan's expectation — leaves iOS OTA-eligible.
+- **Onboarding and copy:** `audio-cues-v1` dropped its `platforms: ['ios']`
+  (Android: welcome → audio cues → location primer; `health-primer-v1` stays
+  iOS-only); the audio-cues primer's "Over your music" sentence is the one
+  shared-screen fork, a `Platform.select` ("Spotify or YouTube Music", no silent
+  switch); Android Settings' cue section is "Coaching" with the iOS footer's
+  wording split across the two rows, and the stage-1 "cues need the screen on"
+  sentence is gone. The run banner's copy needed no change: its truth table
+  (cues stop in the dark only when location is denied) now matches iOS.
+- **One divergence from iOS in the adapter:** no release debounce, because React
+  Native suspends JS timers while the activity is paused (measured and explained
+  in ADR 0009's amendment). The scheduler's injectable timer seam carried it
+  without a change to the scheduler.
+- **Emulator facts** that cost time, for AGENTS.md: `adb install -r` on the
+  built debug APK is a streamed install that stages one copy where Gradle's
+  `installDebug` stages two — the way through when `/data` has under ~700 MB
+  free; a `pm revoke` puts the app in the stopped state (relaunch by package);
+  Settings gains an "Open Settings" row when location is denied, which shifts
+  every row below it; another dev client launched on the same emulator mid-run
+  takes the taps meant for this app; and argent boots emulators muted, so
+  audibility needs `boot-device` with `sound: true`.

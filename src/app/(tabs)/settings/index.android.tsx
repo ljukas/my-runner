@@ -35,15 +35,15 @@ export default function SettingsScreen() {
         modifiers={[fillMaxSize(), background(colors.background)]}
         contentPadding={{ bottom: 24 }}
       >
-        <ListSectionHeader title="Vibration cues" />
+        <ListSectionHeader title="Coaching" />
         <SettingsToggle
           label="Interval cues"
-          description="A vibration at every walk/run switch."
+          description="Interval cues call out each walk/run switch."
           settingKey="intervalCuesEnabled"
         />
         <SettingsToggle
           label="Milestone cues"
-          description="Halfway, your last run, and finishing. Cues need the screen on — lock the run screen to keep it awake."
+          description="Milestone cues add motivational spots — halfway, your last run, and finishing. A gentle vibration accompanies each cue while the screen is on."
           settingKey="milestoneCuesEnabled"
         />
 

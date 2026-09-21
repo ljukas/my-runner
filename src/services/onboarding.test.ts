@@ -50,8 +50,12 @@ describe('createOnboarding', () => {
 
   test('android sees only the steps its platform has a capability for', () => {
     const onboarding = createOnboarding(fakeStorage(), 'android');
-    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1']);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
+      'welcome-v1',
+      'location-primer-v1',
+    ]);
     onboarding.completeStep('welcome-v1');
+    onboarding.completeStep('location-primer-v1');
     expect(onboarding.pendingSteps()).toEqual([]);
   });
 

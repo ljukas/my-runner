@@ -27,37 +27,49 @@ Config first because it forces the one native rebuild. The adapter next, verifie
 
 ### Task 1: expo-location Android config
 **Files:** Edit `app.json` (the `expo-location` plugin entry), `docs/adr/0025-android-staged-migration.md` (stage table only at the end).
-- [ ] Add to the `expo-location` plugin config: `"isAndroidForegroundServiceEnabled": true`, `"androidForegroundServiceIcon": "./assets/images/android-icon-monochrome.png"` (monochrome, as the notification small icon must be). Keep every iOS key as is.
-- [ ] `bun run prebuild:dev:android`; confirm `android/app/src/main/AndroidManifest.xml` gained `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION` and the location service with `foregroundServiceType="location"`; confirm **no** `ACCESS_BACKGROUND_LOCATION`.
-- [ ] `bun run android` (full Gradle). App boots; stage-1 flows still pass.
+- [x] Add to the `expo-location` plugin config: `"isAndroidForegroundServiceEnabled": true`, `"androidForegroundServiceIcon": "./assets/images/android-icon-monochrome.png"` (monochrome, as the notification small icon must be). Keep every iOS key as is.
+- [x] `bun run prebuild:dev:android`; confirm `android/app/src/main/AndroidManifest.xml` gained `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION` and the location service with `foregroundServiceType="location"`; confirm **no** `ACCESS_BACKGROUND_LOCATION`.
+- [x] `bun run android` (full Gradle). App boots; stage-1 flows still pass.
 
 ### Task 2: the real `adapter.android.ts`
 **Files:** Rewrite `src/services/location-tracker/adapter.android.ts`; read `adapter.ios.ts` as the template (same `listeners` Set, same `toFix`, same `toStatus` mapping via `canAskAgain`).
-- [ ] Module-scope `TaskManager.defineTask(LOCATION_TASK, …)` fan-out identical to iOS (headless delivery must be registered at bundle-eval, ADR 0008 §4). Same task name is fine — the platforms never share a process.
-- [ ] `requestPermission()` / `getPermissionStatus()` via `requestForegroundPermissionsAsync` / `getForegroundPermissionsAsync`, mapped to `'granted' | 'denied' | 'undetermined'` exactly as iOS does (`canAskAgain` decides `'undetermined'` vs `'denied'`). `'unsupported'` is never returned any more.
-- [ ] `start()`: `startLocationUpdatesAsync(LOCATION_TASK, { accuracy: BestForNavigation, distanceInterval: 0, timeInterval: 1000, foregroundService: { notificationTitle: 'RunBro is tracking your run', notificationBody: 'Distance and cues keep working while the screen is off.', notificationColor: <primary hex from constants/theme>, killServiceOnDestroy: true } })`. Only after `granted`; idempotent; warnings non-fatal — mirror the iOS structure.
-- [ ] `stop()` guarded by `hasStartedLocationUpdatesAsync` (the same idempotency reason as iOS).
-- [ ] Verify on the emulator: grant location (`argent settings-permissions` or the in-app prompt from Task 4), start a run, then drive the emulator's route engine: `adb -s emulator-5554 emu geo fix 18.0686 59.3293` repeatedly with small deltas (a ~1 m/s walk is 0.00001° lat per second), or Extended Controls → Location → route playback. Distance and pace rows must appear on the run screen and the summary's Distance/Avg Pace tiles must render (`RunStatGrid` already gates on `hasMeasuredDistance`).
-- [ ] Verify the foreground-service notification appears while a run is active and disappears on end/abandon (`stopIdleTracking` in the composition root already stops tracking when no run is live).
+- [x] Module-scope `TaskManager.defineTask(LOCATION_TASK, …)` fan-out identical to iOS (headless delivery must be registered at bundle-eval, ADR 0008 §4). Same task name is fine — the platforms never share a process.
+- [x] `requestPermission()` / `getPermissionStatus()` via `requestForegroundPermissionsAsync` / `getForegroundPermissionsAsync`, mapped to `'granted' | 'denied' | 'undetermined'` exactly as iOS does (`canAskAgain` decides `'undetermined'` vs `'denied'`). `'unsupported'` is never returned any more.
+- [x] `start()`: `startLocationUpdatesAsync(LOCATION_TASK, { accuracy: BestForNavigation, distanceInterval: 0, timeInterval: 1000, foregroundService: { notificationTitle: 'RunBro is tracking your run', notificationBody: 'Distance and cues keep working while the screen is off.', notificationColor: <primary hex from constants/theme>, killServiceOnDestroy: true } })`. Only after `granted`; idempotent; warnings non-fatal — mirror the iOS structure.
+- [x] `stop()` guarded by `hasStartedLocationUpdatesAsync` (the same idempotency reason as iOS).
+- [x] Verify on the emulator: grant location (`argent settings-permissions` or the in-app prompt from Task 4), start a run, then drive the emulator's route engine: `adb -s emulator-5554 emu geo fix 18.0686 59.3293` repeatedly with small deltas (a ~1 m/s walk is 0.00001° lat per second), or Extended Controls → Location → route playback. Distance and pace rows must appear on the run screen and the summary's Distance/Avg Pace tiles must render (`RunStatGrid` already gates on `hasMeasuredDistance`).
+- [x] Verify the foreground-service notification appears while a run is active and disappears on end/abandon (`stopIdleTracking` in the composition root already stops tracking when no run is live).
 
 ### Task 3: revert stage-1 holds
 **Files:** `src/components/keep-awake-while-mounted.tsx`, `src/services/onboarding.ts` + `onboarding.test.ts`, `src/app/(tabs)/settings/index.android.tsx`, `src/components/run-location-banner.tsx` (no change expected).
-- [ ] `runHoldsScreenAwake(locked)` → back to `locked` on both platforms (delete the `Platform` import and the ADR 0025 stage-1 comment; the lock is again the runner's own trade, ADR 0008 §5).
-- [ ] `location-primer-v1` drops its `platforms: ['ios']`, so Android sees welcome → location primer. Update the test that asserts Android sees only `welcome-v1` (it now sees two steps); keep the audio-cues and health primers iOS-only.
-- [ ] Android Settings gains a **Location** section (Material list rows) mirroring the iOS one's states: `granted` → "While using the app" + footer copy; `denied` → "Open Settings" (`Linking.openSettings()`); `undetermined` → "Enable location". Reuse `useLocationPermission()` (already cross-platform; it re-reads on foreground).
-- [ ] Check `RunLocationBanner`'s copy still tells the truth on Android for `denied`/`undetermined`: "Cues stop when the screen sleeps" is true there too without the service. Leave it.
+- [x] `runHoldsScreenAwake(locked)` → back to `locked` on both platforms (delete the `Platform` import and the ADR 0025 stage-1 comment; the lock is again the runner's own trade, ADR 0008 §5).
+- [x] `location-primer-v1` drops its `platforms: ['ios']`, so Android sees welcome → location primer. Update the test that asserts Android sees only `welcome-v1` (it now sees two steps); keep the audio-cues and health primers iOS-only.
+- [x] Android Settings gains a **Location** section (Material list rows) mirroring the iOS one's states: `granted` → "While using the app" + footer copy; `denied` → "Open Settings" (`Linking.openSettings()`); `undetermined` → "Enable location". Reuse `useLocationPermission()` (already cross-platform; it re-reads on foreground).
+- [x] Check `RunLocationBanner`'s copy still tells the truth on Android for `denied`/`undetermined`: "Cues stop when the screen sleeps" is true there too without the service. Leave it.
 
 ### Task 4: screen-off heartbeat verification (the acceptance test of the stage)
-- [ ] Start a run with location granted; put the display to sleep (`adb -s emulator-5554 shell input keyevent KEYCODE_SLEEP`); keep feeding `geo fix` for 90 s; wake (`KEYCODE_WAKEUP` + swipe). Expect: elapsed advanced, segment boundaries crossed on time, distance grew. Read `[cue]` and `fix_batch` evidence from the run's field log (the run-log export exists on iOS only; on Android read `runEngine.getSnapshot()` via `debugger-evaluate`, or add a temporary `console.log` you remove before commit).
-- [ ] Repeat with location denied: confirm the honest degradation (timer correct, no distance, cues stop with the screen off) — the same contract as iOS.
-- [ ] Record the measured cadence and whether Doze/App Standby interfered on the emulator in the ADR 0008 amendment.
+- [x] Start a run with location granted; put the display to sleep (`adb -s emulator-5554 shell input keyevent KEYCODE_SLEEP`); keep feeding `geo fix` for 90 s; wake (`KEYCODE_WAKEUP` + swipe). Expect: elapsed advanced, segment boundaries crossed on time, distance grew. Read `[cue]` and `fix_batch` evidence from the run's field log (the run-log export exists on iOS only; on Android read `runEngine.getSnapshot()` via `debugger-evaluate`, or add a temporary `console.log` you remove before commit).
+- [x] Repeat with location denied: confirm the honest degradation (timer correct, no distance, cues stop with the screen off) — the same contract as iOS.
+- [x] Record the measured cadence and whether Doze/App Standby interfered on the emulator in the ADR 0008 amendment.
 
 ### Task 5: docs
-- [ ] ADR 0008: dated amendment "Android mechanics realised" (foreground service as the heartbeat, permissions posture unchanged, notification exemption finding, the stage-1 hold reverted).
-- [ ] ADR 0025: stage-2 row → **Built <date>**; add `RunLocationBanner`/`'unsupported'` note if the enum member is kept; link this plan.
-- [ ] AGENTS.md: the Android commands bullet gains the rebuild note for plugin changes and the `adb emu geo fix` recipe (Maestro cannot move the emulator either, ADR 0001's amendment applies to Android as well — verify and say so).
-- [ ] Memory: update `android-stage-1.md` (or add `android-stage-2.md`) with what surprised you.
+- [x] ADR 0008: dated amendment "Android mechanics realised" (foreground service as the heartbeat, permissions posture unchanged, notification exemption finding, the stage-1 hold reverted).
+- [x] ADR 0025: stage-2 row → **Built <date>**; add `RunLocationBanner`/`'unsupported'` note if the enum member is kept; link this plan.
+- [x] AGENTS.md: the Android commands bullet gains the rebuild note for plugin changes and the `adb emu geo fix` recipe (Maestro cannot move the emulator either, ADR 0001's amendment applies to Android as well — verify and say so).
+- [x] Memory: update `android-stage-1.md` (or add `android-stage-2.md`) with what surprised you.
 
 ## Deferred (not this stage)
 - Route map on Android (stage 4, needs a Maps key) — the summary's route card stays a null stub even though fixes are now recorded; the pace chart appears (Skia, cross-platform).
 - Spoken cues (stage 3); Health Connect (5); elevation (6); Maestro on Android + `e2e-android` CI lane (7).
+
+## As built (2026-09-21)
+
+Every task above landed; deviations and findings, in the order they bit:
+
+- **Task 2 crashed the process on the first fix** — `Requested job cannot be persisted without holding android.permission.RECEIVE_BOOT_COMPLETED`: expo-task-manager schedules a persisted `JobScheduler` job per location batch and nothing in the toolchain declares the permission. Fixed with `android.permissions: ["android.permission.RECEIVE_BOOT_COMPLETED"]` in `app.json` (a bare field ⇒ explicit `prebuild:dev:android` + Gradle rebuild). Recorded in ADR 0008's amendment.
+- **The notification exemption assumed in Global Constraints is wrong on API 33+**: the service runs as a real foreground service, the status bar shows the location indicator, but the shade shows "No notifications" without `POST_NOTIFICATIONS`. Left unrequested (product decision); see ADR 0008.
+- **Measured (Task 4):** 182 fixes / 190 s dark window, median gap 1.02 s, max 2.04 s; `startRun` and `startWalk` fired 0.2 s / 0.1 s after schedule while backgrounded; Doze `INACTIVE` throughout. Denied path: no service, no distance row, timer 1:20 after 81 s wall time across a 45 s dark window, `tick` rows silent between sleep and wake.
+- **Requested mid-stage:** `android.predictiveBackGestureEnabled: true` (RN 0.86 handles the callback; verified by gesturing out of the summary).
+- **Observed once, not reproduced:** the primer's permission promise did not settle on the very first launch after install; three later attempts resolved normally.
+- **Review catch:** `RunLocationBanner`'s `location.slash` glyph was a bare SF Symbol name, blank on Android — invisible in stage 1 because the banner never mounted there. Now an `{ ios, android: 'location_off' }` pair (behaviour-identical on iOS).
+- **Not done here:** the `bun run lint --fix` path crashes inside `@typescript-eslint/no-floating-promises` on `onboarding.test.ts` (plain `bun run lint` is fine; `bunx prettier --write` formats the file).

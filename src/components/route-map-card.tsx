@@ -63,7 +63,7 @@ export function RouteMapCard({ run, track }: { run: Run; track: RunTrack }) {
         importantForAccessibility="no-hide-descendants"
       >
         <SymbolView
-          name="arrow.up.left.and.arrow.down.right"
+          name={{ ios: 'arrow.up.left.and.arrow.down.right', android: 'open_in_full' }}
           size={Math.round(CHIP_SYMBOL_POINTS * Math.min(PixelRatio.getFontScale(), 1.6))}
           tintColor={colors.textSecondary}
         />

@@ -76,7 +76,7 @@ export default function RunSummaryScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         className="bg-background-grouped"
-        contentContainerClassName="gap-4 px-4 android:pt-4"
+        contentContainerClassName="gap-4 px-4 android:pt-4 android:pb-safe-offset-10"
       >
         {loaded && run ? (
           <>

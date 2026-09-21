@@ -11,7 +11,9 @@ Proposed — draft for review. Flip to `Accepted` on approval. Numbered 0015 bec
 **Amended 2026-08-03** with measurements from the run-elevation-and-pace-chart
 slice — see [Amendment (2026-08-03)](#amendment-2026-08-03). **Amended 2026-08-04**
 with what the run-barometer-field-logging slice settled — see
-[Amendment (2026-08-04)](#amendment-2026-08-04).
+[Amendment (2026-08-04)](#amendment-2026-08-04). **Amended 2026-08-06** with the
+first real-hardware measurements, which close item 7 — see
+[Amendment (2026-08-06)](#amendment-2026-08-06).
 
 ## Context
 
@@ -93,6 +95,9 @@ decision, taken before Stage 4).
    background per its source). Implementation must verify this on-device
    (Milestone-style spike); if it cannot run backgrounded, gain is reconstructed
    from foreground samples plus the GPS fallback. The port hides which path won.
+   **Closed 2026-08-06:** measured on device — delivery is unaffected by
+   backgrounding, so the fallback is not needed. See
+   [Amendment (2026-08-06)](#amendment-2026-08-06).
 
 ## Consequences
 
@@ -331,3 +336,256 @@ event, nothing to log — because a thread cannot observe its own
 non-scheduling: the code that would write "I was blocked" cannot run while it
 is blocked. Any future analysis of a delivery gap has to treat these two causes
 as indistinguishable from the data alone.
+
+## Amendment (2026-08-06)
+
+Written after the first two field captures on real hardware — an iPhone on iOS
+26.5.2, two ordinary plan sessions of 31.5 and 28.8 minutes. Full analysis in
+[the capture analysis](../superpowers/research/2026-08-06-barometer-field-capture-analysis.md);
+per-capture metrics in [`docs/field-captures/`](../field-captures/).
+
+**This supersedes the 2026-08-04 amendment's central caveat.** That amendment
+recorded that "no real barometer reading has ever been recorded by this app, and
+its delivery cadence has never been measured." Both are now false. It remains
+correct about everything else, including that every verification *at that time*
+ran on a simulator with no barometer.
+
+**Item 7 is closed. Background delivery works, unchanged.** One capture spent
+1688 s of its 1725 s backgrounded — pocketed, screen locked — across four
+separate windows, and recorded **1585 altitude samples against 1586 expected:
+99.9% of nominal cadence, with no gap ever exceeding 1.14 s.** The other capture
+never left the foreground and shows the same cadence and the same zero gaps, so
+the two regimes are measurably identical. `expo-sensors` keeps `CMAltimeter`
+delivering under [ADR 0008](0008-background-execution-location-heartbeat.md)'s
+When-In-Use heartbeat, and item 7's fallback — reconstructing gain from
+foreground samples plus GPS — is not needed on this hardware. The heartbeat
+carried both sensors: the `tick` row held a 5.02 s median throughout and
+`fix_batch` receipt lag a 0.09 s median, so the JS thread was scheduled promptly
+rather than catching up in bursts.
+
+**The delivery cadence is ~1 Hz, not "every few seconds".** Measured at a
+**1.065 s median with a 2 ms spread between the 5th and 95th percentiles**,
+identical across both captures and both app states. `CMAltimeter.h`'s wording
+and this ADR's own prose implied something four times sparser, and the
+2026-08-04 amendment drew the consequence that a 31-sample median window "spans
+over two minutes of wall-clock time." **It spans 33 s.** The reducer's
+sample-counting window primitive therefore stands, and the field-logging spec's
+§8.6 escape hatch — switching to a time-based window or resample-then-median —
+does not need to fire. The render slice's deliverable can be an ordinary
+`(medianWindow, hysteresisM)` pair after all.
+
+**No rebase was observed, including across background transitions.** Zero
+`relativeAltitudeM` discontinuities greater than 1 m in either capture, across
+four background transitions. The corroborating evidence is stronger than the
+jump count: `relativeAltitudeM` tracks `−ΔP / 0.12 hPa·m⁻¹` to within 0.18 m
+over the full 28 m span of both runs, which no rebase can preserve. This
+confirms on hardware what the previous amendment could only read from source —
+`BarometerModule.swift` has no `OnAppEntersBackground` hook, so pocketing the
+phone does not restart the altimeter. It also confirms the pressure-continuity
+detector works, and establishes that `relativeAltitudeM` is a deterministic
+transform of `pressureHpa` carrying no independent information; the redundancy
+is the detector, and pressure is the primary series.
+
+`epoch` behaved exactly as the previous amendment's model predicts: constant
+within each run, and incremented by exactly one across two runs sharing a
+`processToken` — one app process spanned both captures, twelve hours apart.
+
+**Sensor noise is σ ≈ 0.9–1.9 cm per sample** (second-difference estimate;
+a lower bound, since vertical body motion aliases into a 1 Hz series). Pressure
+resolution is 0.00008 hPa, about 0.7 mm equivalent — quantisation is nowhere
+near a limiting factor. Against GPS vertical error of ±10–25 m this is three
+orders of magnitude better and settles this ADR's barometer-first premise as
+measured rather than argued.
+
+**The closure-error magnitudes in the previous amendment's table hold.**
+Two geodetically closed loops (2.6 m and 9.2 m start-to-end) closed
+barometrically to **−0.72 m and −2.04 m**, inside the predicted 1–3 m calm-day
+band. The doorstep-bracket requirement is justified, not over-cautious. These
+are drift diagnostics only — the field-logging spec §2.1 proves `|gain − loss|`
+measures `hysteresisM` plus drift and carries no accuracy information, and both
+captures reproduce that identity on real data.
+
+**GPS `altitudeAccuracy` is better than the 2026-08-03 amendment could
+simulate.** It is present and valid on every point of both runs, median 3.00 m,
+p95 4.7–5.3 m — better than that amendment's optimistic ±10 m column. This does
+not revive GPS altitude as a source (its raw span reads 76 m against the
+barometer's 28 m on the same run), but it means the ±25 m regime describes a
+worse world than this phone runs in, and any future GPS-fallback tuning should
+be measured rather than inherited from those simulations.
+
+**What is still open: the tuning itself.** Neither capture carries ground truth —
+both are plan sessions with no stationary bracket, no tape-measured vertical and
+no flat route — so no configuration can be scored yet. The protocol's captures 1
+(stationary, a certain zero) and 2 (stairwell, an exact nonzero) remain the
+blocking work, and item 5's gain/loss storage stays unwritten until they select a
+configuration. What has changed is that the capture harness is now proven end to
+end on real hardware, so taking them no longer risks discovering the instrument
+was broken all along.
+
+### Capture 1 (2026-08-07): the median window is the wrong instrument
+
+The protocol's capture 1 — 54 minutes stationary on a desk, in `field-test` mode,
+3052 samples with zero drops and zero gaps — was taken the following day and
+changes what the reducer should be. Detail in
+[the capture analysis](../superpowers/research/2026-08-06-barometer-field-capture-analysis.md#6a-capture-1-2026-08-07--and-the-finding-that-reframes-the-tuning).
+
+**Per-sample white noise is σ = 0.0032 m — and it is not the problem.** After
+removing a linear trend, the residual has sd 0.202 m and a 1.50 m peak-to-peak:
+**63× the white component.** The error that survives is low-frequency wander, and
+a median filter is a spike-rejector. Measured on this capture, widening the
+window from *none* to 121 samples (129 s) reduces the residual only from 0.202 m
+to 0.162 m — **a 20% gain for a two-minute window.**
+
+`medianWindow` was sized in this ADR's §4 against GPS, whose error genuinely is
+largely per-sample. On the barometer it is close to a free parameter, and should
+be chosen for acceptable lag rather than for noise rejection. **This is the
+field-logging spec's §8.6 escape hatch coming due — but for the opposite reason
+to the one it named.** §8.6 expected a slow or irregular cadence to invalidate a
+sample-counting window; the cadence is fine. What is actually wrong is that
+median filtering targets a kind of noise this sensor does not have.
+
+**Drift, not noise, is the dominant error — and hysteresis only postpones it.**
+The stationary phone's barometer fell 5.05 m monotonically (9 of 9 five-minute
+bins) as pressure rose 0.68 hPa/hour. Because `elevationStep` re-anchors on every
+banked move, accumulated drift banks as soon as it exceeds `hysteresisM` and the
+anchor follows it, so **a long enough run banks arbitrary drift at any
+threshold**; the shipped `h10` reads 0.00 m on this capture only because the
+total never reached 10 m. At `h3` the same capture fabricates 3.00 m of descent.
+
+That reframes the remedy. Drift is slow and monotone, which makes it *separable*
+in a way white noise is not: it can be estimated and subtracted. The protocol's
+90-second doorstep brackets are what enable that, and this is a considerably
+stronger argument for them than "a measured covariate" — they are the mechanism
+that addresses the dominant error term. The render slice should treat drift
+correction as part of the reducer's job rather than expecting a threshold to
+absorb it.
+
+**Generality, revised 2026-08-11:** this was first recorded as an active-day
+worst case. A second hour-long stationary capture on a different day came in at
+**−4.79 m/hour**, within 20% of the first, so **~5 m/hour should be read as
+typical rather than extreme**. The calm end of the range remains unmeasured — no
+genuinely settled day has been caught yet — so there is no established lower
+bound, only two agreeing observations.
+
+### Capture 2 (2026-08-07): the deliverable is not a `(window, hysteresis)` pair
+
+The stairwell capture — 318 samples, `field-test` mode, a single 12-step flight
+walked up and down **16 times** (the repetition count was not recorded but is
+unambiguous in the trace: 32 clean legs, amplitude sd 7%) — settles the question
+§8.6 of the field-logging spec left open.
+
+**Every median window of 15 samples or more reports 0.00 m gain on sixteen
+ascents of a real staircase**, including this ADR's shipped `w31 h10`:
+
+| config | gain | loss |
+|---|---|---|
+| w1 h0 | 35.41 | 35.41 |
+| w5 h1 | 18.67 | 18.03 |
+| w15 h1 · w31 h3 · **w31 h10** · w61 h1 | **0.00** | **0.00** |
+
+A stair leg takes ~9.3 samples, so a 15-sample window spans longer than a whole
+leg: the median of any window centred on a peak already contains both adjoining
+troughs and the oscillation is erased before hysteresis sees it.
+
+**Taken with capture 1, this forecloses the parameter pair.** The two captures
+impose incompatible requirements that no `medianWindow` reconciles:
+
+| requirement | measured in | forces |
+|---|---|---|
+| See a ~2.1 m flight of stairs | capture 2 | `hysteresisM ≤ 1` |
+| Reject 5 m of monotone weather drift | capture 1 | `hysteresisM ≥ 5` |
+
+Widening the window does not mediate: capture 1 shows it buys ~20% of noise, and
+capture 2 shows it destroys the terrain a small threshold exists to catch.
+
+**So the render slice's deliverable is a changed primitive, not a tuned pair** —
+the outcome the field-logging spec's §8.6 reserved, now forced by measurement.
+The direction follows from drift being slow and monotone, therefore *separable*:
+estimate and subtract it, then run a small hysteresis that can still see terrain.
+Hysteresis was being asked to reject a monotone trend, which it structurally
+cannot do — it re-anchors on every banked move, so it only postpones drift. This
+also promotes the protocol's 90-second doorstep brackets from a diagnostic to the
+mechanism the reducer depends on.
+
+**A second finding: the sensor under-reads a fast climb by 21%, dynamically.**
+The flight reads **2.103 m** by barometer (sd 0.152 m over 33 legs) against
+**2.664 m** by tape. The ground truth stands — it is a *spiral* staircase, where
+a 222 mm riser is ordinary, and 12 × 222 mm is a textbook storey height. Air
+density does not explain the gap either: iOS's conversion comes out at
+0.1191 hPa/m (the standard atmosphere, implying 14.4 °C), and for 2.664 m to have
+produced the recorded 0.2505 hPa the stairwell air would need to be at **91 °C**.
+The conversion is right; the pressure readings do not keep up.
+
+The shortfall splits into ~0.143 m of sampling loss (the apex falls between
+1.065 s samples) and ~0.417 m of lag, a first-order fit giving **τ ≈ 2 s** —
+consistent with the observed duration/amplitude correlation (r = 0.63) and
+plausible for `CMAltimeter`'s internal filtering.
+
+If that holds, the error is confined to fast excursions: ~15% at this stairwell's
+10 s legs, ~2% at 30 s, ~0.5% at 60 s. **Real running terrain would be
+essentially unaffected, and this stairwell is a harsher magnitude test than any
+run** — which matters because the spec's §8.5 uses capture 2 as `truthGain`, and
+a 21%-attenuated reference would bias the sweep toward under-smoothing. It is a
+one-point fit pending a settling capture (bottom/top/bottom brackets plus a few
+quick reps, ~6 minutes), which measures τ directly and cancels drift.
+
+This does not disturb the ordering above — 0.00 m is 0.00 m at any scale — but
+item 5's stored totals should not be calibrated against capture 2 until that
+settling capture lands.
+
+### The settling capture (2026-08-10): lag confirmed; score against the signal, not the tape
+
+The settling capture was taken, and an **air-to-air heat pump on the top floor
+was running** — visible in the data as 0.46 m step changes between consecutive
+samples and a top-bracket sd of 0.278 against 0.14–0.23 at the bottom.
+Atmospheric pressure does not step; a cycling pump does. It contaminated exactly
+the bracket the measurement depended on, so the estimator became the plateau
+immediately adjacent to each transition instead:
+
+| measurement | pace | height | % of 2.664 m |
+|---|---|---|---|
+| Descent, with dwell | ~11 s | 2.647 m | 99% |
+| Ascent, with dwell | ~10.6 s | 2.360 m | 89% |
+| Capture 2 legs | 9.9 s | 2.103 m | 79% |
+| Quick reps | 7.4 s | 1.851 m | 69% |
+
+**Monotone in dwell and pace — lag confirmed**, with the two dwelled measurements
+bracketing the tape truth rather than falling short of it systematically.
+**It is not a slow time constant, though:** on arrival the reading reaches its
+value within ~2 s and holds it for 12 s at sd 0.018. The attenuation is that a
+fast traverse *reverses before the reading completes*, not that the sensor takes
+a minute to catch up. The exact figure stays unpinned because of the pump; a
+repeat with it switched off would close that, and nothing depends on it.
+
+**The consequence that matters is for scoring: a reducer cannot recover what the
+sensor never recorded.** Scoring a configuration against the tape's 42.62 m
+(16 × 2.664) would penalise it for instrument attenuation that no `medianWindow`
+or `hysteresisM` affects. Capture 2's scoring target is therefore the
+**barometric content** of the signal — 16 × 2.103 = **33.6 m** — with the gap to
+the tape recorded separately as a known instrument limit.
+
+**Real terrain is unaffected.** At 10.6 s the reading is already 89–99% complete,
+and a hill is climbed over 30–120 s. The attenuation belongs to this stairwell
+test, which sits near the sensor's response limit, not to the terrain the app
+measures.
+
+### Replication (six captures, 2026-08-05 → 2026-08-10)
+
+Two further verification runs (`w4d2`, `w4d1`; 30.5 and 30.0 min) replicate every
+instrument finding. Across all captures now recorded: **cadence 1.065 s with no
+variation past the third decimal on six captures; ~100% delivery on three
+backgrounded runs; zero rebases in any capture ever taken.**
+
+**Drift, across all six captures, runs 0.6–5.6 m/hour**, with the two hour-long
+stationary captures at the top (−5.59 and −5.02 m/hour) and the runs spread
+below (−4.27, −2.68, −1.37, −0.58). A second stationary hour taken on 2026-08-11
+agreed with capture 1 to within 20%, which is why the "active-day worst case"
+reading above is withdrawn — ~5 m/hour is what a stationary hour indoors
+actually looks like. Whether the indoor excess is busier weather or
+building-envelope pressure is not separable from this data. **A 30-minute run
+should be expected to carry roughly 0.3–2.5 m of drift**, comparable to a real
+hill, which is the error term the reducer must handle.
+
+**Run-to-run repeatability is sd ≈ 0.4–0.6 m** over ~27 m of relief, now from
+three independent same-route pairs (0.55, 0.58, 0.36 m) rather than one. That is
+the honest precision a rendered total should be understood to carry.

@@ -1,13 +1,30 @@
 # Field-test capture protocol — barometer elevation
 
 The barometer's tuning cannot be chosen from a desk. `ElevationConfig`'s
-`medianWindow` / `hysteresisM` depend on the delivery cadence, the flat-ground
-jitter and the drift magnitude of real `CMAltimeter` hardware, none of which the
-simulator has and none of which is documented. This is that measurement.
+`medianWindow` / `hysteresisM` depend on the flat-ground jitter and the drift
+magnitude of real `CMAltimeter` hardware, neither of which the simulator has and
+neither of which is documented. This is that measurement. (The third unknown the
+tuning rests on — the delivery cadence — was measured on 2026-08-06 without these
+captures; see immediately below.)
 
 Design: [2026-08-03 barometer field-logging spec](superpowers/specs/2026-08-03-run-barometer-field-logging-design.md).
-Decision it serves: [ADR 0015](adr/0015-run-elevation-on-device-barometer.md),
-whose open item 7 this discharges.
+Decision it serves: [ADR 0015](adr/0015-run-elevation-on-device-barometer.md). Its
+open item 7 — whether the barometer keeps delivering on a locked phone — **was
+closed on 2026-08-06** by two ordinary training runs, not by these captures.
+
+**Captures 1 and 2 are both done (2026-08-07), and between them they showed the
+reducer needs a design change rather than better constants** — so what remains
+below is validation and two loose ends, not the critical path.
+
+**The harness is proven, and two things below are now measured rather than
+guessed** ([capture analysis](superpowers/research/2026-08-06-barometer-field-capture-analysis.md)):
+
+- **Delivery cadence is 1.065 s (~0.94 Hz)** — four times denser than
+  `CMAltimeter`'s documented "every few seconds". This sizes capture 2 directly, so
+  capture 1 no longer gates it.
+- **Delivery is unaffected by backgrounding** — 99.9% of nominal cadence across 28
+  minutes pocketed, no gap over 1.14 s, no rebase. The keepalive worry in capture 1
+  below is now a sanity check, not an open risk.
 
 **None of these captures is a training session.** Take every one of them in
 **Field test capture** mode (Settings → Field test), never by starting a plan
@@ -27,6 +44,12 @@ Health — and the app has no way to delete a run afterwards.
 - [ ] Location: *While Using the App*, Precise Location **ON**.
 - [ ] **Low Power Mode OFF** for every capture — it throttles background work and
       would make a delivery gap unattributable.
+- [ ] **Switch off any heat pump, HVAC or fan** in the building, for every indoor
+      capture. Learned the expensive way on 2026-08-10: an air-to-air heat pump
+      running on the top floor put **0.46 m step changes between consecutive
+      samples** into the stairwell's top bracket and cost that capture its
+      precision. It is the same artifact capture 1's room checklist warns about,
+      and 0.46 m is comparable to the entire effect being measured.
 - [ ] Battery ≥ 60 %.
 - [ ] A tape measure (millimetres) for capture 2.
 - [ ] Somewhere to note things by hand — the table at the bottom of this file, or
@@ -34,7 +57,15 @@ Health — and the app has no way to delete a run afterwards.
 
 After **every** capture: export it (run summary → **Export run data**), AirDrop
 it to the Mac, drop it in `field-data/` (gitignored — these files contain your
-home address), and fill in one row of the log table.
+home address), and fill in one row of the log table. Then run the analyzer, which
+checks the capture is complete and usable and writes its committable metrics:
+
+```sh
+bun scripts/analyze-field-capture.ts field-data/<export>.txt --json docs/field-captures
+```
+
+It prints the sample count, cadence, gaps, `epoch` values and rebase count — so a
+capture that failed is caught at the Mac in seconds rather than at analysis time.
 
 ---
 
@@ -43,11 +74,55 @@ home address), and fill in one row of the log table.
 Captures 1 and 2 are what make the tuning decidable at all: 1 is a *certain*
 zero, 2 is a *certain* nonzero. Without 2 in particular, nothing in the scoring
 punishes over-smoothing, and the sweep would happily choose a configuration that
-reports zero elevation forever (spec §2.1). Take these two first, and **in this
-order** — capture 1 measures the delivery cadence, and the cadence is what tells
-you how long capture 2 has to be.
+reports zero elevation forever (spec §2.1) — a failure the 2026-08-06 validation
+runs reproduced on real data, where `w61 h30` and `w121 h60` both reported 0.00 m
+of gain and loss on a run containing 28 m of real relief.
 
-### Capture 1 — Stationary · **indoors** · 40–45 min · no walking
+**Both are done (2026-08-07), and together they answered more than the tuning.**
+They showed the reducer cannot be fixed by choosing constants at all: seeing a
+2.1 m flight of stairs demands `hysteresisM ≤ 1`, rejecting the measured weather
+drift demands `≥ 5`, and no median window reconciles them because widening it
+erases the stairs outright. See
+[ADR 0015](adr/0015-run-elevation-on-device-barometer.md#capture-2-2026-08-07-the-deliverable-is-not-a-window-hysteresis-pair).
+
+Two follow-ups remain. Neither blocks the render slice's design decision:
+
+- [x] ~~**Capture 7 — the settling capture.**~~ **TAKEN 2026-08-10.** It confirmed
+      the lag: dwelled traverses read 99% and 89% of the taped height where moving
+      legs read 79% and 69%, monotone in pace. The exact magnitude stays unpinned,
+      because an **air-to-air heat pump on the top floor was running** and put
+      0.46 m single-sample steps into the top bracket — the one bracket the
+      measurement depended on. A repeat with it switched off would pin τ; nothing
+      the render slice needs depends on that.
+- [ ] **If repeating it**, the shape was right and worth reusing: bottom still
+      90 s → up → top still 90 s → down → bottom still 90 s → 3 quick up-down reps
+      → still 30 s. The 90 s is not for settling (the reading arrives within ~2 s)
+      but to average down the 0.20 m low-frequency wander and pin the drift line;
+      the two bottom brackets interpolate drift out, and the quick reps put moving
+      and settled amplitudes in one file under identical conditions. **Switch the
+      heat pump off first**, and confirm it is 12 *risers* floor-to-floor.
+- [ ] **A stationary capture on a genuinely calm day**, to bound the low end of
+      the drift range. Attempted 2026-08-11 and the weather did not cooperate: it
+      came back at −4.79 m/hour against the first capture's −5.69, so **~5 m/hour
+      now looks typical rather than extreme** and the calm end is still unmeasured.
+      Check a barometer trend before spending an hour on this — it only pays off on
+      a genuinely settled day.
+
+### ~~Capture 1~~ — **TAKEN 2026-08-07.** Stationary · **indoors** · 40–45 min · no walking
+
+> **Done, and it is a keeper** — 54.2 min, 3052 samples, zero drops, zero gaps.
+> Keep this section for the retake case below. Two results from it are recorded in
+> [ADR 0015](adr/0015-run-elevation-on-device-barometer.md#capture-1-2026-08-07-the-median-window-is-the-wrong-instrument):
+> the sensor's white noise is 3.2 mm and the **median window buys almost nothing**,
+> while the real error is **−5.05 m of monotone weather drift** over the capture.
+>
+> **Repeated 2026-08-11, and the drift replicated:** −4.79 m/hour against this
+> capture's −5.69, so ~5 m/hour is **typical rather than an active-day worst
+> case**. The calm end of the range is still unmeasured. Not blocking anything.
+>
+> When analysing it, pass `--zero-truth`: GPS cannot tell that a phone was
+> stationary, and this one accumulated 858 m of indoor jitter while never leaving
+> a 16.8 m radius.
 
 Ground truth: exactly 0 m gain, 0 m loss. Also the only clean read of
 sensor jitter, and a long pure-noise record that can be resampled to the 50 seeds
@@ -68,14 +143,20 @@ this repo's measurement discipline requires.
       until you are at the Mac. This capture is 40+ minutes indoors with the
       screen locked, and the app stays alive only through ADR 0008's When-In-Use
       location keepalive: a GPS mechanism being asked to work indoors on poor
-      reception. If it drops, the capture returns near-nothing — and this is also
-      the capture that validates the whole pipeline, so one silent failure costs
-      both. A count in the low tens after 40 minutes means the keepalive died;
-      retake it, closer to a window. Catching that in the room costs one retake;
-      catching it at the Mac costs the afternoon.
+      reception. If it drops, the capture returns near-nothing. **At the measured
+      1.065 s cadence, 40 minutes is ~2250 samples and 45 minutes is ~2535** — so
+      you know what a healthy count looks like before you read it. Anything in the
+      low tens means the keepalive died; retake it, closer to a window. Catching
+      that in the room costs one retake; catching it at the Mac costs the
+      afternoon. (Outdoors this mechanism is now measured at 99.9% delivery across
+      28 backgrounded minutes; indoors on poor reception is the untested case, and
+      the only reason this check survives.)
 - [ ] Record: start time, room, and roughly the indoor temperature.
 - [ ] **Also write down the sample count and the capture's wall-clock length.**
-      Their ratio is the first cadence estimate, and capture 2 is sized from it.
+      Their ratio should reproduce the 1.065 s cadence. A materially different
+      number is itself a finding — it would mean the cadence is not the hardware
+      constant the two validation runs suggest, and the window arithmetic
+      everywhere below would need redoing.
 
 Why 40 and not 5: at a 10 s delivery cadence a 31-sample median window needs
 310 s just to *fill*. A 5-minute capture could return nothing but nulls and read
@@ -88,32 +169,27 @@ overlapping bootstrap of barely-independent draws.
 a capture auto-completes at one hour whether you are ready or not. 40–45 leaves
 room to notice and act; do not aim at 59.
 
-**Also do this during capture 1.** Three native-adapter behaviours were left to
-device verification rather than a mocked-SDK unit test (ADR 0003 item 7 forbids
-mocking Expo SDK internals to test an adapter) and have never run against real
-hardware. Two of the three are checkable from the export; the third genuinely
-isn't:
+**Three native-adapter behaviours were left to device verification** rather than a
+mocked-SDK unit test (ADR 0003 item 7 forbids mocking Expo SDK internals to test an
+adapter). **Two of the three were discharged on 2026-08-06** by the validation runs,
+and need nothing from you here — the analyzer re-checks both on every capture
+anyway, so a regression would surface without being looked for:
 
-- [ ] **`epoch` stays at exactly one value for the whole capture.** Open the
-      export's `## altitude` section and check every row's `epoch` column is
-      identical from the first sample to the last. `epoch` only changes when
-      the adapter's `start()` actually (re)registers the native listener, and
-      nothing in this app calls `start()` a second time while a run is already
-      active — so a constant `epoch` is the expected signature of "a stray
-      double-`start()` never silently re-armed the sensor mid-run." This can't
-      *prove* the idempotence guard is correct (ordinary use never re-enters
-      `start()` to trigger it), but a jump partway through one capture would
-      prove it broken.
-- [ ] **`epoch` goes up by exactly one across two captures taken in the same
-      app launch.** If convenient, take a second, short field-test capture
-      immediately after this one — *without force-quitting the app in
-      between* — even a one-minute stationary capture is enough. Compare the
-      two exports: the second one's `epoch` column should read exactly one
-      higher than the first's, throughout. (Force-quitting between captures
-      does not test this — a fresh process resets `epoch` to its initial
-      value instead, a different fact recorded in
+- [x] ~~**`epoch` stays at exactly one value for the whole capture.**~~ **Verified.**
+      Both validation runs carry a single `epoch` throughout (`[1]` and `[2]`). A
+      constant `epoch` is the signature of "a stray double-`start()` never silently
+      re-armed the sensor mid-run"; it can't *prove* the idempotence guard correct,
+      since ordinary use never re-enters `start()`, but a mid-capture jump would
+      have proved it broken. The analyzer reports `epochs` per capture.
+- [x] ~~**`epoch` goes up by exactly one across two captures in one app launch.**~~
+      **Verified, incidentally.** The two validation runs share an identical
+      `processToken`, whose `Date.now()` prefix decodes to seven seconds before the
+      first one started — so one process spanned both, twelve hours apart — and
+      `epoch` reads 1 then 2. No second short capture is needed. (Force-quitting
+      between captures would not have tested this: a fresh process resets `epoch`
+      to its initial value instead, per
       [ADR 0015's 2026-08-04 amendment](adr/0015-run-elevation-on-device-barometer.md#amendment-2026-08-04).)
-- [ ] **Not checkable from any export — recorded here so it isn't forgotten.**
+- [ ] **Still open. Not checkable from any export — recorded here so it isn't forgotten.**
       Whether unsubscribing the last JS listener leaves the native barometer
       running cannot be observed this way: the app's run engine subscribes to
       altitude readings exactly once, for its own lifetime, and never
@@ -123,29 +199,45 @@ isn't:
       returns, then confirm altitude readings are still arriving afterward.
       That's a future dev-time task, not part of this capture protocol.
 
-### Capture 2 — Stairwell · **indoors** · sized in *samples*, not minutes · the magnitude reference
+### ~~Capture 2~~ — **TAKEN 2026-08-07.** Stairwell · **indoors** · the magnitude reference
+
+> **Done, and it is the decisive capture** — 16 repetitions of a 12-step flight,
+> 318 samples, zero drops. Every median window ≥15 samples reports **0.00 m** on
+> it, the shipped `w31 h10` included.
+>
+> **It came in at 318 samples against the ≥605 below, and that is fine** — the 605
+> figure was 5× the widest *candidate* window (121), and this capture is what
+> proved those wide windows report nothing at all. The widest viable window is ~5
+> samples, needing ~25; 318 is a 12× margin over the region that matters. The rule
+> below is kept only for a retake against some future grid.
+>
+> **The missing 60-second brackets cost little:** drift was recovered from the
+> trough envelope (−11.2 m/hour), worth ~0.86 m over 5.6 minutes against a ~35 m
+> signal. **The unrecorded repetition count cost nothing:** 16 was recovered
+> unambiguously from the trace. Do still record both next time — recovery worked
+> here because the stairwell is a clean square wave, and no run is.
 
 Ground truth: `steps × riser height`, exact to the centimetre. This is the only
 capture that tells us whether a configuration can still *see* real terrain — the
 single nonzero truth in the scoring function (spec §8.5), and the one capture
 nothing else can substitute for.
 
-**Take capture 1 first, and let its result size this one.** The reducer emits
-*nothing* until its median window fills, and the fill time is measured in
-samples, not seconds. At a 10 s cadence a 31-sample window does not produce its
-first output until t+310 s — which, in a 10-minute capture, is over half the
-recording, covering the stationary bracket and the first two repetitions. Its
-measured gain would come back at roughly half the truth, and the sweep would then
-penalise `w31` for **warm-up truncation** while reading it as over-smoothing —
-the exact confusion §2.1 was rewritten to eliminate. So:
+**Sizing, now that the cadence is measured.** The reducer emits *nothing* until
+its median window fills, and the fill time is counted in samples, not seconds. The
+requirement is **5× the widest candidate window** — 121 is the widest config in the
+sweep's grid, so **≥605 samples**, which at the measured 1.065 s cadence is:
 
-- [ ] From capture 1's export, compute the **median inter-sample interval** (the
-      `at` column's consecutive differences in the `## altitude` section).
-- [ ] Size capture 2 to at least **5× the widest candidate window** in samples —
-      with 121 as the widest config in the sweep's grid, that is ≥605 samples,
-      and at the median interval you just measured it converts to a duration.
-      Whatever that number is, it is longer than ten minutes at any plausible
-      cadence.
+> **≥ 645 s ≈ 11 minutes of continuous repetitions**, plus the two 60-second
+> brackets below. Call it 13 minutes inside the capture.
+
+This was the one number capture 1 was supposed to produce before capture 2 could
+be taken; it no longer is. The measured cadence also shrinks the hazard that drove
+the rule: at 1.065 s a 121-sample window fills in 129 s rather than the 1210 s a
+10 s cadence would have needed, so warm-up truncation eats a small opening slice
+rather than half the recording. The 5× margin stays anyway — it is cheap here, and
+it is what keeps the sweep from penalising a wide window for **warm-up truncation**
+while reading it as over-smoothing, the exact confusion spec §2.1 was rewritten to
+eliminate.
 
 Then, in the stairwell:
 
@@ -153,17 +245,21 @@ Then, in the stairwell:
       single step. Write it down. Do not estimate it, and do not use "about
       3 metres a floor".
 - [ ] Count the steps in one flight, and the flights per repetition.
-- [ ] Walk **at least 10 repetitions**: all the way up, all the way down, at a
-      steady pace. Do not skip steps and do not take the lift for the descent.
-- [ ] **The capture is not done until its altitude-sample count reads ≥150.** That
+- [ ] Walk **at least 10 repetitions, and keep going until 11 minutes of
+      repetitions have passed** — whichever is more. All the way up, all the way
+      down, at a steady pace. Do not skip steps and do not take the lift for the
+      descent. The duration is the binding constraint, not the rep count: the
+      ground truth is `reps × steps × riser`, so extra reps cost nothing but need
+      counting.
+- [ ] **The capture is not done until its altitude-sample count reads ≥605.** That
       count is on the summary, which only exists once the run finalizes, so it
       cannot gate the last repetition — overshoot the repetitions deliberately,
-      end, then read it. Under 150 and this capture cannot serve as the magnitude
+      end, then read it. Under 605 and this capture cannot serve as the magnitude
       reference: **retake it with more repetitions**, do not append a second one
       (a second capture is a separate run against a fresh altimeter reference, so
-      the two do not concatenate). 150 is the floor below which the widest windows
-      have nothing left after warm-up; if capture 1's cadence puts 5× the widest
-      window above 150, that larger number wins.
+      the two do not concatenate). 605 is 5× the widest candidate window, and it
+      supersedes the 150-sample floor this protocol carried while the cadence was
+      unknown.
 - [ ] Use an **ordinary internal stairwell**. Avoid a fire-escape stairwell —
       those are often mechanically pressurised, which is exactly the artifact we
       cannot separate from terrain. If any door was propped open, note it.
@@ -258,23 +354,42 @@ because a clamped invalid reading is indistinguishable from a real one.
 
 ## What "done" looks like
 
-Six exported files in `field-data/`, the log table below filled in, and the
-hand-measured numbers from captures 1 and 2 recorded. The analysis then derives
-the delivery-cadence distribution, jitter, per-run drift, and the rebase check —
-and scores the configuration grid against captures 1 and 2 as ground truth
-(spec §8.5). Only then does the render slice get a number.
+Six exported files in `field-data/`, six summaries in `docs/field-captures/`, the
+log table below filled in, and the hand-measured numbers from captures 1 and 2
+recorded.
 
-Take captures 1 and 2 first, in that order — capture 1's measured cadence is what
-sizes capture 2 — and expect roughly two hours indoors across the two. They are
-the ones the whole exercise rests on.
+Three of the things the analysis was meant to derive are already in hand from the
+2026-08-06 validation runs — **the delivery-cadence distribution, the rebase check
+and per-run drift magnitudes** — so what these six add is the part that needs
+ground truth: **jitter against a certain zero, the magnitude reference, and the
+scoring of the configuration grid** (spec §8.5). Only then does the render slice
+get a number.
+
+Take captures 1 and 2 first — either order — and expect roughly an hour and a
+quarter indoors across the two. They are the ones the whole exercise rests on.
 
 ## Log
 
+Already taken, and not part of the six — two ordinary training runs that happened
+to carry barometer data, which is what closed ADR 0015 item 7 and measured the
+cadence. Recorded here so the six below are not confused with them:
+
+| Capture | Date | Mode | Samples | Cadence | Backgrounded | Rebases | Closure |
+|---|---|---|---|---|---|---|---|
+| validation | 2026-08-05 | plan `w4d1` | 1774 | 1.065 s | 0% | 0 | −0.72 m |
+| validation | 2026-08-06 | plan `w2d1` | 1620 | 1.064 s | 97.8% | 0 | −2.04 m |
+| verification | 2026-08-07 | plan `w4d2` | 1718 | 1.065 s | 99.3% | 0 | −1.36 m |
+| verification | 2026-08-08 | plan `w4d1` | 1693 | 1.065 s | 99.5% | 0 | −0.29 m |
+
+The six:
+
 | # | Capture | Date | Weather / temp | Phone | Export filename | Flights Climbed | Notes |
 |---|---|---|---|---|---|---|---|
-| 1 | Stationary 40–45 min | | indoor temp: | on table | | — | room: __ · samples: __ · minutes: __ · median interval: __ s |
-| 2 | Stairwell ≥10× | | — | in hand | | | riser: __ mm · steps/flight: __ · flights/rep: __ · reps: __ · samples: __ (≥150) |
+| ~~1~~ | ~~Stationary~~ **DONE** | 2026-08-07 | rising 0.68 hPa/h | on desk | `runbro-20260807-0513-940b8bb0.txt` | — | 54.2 min · 3052 samples · 1.065 s · σ=3.2 mm · **drift −5.05 m** · median filter ≈ useless |
+| ~~2~~ | ~~Stairwell~~ **DONE** | 2026-08-07 | — | in hand | `runbro-20260807-0701-f3b38786.txt` | | riser: 222 mm (spiral stair, confirmed) · steps/flight: 12 · **reps: 16** (recovered from trace) · samples: 318 · **w≥15 reports 0.00 m** · sensor reads 79% of a 10 s climb |
 | 3 | Flat loop, pocket | | | pocket: | | | |
 | 4 | Flat loop, repeat | | | pocket: | | | |
 | 5 | Hilly loop + pause | | | pocket: | | | pause: __ min |
 | 6 | Flat loop, in hand | | | hand | | | |
+| ~~7~~ | ~~Settling~~ **DONE** | 2026-08-10 | — | in hand | `runbro-20260810-1054-246a1081.txt` | — | 339 samples · lag confirmed (99%/89% dwelled vs 79%/69% moving) · **top bracket spoiled by the top-floor heat pump** |
+| ~~8~~ | ~~Stationary #2~~ **DONE** | 2026-08-11 | rising 0.575 hPa/h | on desk | `runbro-20260811-0756-bb35dbab.txt` | — | 60.0 min · 3380 samples · **drift −4.79 m/h** · day was not calm · froze the app on auto-complete ([#60](https://github.com/ljukas/my-runner/issues/60)) |

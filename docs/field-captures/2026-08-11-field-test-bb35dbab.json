@@ -1,0 +1,264 @@
+{
+  "schema": 1,
+  "file": "runbro-20260811-0756-bb35dbab.txt",
+  "run": {
+    "id": "bb35dbab",
+    "sessionKey": "field-test",
+    "startedAt": "2026-08-11T07:56:37.902Z",
+    "wallS": 3600.438,
+    "activeDurationS": 3600,
+    "distanceM": 178.92710211363618,
+    "isFieldTestMode": true
+  },
+  "device": {
+    "deviceName": "iPhone",
+    "osVersion": "26.5.2",
+    "appVersion": "0.0.1",
+    "updateId": "828a8612-dc10-46c0-b3a8-dc5be090afaa",
+    "anySamplesRecorded": true,
+    "motionPermission": "granted",
+    "timezoneOffsetMin": -120
+  },
+  "counts": {
+    "segments": 1,
+    "points": 446,
+    "altitude": 3380,
+    "log": 1177,
+    "events": 2
+  },
+  "dropped": 0,
+  "complete": true,
+  "altitude": {
+    "n": 3380,
+    "nullRelative": 0,
+    "coverageS": 3598.6,
+    "coveragePct": 99.94895065544803,
+    "firstOffsetS": 1.126,
+    "epochs": [
+      1
+    ],
+    "seqGaps": 0,
+    "cadenceS": {
+      "n": 3379,
+      "min": 1.03,
+      "max": 1.331,
+      "mean": 1.064989641905906,
+      "sd": 0.004778015076930532,
+      "p05": 1.064,
+      "median": 1.065,
+      "p95": 1.066
+    },
+    "sensorCadenceS": {
+      "n": 3379,
+      "min": 0.19364000001223758,
+      "max": 1.0653239999955986,
+      "mean": 1.0646603447765661,
+      "sd": 0.01503051205929561,
+      "p05": 1.0647190000134288,
+      "median": 1.0649679999914952,
+      "p95": 1.0651789999974426
+    },
+    "impliedHz": 0.9389671361502347,
+    "gaps": {
+      "gt2s": 0,
+      "gt5s": 0,
+      "gt10s": 0,
+      "gt30s": 0,
+      "gt60s": 0
+    },
+    "clockDriftMs": 1112.6949787139893,
+    "relativeAltitudeSpanM": 5.7206268310546875,
+    "pressureSpanHpa": 0.68206787109375,
+    "pressureQuantumHpa": 0.0000762939453125,
+    "noiseSigmaM": 0.006304405805776968,
+    "maxRelativeStepM": 0.229888916015625,
+    "rebaseCount": 0,
+    "relativeJumpCount": 0,
+    "pressureRelativeMaxDeviationM": 0.032160441080728575
+  },
+  "background": {
+    "windowCount": 2,
+    "totalS": 3571.036,
+    "pctOfRun": 99.18337713355986,
+    "samples": 3353,
+    "expectedSamples": 3353,
+    "deliveryPct": 99.99745171989305,
+    "windows": [
+      {
+        "fromS": 26.299,
+        "toS": 749.966
+      },
+      {
+        "fromS": 753.069,
+        "toS": 3600.438
+      }
+    ]
+  },
+  "closure": {
+    "startEndDisplacementM": 8.700102593489321,
+    "firstToLastM": -5.0415496826171875,
+    "bracketMeanM": -5.020098622639973,
+    "bracketSamples": 60,
+    "maxDisplacementM": 23.071942246219166,
+    "drift": {
+      "linearMPerHour": -4.7899356300436695,
+      "pressureHpaPerHour": 0.5747922756052403,
+      "totalM": -4.788072877298653,
+      "monotoneBins": {
+        "steps": 10,
+        "falling": 10
+      },
+      "residualSdM": 0.30005849907583443,
+      "residualP2pM": 1.7932872831506694,
+      "medianFilterGain": [
+        {
+          "window": 1,
+          "residualSdM": 0.30005849907583443
+        },
+        {
+          "window": 5,
+          "residualSdM": 0.29918834792118953
+        },
+        {
+          "window": 15,
+          "residualSdM": 0.2863123503425835
+        },
+        {
+          "window": 31,
+          "residualSdM": 0.26606064511222877
+        },
+        {
+          "window": 61,
+          "residualSdM": 0.2547666842886551
+        },
+        {
+          "window": 121,
+          "residualSdM": 0.246413225685676
+        }
+      ]
+    },
+    "isZeroTruth": true
+  },
+  "gps": {
+    "n": 446,
+    "altitudeAccuracyM": {
+      "n": 446,
+      "min": 5.315550685209644,
+      "max": 203.2954559326172,
+      "mean": 16.307316226532876,
+      "sd": 19.836341887328228,
+      "p05": 8.21893440562538,
+      "median": 12.919950489156449,
+      "p95": 19.07188742314034
+    },
+    "invalidAltitudeAccuracy": 0,
+    "negativeSpeedCount": 6
+  },
+  "stationaryWindows": [
+    {
+      "fromS": 61.55,
+      "toS": 131.55,
+      "durationS": 70
+    },
+    {
+      "fromS": 137.095,
+      "toS": 223.097,
+      "durationS": 86.002
+    },
+    {
+      "fromS": 236.097,
+      "toS": 307.097,
+      "durationS": 71
+    },
+    {
+      "fromS": 360.097,
+      "toS": 1989.098,
+      "durationS": 1629.001
+    }
+  ],
+  "log": {
+    "kinds": {
+      "cue": 3,
+      "tick": 720,
+      "battery": 1,
+      "sensor": 1,
+      "fix_batch": 446,
+      "lifecycle": 5,
+      "pedometer": 1
+    },
+    "sensor": {
+      "available": true,
+      "permission": "granted",
+      "processToken": "msod9mpp-j13narvn3g"
+    },
+    "steps": 0,
+    "tickMedianS": 5.01200008392334,
+    "tickMaxS": 5.0309998989105225
+  },
+  "reducerGrid": [
+    {
+      "medianWindow": 1,
+      "hysteresisM": 0,
+      "windowSpanS": 1.065,
+      "gainM": 39.84620666503906,
+      "lossM": 44.88775634765625,
+      "netM": -5.0415496826171875
+    },
+    {
+      "medianWindow": 5,
+      "hysteresisM": 1,
+      "windowSpanS": 5.324999999999999,
+      "gainM": 0,
+      "lossM": 5.1366729736328125,
+      "netM": -5.1366729736328125
+    },
+    {
+      "medianWindow": 15,
+      "hysteresisM": 3,
+      "windowSpanS": 15.975,
+      "gainM": 0,
+      "lossM": 3.001678466796875,
+      "netM": -3.001678466796875
+    },
+    {
+      "medianWindow": 31,
+      "hysteresisM": 3,
+      "windowSpanS": 33.015,
+      "gainM": 0,
+      "lossM": 3.0095977783203125,
+      "netM": -3.0095977783203125
+    },
+    {
+      "medianWindow": 31,
+      "hysteresisM": 10,
+      "windowSpanS": 33.015,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 61,
+      "hysteresisM": 3,
+      "windowSpanS": 64.965,
+      "gainM": 0,
+      "lossM": 3.0095977783203125,
+      "netM": -3.0095977783203125
+    },
+    {
+      "medianWindow": 61,
+      "hysteresisM": 30,
+      "windowSpanS": 64.965,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    },
+    {
+      "medianWindow": 121,
+      "hysteresisM": 60,
+      "windowSpanS": 128.86499999999998,
+      "gainM": 0,
+      "lossM": 0,
+      "netM": 0
+    }
+  ]
+}

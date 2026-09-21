@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { smoothTrack, type LocationFix } from './geo';
 import {
   isDrawableProfile,
+  paceChartDomain,
   paceRange,
   PROFILE_SAMPLE_COUNT,
   toRunProfile,
@@ -11,20 +12,48 @@ import {
 
 const DEG_PER_METRE = 1 / 111_320;
 
+function makeSeededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+}
+
 /**
- * A straight northward run at a steady pace. 1 Hz, `metresPerFix` apart.
+ * A straight northward run at a steady pace. `noiseM` is 0 by default, so every other call site
+ * stays exact; non-zero noise adds both position and interval jitter, drawn from a seeded PRNG,
+ * never `Math.random()`.
  * why hard-coded degrees: 1e-5 deg latitude is ~1.11 m, close enough that the
  * assertions below are about bucketing, not about haversine precision.
  */
-function straightRun(count: number, metresPerFix: number): LocationFix[] {
-  return Array.from({ length: count }, (_, i) => ({
-    timestamp: 1_000_000 + i * 1000,
-    lat: 59.3 + i * metresPerFix * DEG_PER_METRE,
-    lng: 18.06,
-    altitude: 100,
-    accuracy: 5,
-    speed: metresPerFix,
-  }));
+function straightRun(
+  count: number,
+  metresPerFix: number,
+  intervalMs = 1000,
+  noiseM = 0,
+  seed = 1,
+): LocationFix[] {
+  const random = makeSeededRandom(seed);
+  let timestamp = 1_000_000;
+  const fixes: LocationFix[] = [];
+  for (let i = 0; i < count; i += 1) {
+    if (i > 0) {
+      const jitterMs = noiseM > 0 ? Math.round((random() - 0.5) * 6) : 0; // ±3 ms
+      timestamp += intervalMs + jitterMs;
+    }
+    const positionNoiseM =
+      noiseM > 0 ? (random() + random() + random() + random() - 2) * noiseM : 0;
+    fixes.push({
+      timestamp,
+      lat: 59.3 + (i * metresPerFix + positionNoiseM) * DEG_PER_METRE,
+      lng: 18.06,
+      altitude: 100,
+      accuracy: 5,
+      speed: metresPerFix / (intervalMs / 1000),
+    });
+  }
+  return fixes;
 }
 
 interface Phase {
@@ -138,6 +167,36 @@ describe('toRunProfile pace', () => {
   });
 });
 
+describe('toRunProfile pace fidelity', () => {
+  // Noise-free, fixed-cadence fixtures (stationary-time design §10) hid three successive
+  // standstill-classification regressions, because a slow walker only reads wrong once jitter
+  // and position noise are both present.
+  test('a slow walker reports true pace at any cadence, jitter, or position noise', () => {
+    const cases: [mps: number, intervalMs: number][] = [
+      [0.3, 1000],
+      [0.4, 1001],
+      [0.5, 900],
+      [0.6, 1100],
+      [0.8, 500],
+      [1.4, 2000],
+    ];
+    for (const noiseM of [0.5, 1]) {
+      for (const [mps, intervalMs] of cases) {
+        const durationS = 600;
+        const count = Math.round((durationS * 1000) / intervalMs);
+        const metresPerFix = mps * (intervalMs / 1000);
+        const profile = toRunProfile(straightRun(count, metresPerFix, intervalMs, noiseM));
+        const mean = meanPace(profile);
+        const truth = 1000 / mps;
+        // why a relative bound: at 0.3 m/s, 1 m of noise is over 3x the per-fix signal, so an
+        // absolute bound is unreachable here; 1% has real margin over the worst measured case
+        // (0.38%) while still catching the 28-40% errors the earlier revisions had.
+        expect(Math.abs(mean - truth) / truth).toBeLessThan(0.01);
+      }
+    }
+  });
+});
+
 describe('toRunProfile resampling', () => {
   test('the x extent equals the smoothed track distance the summary reports', () => {
     // ADR 0021 §3: the chart's x extent must agree with the summary's headline distance.
@@ -226,6 +285,59 @@ describe('toRunProfile gaps', () => {
   });
 });
 
+describe('toRunProfile carry-forward', () => {
+  test('a duplicate timestamp does not discard accrued seconds', () => {
+    // why: a duplicate/backwards-timestamp leg carries no time of its own and must not clear the
+    // carry — clearing it there reports a slow walker four times too fast (design §5).
+    const base = straightRun(600, 0.4);
+    const withDuplicates: LocationFix[] = [];
+    for (let i = 0; i < base.length; i += 1) {
+      withDuplicates.push(base[i]);
+      if (i % 4 === 3) withDuplicates.push({ ...base[i] });
+    }
+    expect(meanPace(toRunProfile(withDuplicates))).toBeCloseTo(1000 / 0.4, -1);
+  });
+
+  test('total folded time is preserved except for a genuine gap', () => {
+    // Every bucket is asserted non-null first so this can't pass vacuously on a chart the carry
+    // silently emptied. The remaining seconds must equal wall-clock elapsed minus only the gap's
+    // own duration — a standstill's seconds must still be in there somewhere.
+    const gapAfterS = 40; // + the next leg's own 1 s = a 41 s leg, over MAX_GAP_S (30 s)
+    const fixes = phasedRun([
+      { seconds: 300, mps: 3 },
+      { seconds: 40, mps: 0 },
+      { seconds: 300, mps: 3, gapAfterS },
+      { seconds: 300, mps: 3 },
+    ]);
+    const profile = toRunProfile(fixes);
+    expect(profile.every((point) => point.paceSecPerKm !== null)).toBe(true);
+
+    const width = smoothTrack(fixes).distanceM / profile.length;
+    const foldedSeconds = profile.reduce(
+      (sum, point) => sum + (point.paceSecPerKm! / 1000) * width,
+      0,
+    );
+    const elapsedS = (fixes.at(-1)!.timestamp - fixes[0].timestamp) / 1000;
+    expect(foldedSeconds).toBeCloseTo(elapsedS - (gapAfterS + 1), 6);
+  });
+
+  test("the bucket grid spans the run's smoothed total", () => {
+    const fixes = phasedRun([
+      { seconds: 300, mps: 3 },
+      { seconds: 40, mps: 0 },
+      { seconds: 300, mps: 3 },
+    ]);
+    const total = smoothTrack(fixes).distanceM;
+    const profile = toRunProfile(fixes);
+    expect(profile.every((point) => point.paceSecPerKm !== null)).toBe(true);
+
+    // why: per-bucket metre conservation isn't observable through `ProfilePoint` (only
+    // `distanceM`/`paceSecPerKm` are exposed) — that's pinned indirectly by the seconds test.
+    const width = total / profile.length;
+    expect(profile.at(-1)!.distanceM + width / 2).toBeCloseTo(total, 9);
+  });
+});
+
 describe('isDrawableProfile', () => {
   const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
 
@@ -253,15 +365,51 @@ describe('paceRange', () => {
     expect(paceRange([point(null), point(null)])).toBeNull();
   });
 
-  test('reports the extremes, skipping unmeasured buckets', () => {
+  test('reports the domain, not the series, skipping unmeasured buckets', () => {
+    // Only two measured values, so the 95th percentile lands on the slower of the two — the same
+    // number the series' own max would give here, but sourced from `paceChartDomain`.
     expect(paceRange([point(400), point(null), point(300)])).toEqual({
       fastestSecPerKm: 300,
       slowestSecPerKm: 400,
+      clippedCount: 0,
+      clippedSlowestSecPerKm: null,
     });
   });
 
-  test('a single measured bucket is its own range', () => {
-    expect(paceRange([point(360)])).toEqual({ fastestSecPerKm: 360, slowestSecPerKm: 360 });
+  test('a single measured bucket gets the domain floor, not its own value, as the slow bound', () => {
+    // p95 of one value is that value, so the minimum-span floor is what actually sets
+    // `slowestSecPerKm` here (360 * 1.1 = 396).
+    expect(paceRange([point(360)])).toEqual({
+      fastestSecPerKm: 360,
+      slowestSecPerKm: 396,
+      clippedCount: 0,
+      clippedSlowestSecPerKm: null,
+    });
+  });
+
+  test('a pole is reported as clipped, never as the range', () => {
+    // The defect this pins (design §8.1): on a real capture the series' own max was 125:36 (7536
+    // s/km) while the visible axis topped out at 10:25 — a number no sighted user could see.
+    const profile = [
+      ...Array.from({ length: 116 }, () => point(300)),
+      point(400),
+      point(500),
+      point(600),
+      point(7536),
+    ];
+    const range = paceRange(profile)!;
+    expect(range.slowestSecPerKm).toBe(330); // the domain bound (p95 floor), never the pole
+    expect(range.clippedCount).toBe(4);
+    expect(range.clippedSlowestSecPerKm).toBe(7536);
+  });
+
+  test('a series with no outliers clips nothing', () => {
+    // why uniform, not a real profile: a full 120-bucket run always has a slowest 5% by
+    // construction (design §9) — "no outliers" only holds where nothing is slower than the
+    // domain's own floor-widened bound, as here.
+    const range = paceRange(Array.from({ length: 100 }, () => point(300)))!;
+    expect(range.clippedCount).toBe(0);
+    expect(range.clippedSlowestSecPerKm).toBeNull();
   });
 
   test('a W1D1 range spans both interval bands, and no half-vs-half trend could say so', () => {
@@ -279,5 +427,31 @@ describe('paceRange', () => {
     const half = Math.floor(paces.length / 2);
     const mean = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
     expect(mean(paces.slice(0, half)) / mean(paces.slice(-half))).toBeCloseTo(1, 1);
+  });
+});
+
+describe('paceChartDomain', () => {
+  const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
+
+  test('a series with nothing measured has no domain', () => {
+    expect(paceChartDomain([])).toBeUndefined();
+    expect(paceChartDomain([point(null), point(null)])).toBeUndefined();
+  });
+
+  test('the fast bound is the minimum and the slow bound is the 95th percentile', () => {
+    const profile = Array.from({ length: 100 }, (_, i) => point(i + 1)); // 1..100
+    // p95 here is 96, so the top 4 (97-100) are what the chart clips.
+    expect(paceChartDomain(profile)).toEqual([96, 1]);
+  });
+
+  test('a perfectly uniform series still gets a non-zero-width domain', () => {
+    // why this matters: p95 equals the minimum on a uniform series, so without a floor the domain
+    // would collapse to zero width (design §6).
+    const profile = Array.from({ length: 20 }, () => point(300));
+    expect(paceChartDomain(profile)).toEqual([330, 300]);
+  });
+
+  test('a single measured point still gets a non-zero-width domain', () => {
+    expect(paceChartDomain([point(360)])).toEqual([396, 360]);
   });
 });

@@ -30,6 +30,13 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
     `Pace profile over ${formatDistanceKm(run.distanceM)}.`,
     range &&
       `The chart spans ${paceParts(range.fastestSecPerKm).value} to ${formatPace(range.slowestSecPerKm)}.`,
+    // why only when clipped: the line visibly exits the plot, and the label is a VoiceOver user's
+    // only equivalent (design §8.1).
+    range &&
+      range.clippedCount > 0 &&
+      `${range.clippedCount} slower ${range.clippedCount === 1 ? 'point' : 'points'} ` +
+        `${range.clippedCount === 1 ? 'reaches' : 'reach'} ` +
+        `${formatPace(range.clippedSlowestSecPerKm)}, above the chart.`,
   ]
     .filter(Boolean)
     .join(' ');

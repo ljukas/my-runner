@@ -28,6 +28,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...config.android,
       package: `${config.android?.package ?? ''}${idSuffix}`,
+      // why: a build-time credential kept out of version control (ADR 0010 item 5) — baked into
+      // the manifest at prebuild, never read by JS; absent, Google Maps shows grey tiles, not a crash.
+      config: process.env.GOOGLE_MAPS_ANDROID_API_KEY
+        ? {
+            ...config.android?.config,
+            googleMaps: { apiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY },
+          }
+        : config.android?.config,
     },
   };
 };

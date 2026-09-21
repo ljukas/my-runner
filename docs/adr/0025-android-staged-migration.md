@@ -76,7 +76,7 @@ screens.
 | **1 — Basics** | All plan weeks; run screen with clock, progress, transport, lock; vibration-only cues; run summary without map, health, export; Plan, Log, Settings; onboarding = welcome only. No location, no speech, no map, no Health, no elevation. Screen held awake for the whole run. | Every port's `adapter.android.ts`; `island/*.android.tsx`; Plan/Log/Settings route forks; run-transport, run-lock, run-unavailable, stat-grid forks. | **Built 2026-09-20**, verified on the emulator (plan → session → run → pause/skip/lock/unlock/end → summary → log → settings; onboarding gating). |
 | 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner`'s `'unsupported'` branch goes dead, not removed (see the 2026-09-21 amendment). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-2-location-heartbeat.md); mechanics and measurements in ADR 0008's 2026-09-21 amendment. |
 | 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md); mechanics and measurements in ADR 0009's 2026-09-21 amendment. |
-| 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card and viewer mount and degrade correctly; tile and overlay rendering awaits a real Maps key (see the amendment below). |
+| 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card, viewer, degradations and rendering all verified on the emulator with a real Maps key (see the amendment below). |
 | 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | Planned |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | Planned |
 | 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | Planned |
@@ -367,8 +367,14 @@ the same date. What the stage adds to this record:
   variant-less).
 - **The key restriction needs prebuild's debug keystore SHA-1**
   (`5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`, from
-  `android/app/debug.keystore`), not `~/.android/debug.keystore`'s. Until Lukas
-  creates the key, tiles and overlays are unverified; everything around them is.
+  `android/app/debug.keystore`), not `~/.android/debug.keystore`'s. With the key
+  in `.env.local` and a reprebuild the same day, tiles, segment colours/widths,
+  endpoint circles, dark tiles and the viewer's pan/pinch were all verified.
+- **The bottom safe-area inset was missing again** on the Android run summary
+  (the last card ran into the gesture bar) — the third Android screen to ship
+  that way. Fixed with `android:pb-safe-offset-10` on the ScrollView's content
+  container; the rule and the amount now live in AGENTS.md's platform-forks
+  bullet, and every Android screen check ends scrolled to the bottom.
 - **The route fixture is a real-plan run ended by hand, not a compressed one.**
   A 1-minute compressed run under the `adb emu geo fix` feed recorded 17 fixes
   and a 52 m extent — under the 100 m gate — and became the under-gate fixture

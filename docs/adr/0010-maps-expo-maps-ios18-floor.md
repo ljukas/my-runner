@@ -314,6 +314,18 @@ stub is gone. What Android added to the record:
    mounts at 3:2 with "Map of your 0.67 km route", the viewer mounts full-bleed
    with "Your 0.67 km route", back returns to the summary, and the treadmill /
    no-location / under-gate degradations (spec §8) all show the right card.
-   **Still to verify with a real key:** polyline colours and run/walk widths at
-   card zoom, circle paint order above the lines, `FOLLOW_SYSTEM` dark tiles,
-   first-paint time of the card.
+   **Verified with the real key later the same day** (restricted to the package +
+   prebuild keystore SHA-1): tiles render in the card and the full-bleed viewer,
+   the route is framed with the padding on its binding axis, pan and pinch work in
+   the viewer, run (blue, 7 dp) and walk (grey, 4 dp) segments are clearly
+   distinguishable at card zoom after the `PixelRatio` multiply, the endpoint
+   circles paint above the lines, and dark tiles render. Two adjustments came out
+   of it: `colorScheme` is passed explicitly as `LIGHT`/`DARK` from
+   `useColorScheme()` rather than `FOLLOW_SYSTEM`, because the SDK reads
+   `FOLLOW_SYSTEM` once at map creation and a theme switch with the summary open
+   left light tiles under rings that had already gone dark; and the summary's
+   content container gained `android:pb-safe-offset-10` (the last card ran into
+   the gesture bar). Open tuning: the metric endpoint circles (1.5 % of the
+   diagonal) read small at card zoom on a ~500 m route and grow with viewer zoom —
+   a fixed-size icon (the deferred `expo-image` follow-up) would behave like iOS's
+   markers.

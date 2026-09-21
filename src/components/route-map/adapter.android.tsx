@@ -1,6 +1,6 @@
 import { GoogleMaps } from 'expo-maps';
 import { useMemo, useState } from 'react';
-import { type LayoutChangeEvent, PixelRatio, Pressable, View } from 'react-native';
+import { type LayoutChangeEvent, PixelRatio, Pressable, useColorScheme, View } from 'react-native';
 
 import {
   ENDPOINT_MERGE_M,
@@ -56,6 +56,10 @@ export function RouteMap({
   style,
 }: RouteMapProps) {
   const colors = useTheme();
+  // why explicit, not FOLLOW_SYSTEM: the SDK reads FOLLOW_SYSTEM once at map creation, so a theme
+  // switch while the summary is open left light tiles under dark endpoint rings (measured).
+  const colorScheme =
+    useColorScheme() === 'dark' ? GoogleMaps.MapColorScheme.DARK : GoogleMaps.MapColorScheme.LIGHT;
   // why: pixels, not dp — GoogleMapsView.kt hands `width` straight to Compose's Polyline, so the
   // run/walk stroke widths would come out ~3× too thin on a 3× device without this.
   const pixelRatio = PixelRatio.get();
@@ -111,7 +115,7 @@ export function RouteMap({
       {cameraPosition ? (
         <GoogleMaps.View
           style={{ flex: 1 }}
-          colorScheme={GoogleMaps.MapColorScheme.FOLLOW_SYSTEM}
+          colorScheme={colorScheme}
           cameraPosition={cameraPosition}
           polylines={polylines}
           circles={circles}

@@ -49,6 +49,12 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
 
+      # Second resolution anchor: `.android` forks against the Compose island (ADR 0003 item 3,
+      # ADR 0025). Each tsconfig excludes the other platform's forks, so both must run.
+      - name: Typecheck (Android)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run typecheck:android
+
       # ADR 0014 makes Prettier formatting and Uniwind class ordering lint
       # errors, so this is a correctness gate, not a style preference.
       - name: Lint

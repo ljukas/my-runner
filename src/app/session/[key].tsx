@@ -68,7 +68,7 @@ export default function SessionSheet() {
   };
 
   return (
-    <View className="gap-6 bg-background px-6 pt-8">
+    <View className="gap-6 bg-background px-6 pt-8 android:pb-safe-offset-6">
       <View className="gap-1.5">
         <Text variant="subtitle" accessibilityRole="header">
           {sessionTitle(session.key)}

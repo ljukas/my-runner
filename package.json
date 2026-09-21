@@ -50,7 +50,7 @@
     "victory-native": "^41.26.0"
   },
   "devDependencies": {
-    "@swmansion/argent": "0.19.0",
+    "@swmansion/argent": "0.25.2",
     "@types/bun": "^1.3.14",
     "@types/react": "~19.2.2",
     "babel-plugin-inline-import": "^3.0.0",
@@ -70,10 +70,13 @@
   },
   "scripts": {
     "start": "APP_VARIANT=development expo run:ios",
+    "android": "APP_VARIANT=development expo run:android --port 8087",
     "prebuild:dev": "APP_VARIANT=development expo prebuild -p ios",
+    "prebuild:dev:android": "APP_VARIANT=development expo prebuild -p android",
     "lint": "expo lint",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "typecheck:android": "tsc --noEmit -p tsconfig.android.json",
     "db:generate": "drizzle-kit generate",
     "e2e": "maestro test .maestro/",
     "e2e:onboarding": "maestro test --include-tags onboarding .maestro/",

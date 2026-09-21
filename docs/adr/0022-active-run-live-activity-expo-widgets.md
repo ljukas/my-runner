@@ -1,7 +1,7 @@
 # 22. Active-run Live Activity via first-party expo-widgets, updated locally
 
 > **iOS-only atm** — Live Activities are an iOS capability with no Android
-> equivalent; the port below is iOS-only by nature (see [ADR 0020](0020-ios-only-android-deferred.md)).
+> equivalent; the port below is iOS-only by nature (see [ADR 0025](0025-android-staged-migration.md), which keeps it so).
 
 Date: 2026-07-22
 

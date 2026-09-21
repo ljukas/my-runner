@@ -5,7 +5,7 @@ import { fakeStorage } from './test-helpers';
 
 describe('createOnboarding', () => {
   test('every versioned step is pending on first launch', () => {
-    const onboarding = createOnboarding(fakeStorage());
+    const onboarding = createOnboarding(fakeStorage(), 'ios');
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
       'welcome-v1',
       'audio-cues-v1',
@@ -15,7 +15,7 @@ describe('createOnboarding', () => {
   });
 
   test('a user who already finished welcome sees only the newer steps', () => {
-    const onboarding = createOnboarding(fakeStorage());
+    const onboarding = createOnboarding(fakeStorage(), 'ios');
     onboarding.completeStep('welcome-v1');
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
       'audio-cues-v1',
@@ -25,7 +25,7 @@ describe('createOnboarding', () => {
   });
 
   test('an upgrading user sees only the appended health primer', () => {
-    const onboarding = createOnboarding(fakeStorage());
+    const onboarding = createOnboarding(fakeStorage(), 'ios');
     onboarding.completeStep('welcome-v1');
     onboarding.completeStep('audio-cues-v1');
     onboarding.completeStep('location-primer-v1');
@@ -34,24 +34,31 @@ describe('createOnboarding', () => {
 
   test('completing every step empties pending idempotently and persists', () => {
     const storage = fakeStorage();
-    const onboarding = createOnboarding(storage);
+    const onboarding = createOnboarding(storage, 'ios');
     for (const step of ONBOARDING_STEPS) onboarding.completeStep(step.id);
     onboarding.completeStep('location-primer-v1'); // idempotent
     expect(onboarding.pendingSteps()).toEqual([]);
-    expect(createOnboarding(storage).pendingSteps()).toEqual([]);
+    expect(createOnboarding(storage, 'ios').pendingSteps()).toEqual([]);
   });
 
   test('reset makes every step pending again', () => {
-    const onboarding = createOnboarding(fakeStorage());
+    const onboarding = createOnboarding(fakeStorage(), 'ios');
     for (const step of ONBOARDING_STEPS) onboarding.completeStep(step.id);
     onboarding.reset();
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
   });
 
+  test('android sees only the steps its platform has a capability for', () => {
+    const onboarding = createOnboarding(fakeStorage(), 'android');
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1']);
+    onboarding.completeStep('welcome-v1');
+    expect(onboarding.pendingSteps()).toEqual([]);
+  });
+
   test('corrupted persisted JSON is treated as no steps completed', () => {
     const storage = fakeStorage();
     storage.setItemSync('onboarding.completedSteps', 'not-json{');
-    const onboarding = createOnboarding(storage);
+    const onboarding = createOnboarding(storage, 'ios');
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
   });
 });

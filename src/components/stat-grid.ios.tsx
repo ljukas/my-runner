@@ -1,9 +1,8 @@
 import { HStack } from '@expo/ui/swift-ui';
 import { dynamicTypeSize, font } from '@expo/ui/swift-ui/modifiers';
-import { SymbolView } from 'expo-symbols';
+import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { ReactNode } from 'react';
 import { PixelRatio, useWindowDimensions, View } from 'react-native';
-import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { Island } from '@/components/island';
 import { Card } from '@/components/ui/card';
@@ -30,7 +29,7 @@ function StatGridTile({
   value,
   unit,
 }: {
-  icon: SFSymbol;
+  icon: SymbolViewProps['name'];
   color: string;
   label: string;
   value: string;

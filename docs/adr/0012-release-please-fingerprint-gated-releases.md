@@ -1,6 +1,6 @@
 # 12. Release flow: release-please with fingerprint-gated EAS deploys
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: stage 7 (release pipeline)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 7 (release pipeline): Play submission and the existing Android workflow jobs. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-12
 

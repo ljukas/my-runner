@@ -318,9 +318,14 @@ engine and the iOS adapter are untouched, and the ducking mechanics are in ADR
   was unnecessary for the same reason. `modules/` is now where native code the
   app owns lives; `app.json` + config plugins remain the way to configure
   third-party native code.
-- **The iOS fingerprint did not move** (`9061ec14…` before and after the module
-  landed): an Android-only local module is not an iOS autolinking source, so
-  this stage — unlike the plan's expectation — leaves iOS OTA-eligible.
+- **The iOS fingerprint did not move for the module** (`9061ec14…` before and
+  after it landed): an Android-only local module is not an iOS autolinking
+  source, so this stage — unlike the plan's expectation — leaves iOS
+  OTA-eligible. What *did* move it, briefly, was a Gradle-intermediates rule
+  added to the root `.gitignore`: **the root `.gitignore` is itself an iOS
+  fingerprint source** (`bareGitIgnore`), so any new rule there costs a release
+  its OTA eligibility. The rule lives in `modules/audio-focus/android/.gitignore`
+  instead, which is not in the iOS source set — verified back at `9061ec14…`.
 - **Onboarding and copy:** `audio-cues-v1` dropped its `platforms: ['ios']`
   (Android: welcome → audio cues → location primer; `health-primer-v1` stays
   iOS-only); the audio-cues primer's "Over your music" sentence is the one

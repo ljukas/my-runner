@@ -6,24 +6,24 @@
 
 **Architecture:** Replace the haptic-only `src/services/cue-service/adapter.android.ts` with a speech-plus-haptic adapter behind the unchanged `CueService` port; the composition seam (`cue-service/index.ts`, interval/milestone gating), `release-scheduler.ts`, `cue-haptics.ts`, `domain/cues.ts` and the engine are untouched. Speech is `expo-speech` (Android `TextToSpeech`, already installed, queues utterances until the engine is ready). **The one thing the iOS adapter's shape cannot give Android is ducking** — see Decision below. Governing ADRs: 0003, 0009 (amend for Android mechanics), 0013, 0016, 0019, 0025.
 
-**Tech Stack:** Expo SDK 57 · `expo-speech` 57.0.1 · `expo-audio` 57.0.3 · Expo Modules API (Kotlin) if Decision option A is taken · argent 0.25.2 on `emulator-5554` (Pixel 9 Pro API 36, Google TTS `com.google.android.tts` installed) · Metro on 8087
+**Tech Stack:** Expo SDK 57 · `expo-speech` 57.0.1 · `expo-audio` 57.0.3 · Expo Modules API (Kotlin) for the audio-focus connector · argent 0.25.2 on `emulator-5554` (Pixel 9 Pro API 36, Google TTS `com.google.android.tts` installed) · Metro on 8087
 
-## Decision to confirm before Task 2: how Android ducks the music
+## Decided (2026-09-21, Lukas): Android ducks via a local audio-focus Expo module (option A)
 
 Verified in source (2026-09-21, `expo-audio` 57.0.3 `AudioModule.kt`, `expo-speech` 57.0.1 `SpeechModule.kt`):
 
 - `expo-speech` on Android never requests audio focus; `useApplicationAudioSession` is iOS-only.
 - `expo-audio` on Android requests focus (`AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` under `interruptionMode: 'duckOthers'`) **only when one of its players starts playing**. `setIsAudioActiveAsync(true)` requests nothing; `setIsAudioActiveAsync(false)` does abandon focus. So the iOS adapter's activate-speak-deactivate pattern speaks fine on Android but ducks nothing.
 
-Options, with the recommendation first:
+Options considered; **A is the decision**, B and C are the recorded alternatives:
 
-- **A — a tightly scoped local Expo module for audio focus (recommended).** `modules/audio-focus/` (Expo Modules API, Kotlin, ~40 lines, no config plugin): `request()` → `AudioManager.requestAudioFocus(AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)`, `abandon()`. The Android adapter then mirrors `adapter.ios.ts` line for line: `begin()` → `request()` → `Speech.speak(...)`; `end()` via the existing release scheduler → `abandon()` after the last in-flight utterance. Keeps TTS-first (ADR 0009's reason: no asset pipeline), keeps one release-scheduler contract on both platforms, and follows the ADR 0011 precedent of owning a small connector rather than fighting a library. First native code in the repo; the Expo Modules API is first-party tooling. Fingerprint changes (a native stage anyway).
+- **A — a tightly scoped local Expo module for audio focus (decided).** `modules/audio-focus/` (Expo Modules API, Kotlin, ~40 lines, no config plugin): `request()` → `AudioManager.requestAudioFocus(AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)`, `abandon()`. The Android adapter then mirrors `adapter.ios.ts` line for line: `begin()` → `request()` → `Speech.speak(...)`; `end()` via the existing release scheduler → `abandon()` after the last in-flight utterance. Keeps TTS-first (ADR 0009's reason: no asset pipeline), keeps one release-scheduler contract on both platforms, and follows the ADR 0011 precedent of owning a small connector rather than fighting a library. First native code in the repo; the Expo Modules API is first-party tooling. Fingerprint changes (a native stage anyway).
 - **B — ADR 0009 §6's pre-recorded fallback adapter, Android-only.** One bundled clip per `CueId` played through `expo-audio`, whose player requests focus for free. Zero native code, deterministic voice. Costs: an asset pipeline for ten English clips, a different voice from iOS, and an unverified risk — expo-audio's Android playback runs through its media session service, and starting it from a backgrounded process (screen off, kept alive only by the location service) may hit Android 14+'s background foreground-service-start restriction. Needs a spike before committing.
 - **C — no ducking on Android in v1.** TTS speaks over the music at full volume. Honest, zero-risk, and what the runner hears is worse than iOS. Acceptable as the degraded outcome if A is rejected and B's spike fails; record it in ADR 0009 and the stage table.
 
-If Lukas takes A, Task 2 is as written below. If B, replace Task 2's speech steps with the clip player and add the background-start spike first. If C, drop the focus calls and record the gap.
+Tasks 1 and 2 below are written for A. B stays the pre-approved fallback if A fails on a device (ADR 0009 §6 already sanctions the swap); C is the honest degraded outcome only if both fail — either would be its own dated ADR 0009 amendment.
 
-**Second decision, smaller — vibration with the screen off.** Stage 2 left `cue-service/adapter.android.ts` foreground-gated ("a vibration the runner cannot place"). Recommendation: keep the gate, matching ADR 0009 §7 exactly (haptics are an accent, never load-bearing, foreground-only on both platforms) — one rule, no per-platform explanation in Settings. Revisit only on field feedback.
+**Second decision, smaller — vibration with the screen off.** Stage 2 left `cue-service/adapter.android.ts` foreground-gated ("a vibration the runner cannot place"). Decided: keep the gate, matching ADR 0009 §7 exactly (haptics are an accent, never load-bearing, foreground-only on both platforms) — one rule, no per-platform explanation in Settings. Revisit only on field feedback.
 
 ## Global Constraints
 
@@ -40,7 +40,7 @@ The focus module first (if A) because it is the one native change and forces the
 
 ---
 
-### Task 1: audio-focus connector (Decision A)
+### Task 1: audio-focus connector
 **Files:** New `modules/audio-focus/` (`expo-module.config.json`, `android/build.gradle`, `android/src/main/java/expo/modules/audiofocus/AudioFocusModule.kt`, `index.ts`, `src/AudioFocusModule.ts` with a `.ios.ts`/`.web` no-op so the shared import resolves everywhere — expo-router evaluates every platform's routes in both bundles, and the module is imported only from `adapter.android.ts`, but the local-module autolinking still needs an iOS stub to build).
 - [ ] `expo-module.config.json` with `platforms: ["android"]`; module exposes `request(): boolean` (focus granted) and `abandon(): void`; `AudioFocusRequest.Builder(AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)` with `AudioAttributes` `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE` / `CONTENT_TYPE_SPEECH`; idempotent both ways; no listener beyond logging loss.
 - [ ] Confirm autolinking picks it up (`bunx expo-modules-autolinking search` lists it; `bun run prebuild:dev:android`; Gradle build). Record the iOS fingerprint moving (expected; native stage) — and that the iOS Maestro suite is still the owner's gate.
@@ -67,8 +67,8 @@ The focus module first (if A) because it is the one native change and forces the
 - [ ] Record: utterance latency from `cue` row to TTS start, whether Google TTS needed the warm-up, and whether any utterance was dropped while backgrounded.
 
 ### Task 5: docs
-- [ ] ADR 0009: dated amendment "Android mechanics realised" — focus via the connector (or B/C if chosen), `language: 'en-US'`, engine warm-up, what `setIsAudioActiveAsync` does and does not do on Android, haptic gate decision.
-- [ ] ADR 0025: stage-3 row → **Built <date>**; amendment noting the first local Expo module (if A) and the audio-cues primer's one-line fork.
+- [ ] ADR 0009: dated amendment "Android mechanics realised" — focus via the connector, B and C as the alternatives considered, `language: 'en-US'`, engine warm-up, what `setIsAudioActiveAsync` does and does not do on Android, haptic gate decision.
+- [ ] ADR 0025: stage-3 row → **Built <date>**; amendment noting the first local Expo module and the audio-cues primer's one-line fork.
 - [ ] AGENTS.md: Android bullet gains `boot-device sound:true`, the `dumpsys audio` focus-stack recipe, and `modules/` as the home of local native connectors.
 - [ ] Memory: `android-stage-3.md` with what surprised you; mark this handoff superseded.
 

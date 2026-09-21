@@ -29,13 +29,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...config.android,
       package: `${config.android?.package ?? ''}${idSuffix}`,
       // why: a build-time credential kept out of version control (ADR 0010 item 5) — baked into
-      // the manifest at prebuild, never read by JS; absent, Google Maps shows grey tiles, not a crash.
-      config: process.env.GOOGLE_MAPS_ANDROID_API_KEY
-        ? {
-            ...config.android?.config,
-            googleMaps: { apiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY },
-          }
-        : config.android?.config,
+      // the manifest at prebuild, never read by JS. why a placeholder: the Maps SDK throws
+      // `API key not found` and crashes the app when the meta-data is absent (measured), whereas
+      // an invalid key only logs `Authorization failure` and shows grey tiles.
+      config: {
+        ...config.android?.config,
+        googleMaps: {
+          apiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? 'MISSING_GOOGLE_MAPS_ANDROID_API_KEY',
+        },
+      },
     },
   };
 };

@@ -74,8 +74,8 @@ screens.
 | Stage | Capabilities | Plugs in at | Status |
 | --- | --- | --- | --- |
 | **1 — Basics** | All plan weeks; run screen with clock, progress, transport, lock; vibration-only cues; run summary without map, health, export; Plan, Log, Settings; onboarding = welcome only. No location, no speech, no map, no Health, no elevation. Screen held awake for the whole run. | Every port's `adapter.android.ts`; `island/*.android.tsx`; Plan/Log/Settings route forks; run-transport, run-lock, run-unavailable, stat-grid forks. | **Built 2026-09-20**, verified on the emulator (plan → session → run → pause/skip/lock/unlock/end → summary → log → settings; onboarding gating). |
-| 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner` stops hiding on `'unsupported'`. | Planned |
-| 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`. | Planned |
+| 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner`'s `'unsupported'` branch goes dead, not removed (see the 2026-09-21 amendment). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-2-location-heartbeat.md); mechanics and measurements in ADR 0008's 2026-09-21 amendment. |
+| 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | Planned — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md) |
 | 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | Planned |
 | 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | Planned |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | Planned |
@@ -260,3 +260,44 @@ Banners repointed from ADR 0020 to this ADR, naming the owning stage: 0001 (7),
 0002 (1), 0003 (1), 0005 (1), 0006 (1), 0008 (2), 0009 (3), 0010 (4), 0011 (5),
 0012 (7), 0013 (1), 0015 (6), 0017 (later), 0022 (iOS-only by nature), 0023 (1).
 Amendments added to 0003, 0005 and 0013; 0020 marked superseded.
+
+## Amendment (2026-09-21): stage 2 built — location and the foreground-service heartbeat
+
+Stage 2 shipped as planned: `location-tracker/adapter.android.ts` is a real
+adapter over `expo-location` + `expo-task-manager`, the engine and shared
+screens are untouched, and distance, pace, the summary's distance tiles and the
+pace chart light up on Android because fixes flow. What the plan did not
+foresee, and what changed beyond it:
+
+- **`android.permissions` gains `RECEIVE_BOOT_COMPLETED`.** Not for boot work:
+  expo-task-manager persists its delivery jobs and Android crashes the process
+  on the first fix without it (details and the stack in ADR 0008's amendment).
+- **The foreground-service notification is invisible on API 33+** without the
+  runtime notifications permission, which the app does not request. Recorded in
+  ADR 0008; the decision whether to add that prompt is open. This also settles
+  the Live Activity question left in item 1: expo-location's own service
+  notification is the Android counterpart, and `live-activity`'s Android adapter
+  stays a no-op.
+- **`'unsupported'` stays in `LocationPermissionStatus`** but is no longer
+  returned by any adapter; the banner and Settings branches keyed on it are dead
+  on both platforms. Removing the member is a type-only cleanup for a later
+  stage (it touches the iOS Settings record).
+- **Android Settings gains a Location section** (Material rows: Access value,
+  Open Settings / Enable location actions, explanatory supporting text) built on
+  the cross-platform `useLocationPermission()`; the location primer onboarding
+  step drops its `platforms: ['ios']`; `runHoldsScreenAwake` is back to
+  `locked` everywhere and ADR 0008's 2026-09-20 amendment is closed.
+- **`RunLocationBanner` needed the item-5 icon pair** (`location.slash` → `{ ios, android: 'location_off' }`): the banner never mounted on Android in stage 1, so the bare SF Symbol name only became a blank glyph once denial was reachable. The one shared component edit of the stage; a no-op on iOS.
+- **Predictive back is enabled** (`android.predictiveBackGestureEnabled: true`,
+  requested during the stage). React Native 0.86's `ReactActivity` registers an
+  `OnBackPressedCallback` for the enforced predictive back of target SDK 36 and
+  react-native-screens routes back through AndroidX's dispatcher, so JS
+  `BackHandler` and expo-router pops keep working; verified by back-gesturing
+  out of the run summary. Screens does not implement in-app predictive
+  animations, so only the system-level (back-to-home) preview animates.
+- **Emulator facts** that cost time, kept in AGENTS.md: a bare `android.*` or
+  plugin-option change needs an explicit `prebuild:dev:android` before the
+  Gradle build; the debug APK is ~340 MB and the emulator's data partition needs
+  roughly twice that free, with failed installs leaving a copy in
+  `/data/local/tmp`; after a permission reset (a force-stop) the `runbrodev://`
+  link can resolve to another installed dev client, so launch by package first.

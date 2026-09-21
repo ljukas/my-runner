@@ -30,7 +30,7 @@ export function RunLocationBanner({
         <View className="flex-row items-center gap-1.5">
           <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <SymbolView
-              name="location.slash"
+              name={{ ios: 'location.slash', android: 'location_off' }}
               size={Math.round(SYMBOL_POINTS * Math.min(PixelRatio.getFontScale(), 1.6))}
               tintColor={colors.textSecondary}
             />

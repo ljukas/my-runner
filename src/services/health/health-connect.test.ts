@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { CL_UNKNOWN, type HealthRoutePoint, type HealthWorkoutInput } from '@/domain/health';
 import {
+  isHealthRationaleAction,
   resolveAuthorization,
   toDistanceRecord,
   toExerciseRouteLocations,
@@ -185,5 +186,14 @@ describe('resolveAuthorization', () => {
     expect(resolveAuthorization({ sdkAvailable: true, granted: [], requested: true })).toBe(
       'denied',
     );
+  });
+});
+
+describe('isHealthRationaleAction', () => {
+  test('recognises both rationale intents and nothing else', () => {
+    expect(isHealthRationaleAction('androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE')).toBe(true);
+    expect(isHealthRationaleAction('android.intent.action.VIEW_PERMISSION_USAGE')).toBe(true);
+    expect(isHealthRationaleAction('android.intent.action.MAIN')).toBe(false);
+    expect(isHealthRationaleAction(null)).toBe(false);
   });
 });

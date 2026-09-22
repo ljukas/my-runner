@@ -18,9 +18,11 @@ export default function HealthPrimerScreen() {
       secondaryLabel="Not Now"
       onPrimaryPress={async (advance) => {
         // requestWriteAccess catches and logs its own failures (the composition seam, ADR 0011).
-        await requestWriteAccess();
+        const status = await requestWriteAccess();
         // A refusal advances exactly like "Not Now" — Health Connect is optional (ADR 0011 §4).
-        advance();
+        // Still undetermined means the dialog never answered — the user opened the privacy policy
+        // from it, or it failed — so the step stays for a second tap or "Not Now".
+        if (status !== 'notDetermined') advance();
       }}
       footnote={
         <Text variant="footnote" tone="secondary">

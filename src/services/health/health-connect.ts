@@ -105,6 +105,17 @@ export function toDistanceRecord(
   };
 }
 
+// The two intents Health Connect's permission dialog fires from its privacy-policy link — Android
+// ≤ 13 and 14+ respectively — both aimed at MainActivity by the library's config plugin.
+const RATIONALE_ACTIONS = new Set([
+  'androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE',
+  'android.intent.action.VIEW_PERMISSION_USAGE',
+]);
+
+export function isHealthRationaleAction(action: string | null): boolean {
+  return action !== null && RATIONALE_ACTIONS.has(action);
+}
+
 /**
  * Health Connect exposes only "granted" — there is no "denied" to read back — so a grant that is
  * missing reads as not determined until the app has asked once, and as denied after that.

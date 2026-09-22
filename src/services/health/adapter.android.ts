@@ -10,8 +10,10 @@ import {
 } from 'react-native-health-connect';
 
 import type { HealthWorkoutInput } from '@/domain/health';
+import { LaunchIntent } from '@/modules/launch-intent';
 import { notifyAuthorizationChanged } from './authorization-events';
 import {
+  isHealthRationaleAction,
   resolveAuthorization,
   toDistanceRecord,
   toExerciseSessionRecord,
@@ -63,14 +65,45 @@ AppState.addEventListener('change', (state) => {
   if (state === 'active') refresh();
 });
 
+// Measured on Android 16: the dialog's privacy-policy link relaunches our single-task activity,
+// which destroys the dialog and resolves the request with nothing granted — indistinguishable
+// from "Don't allow" except by the rationale intent, which can reach JS just after that result.
+let interruptedByRationale = false;
+let onRationale: (() => void) | null = null;
+LaunchIntent.addListener('onIntent', ({ action }) => {
+  if (!isHealthRationaleAction(action)) return;
+  interruptedByRationale = true;
+  onRationale?.();
+});
+
+function rationaleArrivesWithin(ms: number): Promise<boolean> {
+  if (interruptedByRationale) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      onRationale = null;
+      resolve(false);
+    }, ms);
+    onRationale = () => {
+      clearTimeout(timer);
+      onRationale = null;
+      resolve(true);
+    };
+  });
+}
+
 export const healthAdapter: HealthAdapter = {
   getAuthorization: () => cached,
 
   async requestWriteAccess(): Promise<HealthAuthorization> {
     if (!(await sdkAvailable())) return update('unavailable');
     await initialize();
-    Storage.setItemSync(REQUESTED_KEY, '1');
+    interruptedByRationale = false;
     const granted = await requestPermission([...WRITE_PERMISSIONS]);
+    // Reading the policy is not an answer: leave the status undetermined so the ask can repeat.
+    if (granted.length === 0 && (await rationaleArrivesWithin(1_000))) {
+      return update('notDetermined');
+    }
+    Storage.setItemSync(REQUESTED_KEY, '1');
     return update(resolveAuthorization({ sdkAvailable: true, granted, requested: true }));
   },
 

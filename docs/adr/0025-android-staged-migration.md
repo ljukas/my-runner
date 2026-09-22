@@ -419,9 +419,10 @@ stage adds to this record:
   (`minSdkVersion: 26`) are native on Android and live in the `expoConfig`
   source both platforms hash; ADR 0012's amendment has the numbers and why
   the strip hook must not hide them.
-- **Two shared-file edits, both inert on iOS:** the root layout mounts
-  `HealthRationaleGate` (iOS fork renders nothing) and registers the `privacy`
-  modal (unreachable on iOS); `onboarding.ts` drops the primer's
+- **Two shared-file edits, both inert on iOS:** the root layout mounts the
+  shared `HealthRationaleGate` — its `subscribeHealthRationaleIntent` seam is
+  the fork, a no-op on iOS, and the only importer of the module — and registers
+  the `privacy` modal (no in-app path on iOS); `onboarding.ts` drops the primer's
   `platforms: ['ios']` and takes an injectable step list so the platform filter
   stays tested now that no shipped step uses it. The health barrel exports
   `isHealthRationaleAction`, and `use-health-authorization.ts` re-exports the

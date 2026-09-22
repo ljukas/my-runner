@@ -255,9 +255,15 @@ plan is [`2026-09-22-android-stage-5-health-connect.md`](../superpowers/plans/20
    (`android.permission.health.WRITE_EXERCISE`, `WRITE_EXERCISE_ROUTE`,
    `WRITE_DISTANCE`) go in `android.permissions`, and `expo-build-properties`
    raises `minSdkVersion` to 26 (SDK 57 defaults to 24; `connect-client:1.1.0`
-   requires 26). **Two files import the library, not one:**
-   `health/adapter.android.ts` and `health/open-health-app.android.ts` (Health
-   Connect's settings are an intent the library wraps, `ACTION_HEALTH_CONNECT_SETTINGS`).
+   requires 26). **Three files reference the library, not one:** two runtime
+   imports — `health/adapter.android.ts` and `health/open-health-app.android.ts`
+   (Health Connect's settings are an intent the library wraps,
+   `ACTION_HEALTH_CONNECT_SETTINGS`; never a port member on iOS either) — and one
+   type-only import in the pure, unsuffixed `health/health-connect.ts`, erased at
+   runtime, which is why that file resolves on iOS too. All three sit inside
+   `services/health/`, the containment boundary ADR 0003 enforces. The version
+   is pinned exactly (`4.1.3`), like the HealthKit library, because the mapper
+   restates three of its numeric constants.
 2. **Item 7's "designed against both APIs' shapes" was true of the payload and
    false in three places, each absorbed on the Android side so iOS is untouched:**
    - `getAuthorization()` is synchronous and every Health Connect status call is
@@ -300,8 +306,11 @@ plan is [`2026-09-22-android-stage-5-health-connect.md`](../superpowers/plans/20
    nothing, and the Android primer stays on screen for an undetermined answer.
    The intent's action is read through `modules/launch-intent/` (the repo's
    second Android-only local module; React Native's `Linking` exposes only an
-   intent's data URI, and these carry none), and `HealthRationaleGate` routes
-   it to the new `privacy` screen, which Android Settings also links.
+   intent's data URI, and these carry none) by one forked service seam,
+   `subscribeHealthRationaleIntent` (`rationale-intent.android.ts`; the iOS
+   file is a no-op), which the adapter and the shared `HealthRationaleGate`
+   both subscribe to — the gate routes it to the new `privacy` screen, which
+   Android Settings also links. The module has exactly one importer.
 5. **UI:** `health-status-row.android.tsx`, `onboarding/health.android.tsx` and
    a Health Connect section in Android Settings are `.android` forks with
    Health Connect copy; the primer names the three data types written. Settings

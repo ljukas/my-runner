@@ -10,16 +10,15 @@ import {
 } from 'react-native-health-connect';
 
 import type { HealthWorkoutInput } from '@/domain/health';
-import { LaunchIntent } from '@/modules/launch-intent';
 import { notifyAuthorizationChanged } from './authorization-events';
 import {
-  isHealthRationaleAction,
   resolveAuthorization,
   toDistanceRecord,
   toExerciseSessionRecord,
   WRITE_PERMISSIONS,
 } from './health-connect';
 import type { HealthAdapter, HealthAuthorization } from './port';
+import { subscribeHealthRationaleIntent } from './rationale-intent';
 
 // Health Connect never says "denied", only "not granted" — this is the app's own memory of having
 // asked, which is what turns a missing grant into 'denied' (Settings then offers the Health
@@ -70,8 +69,7 @@ AppState.addEventListener('change', (state) => {
 // from "Don't allow" except by the rationale intent, which can reach JS just after that result.
 let interruptedByRationale = false;
 let onRationale: (() => void) | null = null;
-LaunchIntent.addListener('onIntent', ({ action }) => {
-  if (!isHealthRationaleAction(action)) return;
+subscribeHealthRationaleIntent(() => {
   interruptedByRationale = true;
   onRationale?.();
 });

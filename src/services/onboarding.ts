@@ -14,8 +14,7 @@ export type OnboardingStepDefinition = {
  * Versioned first-launch steps (spec §13). A later release that needs a new
  * permission appends a step here; existing users then see only that step.
  * A step without `platforms` shows everywhere; a primer for a capability one
- * platform lacks names the other (ADR 0025 §7). Every capability has shipped on
- * both platforms since Android stage 5, so no current step needs it.
+ * platform lacks names the other (ADR 0025 §7).
  */
 export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },

@@ -30,7 +30,6 @@ const SECTIONS: readonly { title: string; body: string }[] = [
   },
 ];
 
-/** The privacy policy as in-app copy (ADR 0013 domain component). */
 export function PrivacyPolicy() {
   return (
     <View className="gap-6">

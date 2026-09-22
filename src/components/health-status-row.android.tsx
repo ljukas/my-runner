@@ -13,11 +13,8 @@ import {
   useHealthAuthorization,
 } from '@/services/health';
 
-/**
- * The run summary's Health Connect row — the iOS row's Android fork (ADR 0025 §2), same contract:
- * one button serves the fresh-finish retry and the deliberate push of an older run, since the
- * auto-save fires only on a run's finish (spec §7.1).
- */
+// why one button: it serves both the fresh-finish retry and the deliberate push of an older run —
+// the auto-save fires only on a run's finish (spec §7.1).
 export function HealthStatusRow({ run }: { run: Run }) {
   const authorization = useHealthAuthorization();
   const [saving, setSaving] = useState(false);

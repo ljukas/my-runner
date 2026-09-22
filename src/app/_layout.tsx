@@ -4,7 +4,7 @@ import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
 import { Stack, ThemeProvider, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { useColorScheme, View } from 'react-native';
+import { Platform, useColorScheme, View } from 'react-native';
 
 import { ResumeRunGate } from '@/components/resume-run-gate';
 import { Text } from '@/components/ui/text';
@@ -122,15 +122,19 @@ export default function RootLayout() {
             headerTitle: '',
           }}
         >
-          <Stack.Toolbar placement="right">
-            <Stack.Toolbar.Button
-              icon="xmark"
-              accessibilityLabel="Close map"
-              // why: a cold deep link has no back entry; fall back to dismissTo so the swipe isn't
-              // the only exit (spec §7.4).
-              onPress={() => (router.canGoBack() ? router.back() : router.dismissTo('/log'))}
-            />
-          </Stack.Toolbar>
+          {/* why iOS-only: Android exits through the header back arrow and predictive back, and
+              an SF-Symbol toolbar button renders nothing there while warning at startup. */}
+          {Platform.OS === 'ios' ? (
+            <Stack.Toolbar placement="right">
+              <Stack.Toolbar.Button
+                icon="xmark"
+                accessibilityLabel="Close map"
+                // why: a cold deep link has no back entry; fall back to dismissTo so the swipe isn't
+                // the only exit (spec §7.4).
+                onPress={() => (router.canGoBack() ? router.back() : router.dismissTo('/log'))}
+              />
+            </Stack.Toolbar>
+          ) : null}
         </Stack.Screen>
 
         <Stack.Screen

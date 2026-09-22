@@ -26,6 +26,8 @@ const config = {
   // the Gradle-touched tree hash the same. Chunks are joined first so the attribute cannot straddle
   // a chunk boundary (the reader streams 1 KiB at a time).
   fileHookTransform: (source, chunk, isEndOfFile) => {
+    if (source.type === 'contents' && source.id === 'expoConfig')
+      return withoutGoogleMapsKey(chunk);
     if (source.type !== 'file' || !source.filePath.endsWith('AndroidManifest.xml')) return chunk;
     const buffered = manifestChunks.get(source.filePath) ?? [];
     if (chunk != null) buffered.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk);
@@ -43,5 +45,21 @@ const config = {
 };
 
 const manifestChunks = new Map();
+
+// The Android Maps key (`android.config.googleMaps.apiKey`, ADR 0010 item 5) is baked into the
+// manifest at prebuild and never read by JS, so a tree with the key and one without must hash the
+// same — yet the whole normalised Expo config is a `contents` source on BOTH platforms (measured:
+// adding the key moved the iOS hash). Trade-off per ADR 0012's 2026-09-21 amendment.
+function withoutGoogleMapsKey(chunk) {
+  if (typeof chunk !== 'string') return chunk;
+  const cfg = JSON.parse(chunk);
+  if (!cfg.android?.config?.googleMaps) return chunk;
+  delete cfg.android.config.googleMaps;
+  if (Object.keys(cfg.android.config).length === 0) delete cfg.android.config;
+  // why: the sourcer serialised the config with its own sorter; JSON.stringify formats differently
+  // and would hash to a third value, matching neither a keyed nor a keyless tree.
+  const { stringifyJsonSorted } = require('@expo/fingerprint/build/sourcer/Utils');
+  return stringifyJsonSorted(cfg);
+}
 
 module.exports = config;

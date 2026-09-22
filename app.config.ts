@@ -28,6 +28,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...config.android,
       package: `${config.android?.package ?? ''}${idSuffix}`,
+      // why: a build-time credential kept out of version control (ADR 0010 item 5; ADR 0019
+      // amendment). why a placeholder: the Maps SDK crashes with `API key not found` when the
+      // meta-data is absent (measured); an invalid key only logs `Authorization failure`.
+      config: {
+        ...config.android?.config,
+        googleMaps: {
+          apiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? 'MISSING_GOOGLE_MAPS_ANDROID_API_KEY',
+        },
+      },
     },
   };
 };

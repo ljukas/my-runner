@@ -58,3 +58,123 @@ Config and dependency first (`bun expo install`, plugin, permissions, prebuild, 
 - Comments WHY-only; architecture in ADRs (`// per ADR 0011 §4`). Run `adr-compliance-reviewer` and `comment-density-auditor` before the PR — stage 4's ADR review caught a rule (ADR 0019 "identity only") the code had outgrown; expect ADR 0011's "designed against both APIs' shapes" to need the same honesty.
 - Worktree-guard quirks: a Bash command that mixes a heredoc with `git`, or a shell variable feeding `adb`/`tar`, is refused — split into plain commands or use the Edit tool. Metro's log piped through `head` is empty (buffering): read logcat. A fresh dev-client install shows a developer-menu sheet whose "Continue" opens the full menu — press back. `await-ui-element` on `TOOLS` matches the floating "Tools" button. When two devices share port 8087 the debugger attaches by Metro's logical id.
 - Verification is on the shared `emulator-5554` (Pixel 9 Pro, Android 16) with argent; stop its servers (`stop-all-simulator-servers` scoped to the device) when done. Maestro on Android is stage 7.
+
+---
+
+## 7. Decisions (settled 2026-09-22)
+
+All four went with the recommended option. §5 (copy) was settled by the executor
+under the handoff's own rules:
+
+1. **iOS fingerprint:** accept the move, record the new baseline in ADR 0012.
+   Release batching with the deferred `expo-image` icons stays a separate PR.
+2. **`getAuthorization()` stays synchronous;** the Android adapter caches a
+   probed status and refreshes it on module load, after every request and on
+   AppState `active`, notifying the hook when the answer changes. The listener
+   `Set` moves to `authorization-events.ts` so the adapter can import it without
+   a cycle; the hook module re-exports it for its existing callers and tests.
+3. **A `privacy` route** (RN + Uniwind, shared copy) linked from Android Settings
+   and opened by Health Connect's rationale intent through a ~30-line
+   Android-only local module, `modules/launch-intent/`, mounted as a
+   `HealthRationaleGate` beside `ResumeRunGate` (its iOS fork renders nothing).
+4. **Settings mirrors iOS:** a reporting "Access" row plus *Set up Health
+   Connect* (undetermined) / *Open Health Connect* (denied), following Google's
+   own advice against `revokeAllPermissions()` switches.
+5. **Copy:** "Health Connect" everywhere Android says "Apple Health". The primer
+   and the summary row are `.android.tsx` forks (whole-screen copy changes),
+   the primer's rows name the three data types written (§5.4). Step order is
+   the shared one (welcome → audio cues → location → health) — one ordered list
+   serves both platforms and health reads naturally after location.
+
+Two library facts found while planning, both load-bearing for the mapping:
+`ReactExerciseSessionRecord.parseWriteRecord` calls `getLengthFromJsMap` on all
+three route `Length` fields and **throws `InvalidLength` when one is absent**,
+so the TS `?` on `Location.horizontalAccuracy/verticalAccuracy/altitude` is a
+lie for writes — every point must carry all three; and the `connect-client`
+constructor requires route times to satisfy `start ≤ t < end` and be strictly
+increasing (`ExerciseSessionRecord.kt`, `ExerciseRoute.kt`), so the mapper
+filters to the window and drops duplicate timestamps. Android's own `Location`
+API reports an unavailable accuracy as `0`, so that is the value used for a
+`CL_UNKNOWN` field — Health Connect rejects negatives.
+
+## 8. Task plan
+
+Gate after every task: `bun run lint && bun run typecheck && bun run typecheck:android && bun test`.
+
+### Task 1: Dependency, permissions, minSdk 26, prebuild, Gradle, fingerprints
+- `bun expo install react-native-health-connect expo-build-properties`.
+- `app.json`: `plugins` += `"react-native-health-connect"` and
+  `["expo-build-properties", { "android": { "minSdkVersion": 26 } }]` (SDK 57's
+  default is 24 via `ExpoRootProjectPlugin.kt`; `connect-client:1.1.0` needs 26);
+  `android.permissions` += `android.permission.health.WRITE_EXERCISE`,
+  `android.permission.health.WRITE_EXERCISE_ROUTE`, `android.permission.health.WRITE_DISTANCE`.
+- `bun run prebuild:dev:android`, then `cd android && APP_VARIANT=development ./gradlew :app:assembleDebug`.
+- Record iOS (dev `99862a79…`, variant-less `9061ec14…`) and Android (`a222c043…`) hashes before/after.
+
+### Task 2: Pure Health Connect mapping — `src/services/health/health-connect.ts` (+ `.test.ts`)
+- `toExerciseRouteLocations(input)`, `toExerciseSessionRecord(input, version)`,
+  `toDistanceRecord(input, version)`, `resolveAuthorization({ sdkAvailable, granted, requested })`.
+- Type-only imports from `react-native-health-connect`; numeric constants local (bun cannot load the library's runtime entry).
+
+### Task 3: `authorization-events.ts` + `adapter.android.ts`
+- Cached status, probe on load / AppState / after request; `requested` flag in `expo-sqlite/kv-store` (`health.writeAccessRequested`).
+- `saveRun`: `initialize()` → `insertRecords([session])` → `insertRecords([distance])`, `clientRecordVersion = Date.now()`.
+
+### Task 4: `open-health-app.android.ts` → `openHealthConnectSettings()`, `Linking.openSettings()` fallback.
+
+### Task 5: `modules/launch-intent/` + `HealthRationaleGate` + `privacy` route
+- Kotlin: `Function("getAction")`, `OnNewIntent` → `sendEvent("onIntent", { action })`.
+- `src/components/health-rationale-gate.android.tsx` pushes `/privacy` for
+  `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE` / `android.intent.action.VIEW_PERMISSION_USAGE`; `.tsx` renders null.
+- `src/app/privacy.tsx` composes `PrivacyPolicy` (`src/components/privacy-policy.tsx`); registered in the root Stack as a modal.
+
+### Task 6: UI forks
+- `health-status-row.android.tsx` (real row), Settings "Health Connect" section + "Privacy policy" row,
+  `onboarding/health.android.tsx`, `onboarding.ts` drops `platforms: ['ios']`, `onboarding.test.ts` Android expectation gains `health-primer-v1`.
+
+### Task 7: Emulator verification (adb-driven; argent MCP failed to connect this session)
+- Reinstall recipe (storage ~640 MB free), grant, onboarding primer → Health Connect dialog → grant → Settings reports *Saving workouts*;
+  manual save of a fixture → session + distance + route visible in Health Connect; retry idempotency; denied path; rationale link → privacy route; reinstall → grants cleared.
+
+### Task 8: Docs — ADR 0011 Android amendment, ADR 0012 new baseline, ADR 0025 row 5 + amendment, AGENTS.md, `docs/privacy-policy.md`, this plan's "As built", memory.
+
+---
+
+## As built (2026-09-22) — read before the next stage
+
+Shipped on `ll/android-stage-5`, stacked on #66. All four decisions went with
+the recommended option (§7). The record of what was verified and what deviated
+lives in ADR 0011's, ADR 0012's and ADR 0025's 2026-09-22 amendments; the
+short version:
+
+- **The port stayed synchronous; the Android adapter caches a probed status**
+  (module load, after each request, AppState `active`) and notifies the hook
+  through `authorization-events.ts`, which the hook module re-exports.
+- **The library's route writer requires all three `Length` fields** despite the
+  optional types, and Health Connect requires `start ≤ t < end` with strictly
+  increasing times — `health/health-connect.ts` (pure, 16 tests) does the
+  filtering and writes unknown accuracy as `0` m.
+- **The rationale link cancels the dialog.** Found by verification: tapping
+  "privacy policy" in Health Connect's dialog relaunched the single-task
+  activity, the request resolved empty, and the first build marked the user
+  denied and advanced the primer. Fixed in the adapter (an empty result that
+  coincides with the rationale intent, allowing 1 s, stays undetermined) and
+  the Android primer (stays for an undetermined answer). Retested end to end.
+- **Idempotent retries verified for real** (the half iOS could not verify):
+  saving the fixture twice left one session and one distance entry.
+- **Auto-save verified** on a fresh 40-second compressed finish: session with
+  route, no distance record for 0 m, `healthkit_saved = 1`.
+- **`pm grant` / `pm revoke` work for the health permissions**, so a reinstall
+  no longer needs the Health Connect UI; `MANAGE_HEALTH_DATA` is the intent that
+  shows what was written.
+- **Fingerprints:** iOS dev `99862a79… → cbccdd29…`, variant-less
+  `9061ec14… → 7daa9686…`, Android dev `a222c043… → aa17e5a5…` — deliberate,
+  recorded in ADR 0012.
+- **Not exercised:** `SDK_UNAVAILABLE` / provider-update-required (platform
+  Health Connect on Android 16), an explicit *Don't allow*, the twice-cancelled
+  auto-decline, and a reinstall's grant wipe (the `pm` route makes it moot).
+- **Open:** the Android primers' hero symbol sits under the status bar (a
+  pre-existing layout of the shared `OnboardingStepScreen` on Android, owned by
+  the carousel redesign spec); Maestro on Android remains stage 7.
+
+Handoff for stage 6 (elevation): not yet written.

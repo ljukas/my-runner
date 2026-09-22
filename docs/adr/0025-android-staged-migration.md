@@ -77,7 +77,7 @@ screens.
 | 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner`'s `'unsupported'` branch goes dead, not removed (see the 2026-09-21 amendment). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-2-location-heartbeat.md); mechanics and measurements in ADR 0008's 2026-09-21 amendment. |
 | 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md); mechanics and measurements in ADR 0009's 2026-09-21 amendment. |
 | 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card, viewer, degradations and rendering all verified on the emulator with a real Maps key (see the amendment below). |
-| 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | Planned |
+| 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | **Built 2026-09-22** — [plan](../superpowers/plans/2026-09-22-android-stage-5-health-connect.md); mechanics and measurements in ADR 0011's 2026-09-22 amendment; the deliberate iOS fingerprint move in ADR 0012's. |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | Planned |
 | 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | Planned |
 
@@ -398,3 +398,45 @@ the same date. What the stage adds to this record:
   `MapView` (`AndroidViewsHandler → ViewFactoryHolder → MapView`); Metro's
   `head`-piped log is empty (pipe buffering) — read logcat instead; and the
   debugger attaches by Metro's logical id when two devices share the port.
+
+## Amendment (2026-09-22): stage 5 built — Health Connect
+
+Stage 5 shipped as planned and as decided (synchronous port with a cached
+Android status, a `privacy` route opened by the rationale intent, a reporting
+Settings row, Health Connect copy in `.android` forks): `health/adapter.android.ts`
+is a real `react-native-health-connect` adapter, the port, `sync.ts`, the
+decorator and the iOS adapter are untouched, and the mapping, authorization and
+rationale mechanics are in ADR 0011's amendment of the same date. What the
+stage adds to this record:
+
+- **The second local module, `modules/launch-intent/`** (Kotlin, ~20 lines,
+  `Function("getAction")` + `OnNewIntent` → `onIntent` event), because Health
+  Connect's rationale intents reach `MainActivity` with no URL. Same shape as
+  `audio-focus`: `platforms: ["android"]`, `index.android.ts`, nested
+  `.gitignore`, no iOS fingerprint effect.
+- **The iOS fingerprint moved, deliberately** — the first stage to do so. The
+  plugin entry, the health permissions and `expo-build-properties`
+  (`minSdkVersion: 26`) are native on Android and live in the `expoConfig`
+  source both platforms hash; ADR 0012's amendment has the numbers and why
+  the strip hook must not hide them.
+- **Two shared-file edits, both inert on iOS:** the root layout mounts
+  `HealthRationaleGate` (iOS fork renders nothing) and registers the `privacy`
+  modal (unreachable on iOS); `onboarding.ts` drops the primer's
+  `platforms: ['ios']` and takes an injectable step list so the platform filter
+  stays tested now that no shipped step uses it. The health barrel exports
+  `isHealthRationaleAction`, and `use-health-authorization.ts` re-exports the
+  listener pair from the new `authorization-events.ts`.
+- **A verification finding that changed the code:** the dialog's privacy link
+  relaunches our single-task activity and cancels the request; the first build
+  read that as a refusal. Item 4 of ADR 0011's amendment has the fix.
+- **Emulator facts** that cost time, for AGENTS.md: `pm grant` / `pm revoke` of
+  `android.permission.health.WRITE_*` work on this image (they are ordinary
+  runtime permissions), so a reinstall no longer needs the Health Connect UI to
+  re-grant; a `-PreactNativeArchitectures=arm64-v8a` Gradle build produces a
+  120 MB debug APK (vs ~340 MB for all ABIs) that `adb install -r` streams
+  without the uninstall recipe at ~640 MB free; the first request on a fresh
+  image shows Health Connect's own "Get started" intro before the dialog;
+  `am start -a android.health.connect.action.MANAGE_HEALTH_DATA` opens the data
+  browser (Activity → Exercise / Distance, stepped by day) that shows what was
+  written, including "Exercise map route available"; `uiautomator dump` reads
+  the Compose and RN text of every screen except the animated run screen.

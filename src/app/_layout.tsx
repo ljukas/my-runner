@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Platform, useColorScheme, View } from 'react-native';
 
+import { HealthRationaleGate } from '@/components/health-rationale-gate';
 import { ResumeRunGate } from '@/components/resume-run-gate';
 import { Text } from '@/components/ui/text';
 import { db } from '@/db/client';
@@ -59,6 +60,7 @@ export default function RootLayout() {
     <ThemeProvider value={navigationTheme(colorScheme)}>
       <OnboardingGate />
       <ResumeRunGate />
+      <HealthRationaleGate />
       <Stack
         screenOptions={{
           headerLargeTitleStyle: { color: colors.text },
@@ -141,6 +143,7 @@ export default function RootLayout() {
           name="onboarding"
           options={{ presentation: 'modal', gestureEnabled: false, headerShown: false }}
         />
+        <Stack.Screen name="privacy" options={{ presentation: 'modal', title: 'Privacy policy' }} />
       </Stack>
     </ThemeProvider>
   );

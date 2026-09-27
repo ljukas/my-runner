@@ -8,7 +8,7 @@ appId: se.lukaslindqvist.runbro.e2e
 # when the altimeter first starts — mid-run. A system alert is not app state, so `clearState`
 # does NOT dismiss it: one flow triggering it strands every later flow behind it.
 #
-# Android has no `motion` key and takes allow/deny for location; the step counter's run-start
+# Android has no `motion` key and takes allow/deny for location; the barometer capture's run-start
 # ask is ACTIVITY_RECOGNITION, granted by its full permission id (ADR 0015's 2026-09-27 amendment).
 - runFlow:
     when:

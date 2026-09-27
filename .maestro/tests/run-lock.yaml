@@ -85,5 +85,5 @@ tags:
     visible:
       text: "Good effort.*"
     timeout: 30000
-- tapOn: "(Close|Navigate up)" # the summary's toolbar xmark (iOS) or header up arrow (Android)
+- runFlow: ../helpers/close-summary.yaml
 - assertVisible: "Week 1 ·.*"

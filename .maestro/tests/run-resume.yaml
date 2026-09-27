@@ -47,9 +47,6 @@ tags:
 - extendedWaitUntil:
     visible: "Nice work.*"
     timeout: 120000
-- tapOn: "(Close|Navigate up)" # the summary's toolbar xmark (iOS) or header up arrow (Android)
-- tapOn: "Log"
-- scrollUntilVisible:
-    element:
-      text: "Week 1 · Day 1"
-- assertNotVisible: ".*Partial" # Android's Log row is one "date · status" text
+- runFlow: ../helpers/close-summary.yaml
+- runFlow: ../helpers/open-log-row.yaml
+- assertNotVisible: ".*Partial"

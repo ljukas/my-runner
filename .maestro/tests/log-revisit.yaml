@@ -9,7 +9,7 @@ tags:
     visible:
       text: "Nice work.*"
     timeout: 120000
-- tapOn: "Close"
+- runFlow: ../helpers/close-summary.yaml
 # Revisit from the Log tab.
 - tapOn: "Log"
 - tapOn:

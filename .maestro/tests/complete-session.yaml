@@ -49,11 +49,8 @@ tags:
 - scrollUntilVisible:
     element:
       text: "Save to Apple Health"
-- tapOn: "Close"
-- tapOn: "Log"
-- scrollUntilVisible:
-    element:
-      text: "Week 1 · Day 1"
+- runFlow: ../helpers/close-summary.yaml
+- runFlow: ../helpers/open-log-row.yaml
 - tapOn: "Plan"
 # The next-session marker is an icon-only arrow — no text to target (ADR 0016).
 - assertVisible:

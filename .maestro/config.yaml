@@ -1,2 +1,5 @@
+# `ios-only` marks a flow driving a surface Android lacks or renders differently: Apple Health,
+# iOS's location tri-state and its dialog, the page-sheet swipe. e2e-android excludes it
+# (ADR 0025 stage 7); port the flow instead of dropping the tag.
 flows:
   - "tests/*.yaml"

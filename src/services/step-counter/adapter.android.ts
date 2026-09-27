@@ -18,9 +18,6 @@ export const stepCounterSource: StepCounterSource = {
   async start() {
     if (armed) return;
     armed = true;
-    // why: a JS reload resets `armed` but not the native registration, whose counts belong to an
-    // earlier run.
-    MotionSensors.stopSteps();
     // why gated: the count only accompanies a barometer capture (as on iOS), so on a phone without
     // one the ACTIVITY_RECOGNITION dialog would ask for data nothing records alongside.
     if (!(await hasBarometer()) || !MotionSensors.hasStepCounter()) return;

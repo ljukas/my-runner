@@ -1586,6 +1586,19 @@ describe('barometer capture (spec §6)', () => {
     expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
   });
 
+  test('a stalled step-counter start does not delay the next run’s barometer', async () => {
+    const h = makeEngine({
+      nativeTimeoutMs: 60_000,
+      stepCounterStart: () => new Promise<void>(() => {}),
+    });
+    h.engine.start(SESSION);
+    await flush();
+    h.engine.reset();
+    h.engine.start(SESSION);
+    await flush();
+    expect(h.elevationCalls).toEqual(['start', 'stop', 'start']);
+  });
+
   test('a failed flush returns its rows with their original seq, never renumbered', async () => {
     const h = makeEngine();
     const warnings = await withoutWarnings(async () => {

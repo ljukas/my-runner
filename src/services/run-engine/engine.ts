@@ -260,8 +260,11 @@ export class RunEngine {
   // after the new start() and leave tracking off for the whole run.
   private trackerOps: Promise<unknown> = Promise.resolve();
   // Same hazard as trackerOps, for the barometer and step counter: an unordered stop() landing after
-  // a start() would leave a sensor running with the app backgrounded.
-  private sensorOps: Promise<unknown> = Promise.resolve();
+  // a start() would leave a sensor running with the app backgrounded. One chain each, since only a
+  // sensor's own start and stop need ordering — a stalled step-permission read must not hold the
+  // barometer's start.
+  private altitudeOps: Promise<unknown> = Promise.resolve();
+  private stepOps: Promise<unknown> = Promise.resolve();
 
   constructor(deps: {
     persistence: RunLifecyclePersistence;
@@ -544,9 +547,6 @@ export class RunEngine {
     }
   };
 
-  // why Date, not the record's own ISO strings: getStepCountAsync throws on a string argument
-  // (no .getTime), and the injected stepCounter's own signature takes Date so that mistake can't
-  // happen at this call site either.
   private async capturePedometerSteps(startedAt: number, endedAt: number): Promise<void> {
     try {
       const steps = await withTimeout<number | null | undefined>(
@@ -914,7 +914,7 @@ export class RunEngine {
   // re-assert the desired state after a timeout (or check a generation inside the op), and needs a
   // device pass to confirm it against real CoreLocation timing. Its own slice, not a one-liner.
   //
-  // The asymmetry is why this is the chain that matters: the sensor chain's ops are native-synchronous
+  // The asymmetry is why this is the chain that matters: the sensor chains' ops are native-synchronous
   // except the Android step counter's permission read, and a start() abandoned at its timeout is
   // harmless there because the adapter re-checks that it is still armed before registering. The
   // tracker's chain has no such re-check, so its fix is the real slice.
@@ -925,19 +925,23 @@ export class RunEngine {
   }
 
   private startSensors(): void {
-    this.queueSensor(() => this.elevation.start(), 'altitude start');
-    this.queueSensor(() => this.stepCounter.start(), 'step counter start');
+    this.queueSensor('altitudeOps', () => this.elevation.start(), 'altitude start');
+    this.queueSensor('stepOps', () => this.stepCounter.start(), 'step counter start');
   }
 
   private stopSensors(): void {
-    this.queueSensor(() => this.elevation.stop(), 'altitude stop');
-    this.queueSensor(() => this.stepCounter.stop(), 'step counter stop');
+    this.queueSensor('altitudeOps', () => this.elevation.stop(), 'altitude stop');
+    this.queueSensor('stepOps', () => this.stepCounter.stop(), 'step counter stop');
   }
 
-  private queueSensor(op: () => Promise<void>, label: string): void {
-    this.sensorOps = this.sensorOps
-      // why bounded and trackerOps is not: this chain carries the stops that release the barometer
-      // and step counter, so one op that never settles leaves them sampling for the process's lifetime.
+  private queueSensor(
+    chain: 'altitudeOps' | 'stepOps',
+    op: () => Promise<void>,
+    label: string,
+  ): void {
+    this[chain] = this[chain]
+      // why bounded and trackerOps is not: these chains carry the stops that release the barometer
+      // and step counter, so one op that never settles leaves it sampling for the process's lifetime.
       .then(() => withTimeout<void>(op(), undefined, this.nativeTimeoutMs, label))
       .catch((error) => console.warn(`[run-engine] ${label} failed`, error));
   }

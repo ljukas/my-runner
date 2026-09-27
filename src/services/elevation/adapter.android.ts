@@ -1,13 +1,21 @@
+import { Pedometer } from 'expo-sensors';
+
 import { MotionSensors } from '@/modules/motion-sensors';
-import type { AltitudeReading, ElevationSource } from './port';
-import { relativeAltitudeFromPressure, toAltitudeReading } from './reading';
+import type { ElevationSource } from './port';
+import {
+  relativeAltitudeFromPressure,
+  toAltitudeReading,
+  toMotionPermissionStatus,
+} from './reading';
+import { createReadingHub } from './reading-hub';
 
 // One subscription with a JS fan-out, as in adapter.ios.ts; the native side is our own module, not
 // expo-sensors' Barometer (ADR 0015's 2026-09-27 amendment).
 let subscription: { remove: () => void } | null = null;
-let epoch = 0;
-const listeners = new Set<(reading: AltitudeReading) => void>();
+const hub = createReadingHub();
 
+// why Pedometer: the barometer needs no permission, so the one that gates this capture's motion
+// data is the step counter's ACTIVITY_RECOGNITION — the status the run record and export report.
 export const elevationSource: ElevationSource = {
   async isAvailable() {
     try {
@@ -17,22 +25,22 @@ export const elevationSource: ElevationSource = {
     }
   },
 
-  // why granted: Android guards the pressure sensor with no permission at all.
   async requestPermission() {
-    return 'granted';
+    const { granted, canAskAgain } = await Pedometer.requestPermissionsAsync();
+    return toMotionPermissionStatus(granted, canAskAgain);
   },
 
   async getPermissionStatus() {
-    return 'granted';
+    const { granted, canAskAgain } = await Pedometer.getPermissionsAsync();
+    return toMotionPermissionStatus(granted, canAskAgain);
   },
 
   async start() {
     if (subscription) return;
     if (!(await elevationSource.isAvailable())) return;
-    epoch += 1;
-    const readingEpoch = epoch;
+    const readingEpoch = hub.nextEpoch();
     let basePressureHpa: number | null = null;
-    const native = MotionSensors.addListener('onPressure', ({ pressureHpa, timestampS }) => {
+    const native = MotionSensors.addListener('onPressure', ({ pressureHpa, timestampS, atMs }) => {
       const reading = toAltitudeReading(
         {
           pressure: pressureHpa,
@@ -42,27 +50,30 @@ export const elevationSource: ElevationSource = {
             basePressureHpa ?? pressureHpa,
           ),
         },
-        Date.now(),
+        atMs,
         readingEpoch,
       );
       if (!reading) return;
       basePressureHpa ??= pressureHpa;
-      Array.from(listeners).forEach((listener) => listener(reading));
+      hub.emit(reading);
     });
-    if (MotionSensors.startBarometer()) subscription = native;
-    else native.remove();
+    let started = false;
+    try {
+      started = MotionSensors.startBarometer();
+    } finally {
+      if (started) subscription = native;
+      else native.remove();
+    }
   },
 
   async stop() {
-    MotionSensors.stopBarometer();
-    subscription?.remove();
-    subscription = null;
+    try {
+      MotionSensors.stopBarometer();
+    } finally {
+      subscription?.remove();
+      subscription = null;
+    }
   },
 
-  onReading(cb) {
-    listeners.add(cb);
-    return () => {
-      listeners.delete(cb);
-    };
-  },
+  onReading: hub.onReading,
 };

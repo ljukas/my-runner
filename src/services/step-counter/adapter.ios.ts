@@ -14,6 +14,7 @@ export const stepCounterSource: StepCounterSource = {
     if (!(await hasBarometer())) return null;
     // why caught: getStepCountAsync performs no permission check of its own — it rejects when Motion
     // & Fitness isn't authorized — and a finalize that throws is a run that never gets saved.
+    // why the port takes Date: getStepCountAsync throws on an ISO string (no .getTime).
     try {
       const { steps } = await Pedometer.getStepCountAsync(start, end);
       return steps;

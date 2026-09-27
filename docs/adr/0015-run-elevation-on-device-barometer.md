@@ -359,9 +359,15 @@ nowhere, on either platform.** What the stage settled:
    runs a sensor at its fastest client's rate and delivers every event to every
    client. Play services' location validation registers the pressure sensor at
    100 ms whenever a location session is live, so an unthinned run stored ~10
-   samples a second (2 180 in 3.6 min). The module keeps an event only if its
-   own sensor timestamp is ≥ 0.95 s after the last kept one, so a batched burst
-   is thinned by when each reading was taken, not when it arrived. Measured
+   samples a second (2 180 in 3.6 min). The module keeps an event when its own
+   sensor timestamp reaches the next slot of a 1 s grid (100 ms jitter
+   allowance), so a batched burst is thinned by when each reading was taken, not
+   when it arrived. A grid, not a gap from the last kept event: a gap test halves
+   the cadence of a sensor whose nearest native rate is just above 1 Hz
+   (909 ms apart fails a 950 ms gap every other event). Each reading's `at` is
+   likewise derived from the event clock (`System.currentTimeMillis()` minus the
+   reading's age against `elapsedRealtimeNanos()`), since a FIFO burst arrives
+   up to 5 s after its readings were taken. Measured
    after the fix: 1.0 s between every sample, screen on and off — the same
    cadence as iOS (1.065 s, 2026-08-04), so one barometer config can later tune
    both.
@@ -377,9 +383,10 @@ nowhere, on either platform.** What the stage settled:
    `sensorTimestampS` is `SensorEvent.timestamp` in seconds (boot-relative,
    monotonic, as on iOS); pressure continuity stays the rebase detector.
 4. **No permission guards the Android barometer**, so the adapter's
-   `getPermissionStatus`/`requestPermission` answer `'granted'`, and a run's
-   `motionPermission` is always `'granted'` there. The one Android permission in
-   play is the step counter's (item 5); a denial shows as `steps: null`.
+   `getPermissionStatus`/`requestPermission` report the one Android permission
+   in play: the step counter's `ACTIVITY_RECOGNITION` (item 5), through
+   expo-sensors' Pedometer as on iOS. A run's `motionPermission` therefore tells
+   a denied `steps: null` apart from a counter that never registered.
 5. **The step count became a port.** `Pedometer.getStepCountAsync` is
    unimplemented on Android (`PedometerModule.kt` throws
    `NotSupportedException`), and `TYPE_STEP_COUNTER` is cumulative since boot
@@ -387,14 +394,18 @@ nowhere, on either platform.** What the stage settled:
    when the run begins. The bare `StepCounter` function the engine received
    (`run-engine/types.ts`, justified by "finalize needs only this one call")
    became `services/step-counter/`'s `StepCounterSource` with `start()`,
-   `stop()` and `read()`; the engine queues its start/stop beside the
-   barometer's on one bounded `sensorOps` chain. The iOS adapter's `read()` is
+   `stop()` and `read()`; the engine queues its start/stop on a bounded chain
+   of its own beside the barometer's, so a stalled permission read cannot hold
+   the next run's barometer start. The iOS adapter's `read()` is
    the former `getStepCountAsync` call unchanged and its `start()`/`stop()` do
    nothing. The Android adapter registers at `start()` and reads the spread
    between the first and latest counter values at `read()` (null when the
    counter went backwards — a reboot). Consequences, all accepted because the
    count is a diagnostic: a crash-resumed run counts only from its resume; the
-   5 s batching can leave the last few seconds of steps out at finalize.
+   5 s batching can leave the last few seconds of steps out at finalize. The
+   first counter event is seeded as `count - 1` (the step that woke a counter
+   that fires only on the next step, as expo-sensors' `PedometerModule` does),
+   and a registration that heard no event reads as 0 steps, not null.
    **Gating is the same on both platforms:** no barometer, no step count, no
    prompt. On Android the prompt is `ACTIVITY_RECOGNITION` (declared by
    expo-sensors' own manifest, so no `app.json` change), raised through

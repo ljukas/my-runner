@@ -1,7 +1,8 @@
 import { Barometer, Pedometer } from 'expo-sensors';
 
-import type { AltitudeReading, ElevationSource } from './port';
+import type { ElevationSource } from './port';
 import { toAltitudeReading, toMotionPermissionStatus } from './reading';
+import { createReadingHub } from './reading-hub';
 
 // why one module-scope subscription with a JS fan-out: expo-sensors starts the native altimeter in
 // `OnStartObserving` (first listener added) and STOPS it in `OnStopObserving` (last removed). A
@@ -9,8 +10,7 @@ import { toAltitudeReading, toMotionPermissionStatus } from './reading';
 // subscribe would rebase `relativeAltitude` to 0 — the silent cliff (spec §4.2). Mirrors
 // `location-tracker/adapter.ios.ts`'s listeners Set.
 let subscription: { remove: () => void } | null = null;
-let epoch = 0;
-const listeners = new Set<(reading: AltitudeReading) => void>();
+const hub = createReadingHub();
 
 // why Pedometer and not Barometer: `BarometerModule.swift` declares no permission functions, so
 // `DeviceSensor` falls through to a hardcoded `{ granted: true }` and never prompts. Pedometer
@@ -44,14 +44,10 @@ export const elevationSource: ElevationSource = {
     // hardware, so an ungated subscribe asks for a permission the device cannot serve — and strands
     // the E2E suite behind a system alert `clearState` does not dismiss.
     if (!(await elevationSource.isAvailable())) return;
-    epoch += 1;
-    const readingEpoch = epoch;
+    const readingEpoch = hub.nextEpoch();
     subscription = Barometer.addListener((measurement) => {
       const reading = toAltitudeReading(measurement, Date.now(), readingEpoch);
-      if (!reading) return;
-      // why a snapshot: a listener added from inside another listener's callback must not be
-      // visited in this same delivery — iterating the live Set would do exactly that.
-      Array.from(listeners).forEach((listener) => listener(reading));
+      if (reading) hub.emit(reading);
     });
   },
 
@@ -60,10 +56,5 @@ export const elevationSource: ElevationSource = {
     subscription = null;
   },
 
-  onReading(cb) {
-    listeners.add(cb);
-    return () => {
-      listeners.delete(cb);
-    };
-  },
+  onReading: hub.onReading,
 };

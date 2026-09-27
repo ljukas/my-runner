@@ -1,5 +1,5 @@
 export interface AltitudeReading {
-  /** Wall clock at capture where the platform dates it (Android), else at receipt; epoch ms — not monotonic, pair with `sensorTimestampS`. */
+  /** Epoch ms, not monotonic (pair with `sensorTimestampS`): capture time on Android, receipt on iOS. */
   at: number;
   /** The sensor's own boot-relative clock, seconds (CoreMotion; SensorEvent on Android). Monotonic. */
   sensorTimestampS: number | null;

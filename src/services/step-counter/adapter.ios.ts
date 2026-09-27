@@ -12,9 +12,8 @@ export const stepCounterSource: StepCounterSource = {
     // why gated: the count only accompanies a barometer capture, and it shares CMAltimeter's Motion &
     // Fitness authorization — without a barometer, asking is all prompt and no data.
     if (!(await hasBarometer())) return null;
-    // why caught: getStepCountAsync performs no permission check of its own — it rejects when Motion
-    // & Fitness isn't authorized — and a finalize that throws is a run that never gets saved.
-    // why the port takes Date: getStepCountAsync throws on an ISO string (no .getTime).
+    // why caught: getStepCountAsync rejects when Motion & Fitness isn't authorized, and a finalize
+    // that throws is a run that never gets saved.
     try {
       const { steps } = await Pedometer.getStepCountAsync(start, end);
       return steps;

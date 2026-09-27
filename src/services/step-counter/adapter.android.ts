@@ -1,13 +1,13 @@
-import { Pedometer } from 'expo-sensors';
 import { AppState } from 'react-native';
 
 import { MotionSensors } from '@/modules/motion-sensors';
-import { hasBarometer } from '@/services/elevation';
+import { elevationSource, hasBarometer } from '@/services/elevation';
 import type { StepCounterSource } from './port';
 import { stepsBetween } from './reading';
 
-// expo-sensors' getStepCountAsync is unimplemented on Android, so counting is our module's; its
-// Pedometer permission calls are still the ACTIVITY_RECOGNITION ask this counter needs.
+// expo-sensors' getStepCountAsync is unimplemented on Android, so counting is our module's; the
+// ACTIVITY_RECOGNITION ask stays the elevation port's, whose motion permission this is.
+// why `armed` is re-checked in register(): an abandoned start() may settle after stop() (port.ts).
 let armed = false;
 
 function register(): void {
@@ -21,14 +21,15 @@ export const stepCounterSource: StepCounterSource = {
     // why gated: the count only accompanies a barometer capture (as on iOS), so on a phone without
     // one the ACTIVITY_RECOGNITION dialog would ask for data nothing records alongside.
     if (!(await hasBarometer()) || !MotionSensors.hasStepCounter()) return;
-    const { granted, canAskAgain } = await Pedometer.getPermissionsAsync();
-    if (granted) return register();
+    const status = await elevationSource.getPermissionStatus();
+    if (status === 'granted') return register();
     // why only in the foreground: a crash-resume can restore a run with no Activity to host the
     // dialog. Not awaited, so a dialog left open cannot hold the engine's sensor chain.
-    if (!canAskAgain || AppState.currentState !== 'active') return;
-    void Pedometer.requestPermissionsAsync()
-      .then((status) => {
-        if (status.granted) register();
+    if (status === 'denied' || AppState.currentState !== 'active') return;
+    void elevationSource
+      .requestPermission()
+      .then((next) => {
+        if (next === 'granted') register();
       })
       .catch((error) => console.warn('[step-counter] activity permission ask failed', error));
   },

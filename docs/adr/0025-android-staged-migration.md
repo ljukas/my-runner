@@ -463,8 +463,8 @@ the stage adds to this record:
 - **A new port instead of an adapter swap:** `services/step-counter/` replaces
   the engine's bare `StepCounter` function, because Android's counter has no
   history and must be armed at run start (ADR 0015's amendment, item 5). The
-  one engine change: `queueElevation` became `queueSensor` and carries both
-  sensors' start/stop (`startSensors()` / `stopSensors()`). `hasBarometer()`
+  one engine change: `queueElevation` became `queueSensors('start' | 'stop')`,
+  one bounded chain per sensor. `hasBarometer()`
   moved from the composition root into the elevation barrel so the root and
   both step-counter adapters share one memoized answer.
 - **Stubs and forks:** `run-export-row.android.tsx` is deleted and the shared

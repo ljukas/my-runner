@@ -66,8 +66,8 @@ const MAX_TAIL_FLUSHES = 6;
 // expo-sensors' PedometerModule.getPermissionsAsync returns without resolving or rejecting when its
 // permissions manager is absent, and getStepCountAsync's callback may only arrive once a system
 // alert is answered — which never happens on a pocketed auto-complete. Unbounded, that leaves the
-// run unsaved, its row `'active'` and the run screen with no route out; on the elevation chain it
-// leaves CMAltimeter sampling for the process's lifetime. 2 s is ~1000x the real latency of every
+// run unsaved, its row `'active'` and the run screen with no route out; on a sensor chain it leaves
+// the barometer or step counter sampling for the process's lifetime. 2 s is ~1000x the real latency of every
 // call it guards, so expiry means "stuck", never "slow".
 const NATIVE_TIMEOUT_MS = 2000;
 
@@ -320,7 +320,7 @@ export class RunEngine {
     this.openRunRow(session.key, this.events[0].at);
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
-    this.startSensors();
+    this.queueSensors('start');
     this.refresh();
     this.armFlush();
   }
@@ -379,7 +379,7 @@ export class RunEngine {
     if (!this.rebuild(input)) return false;
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
-    this.startSensors();
+    this.queueSensors('start');
     this.refresh();
     this.armFlush();
     // why here and not on the resume screen that offers this: announcing through the engine is what
@@ -421,7 +421,7 @@ export class RunEngine {
     this.queueTracker(() => this.tracker.stop(), 'stop');
     // why here too: a path to idle that skips finalize would otherwise leave CMAltimeter running
     // with the app backgrounded, and desync the adapter's idempotence flag from native state.
-    this.stopSensors();
+    this.queueSensors('stop');
     this.emit();
   }
 
@@ -733,7 +733,7 @@ export class RunEngine {
     ]);
     record.motionPermission = motionPermission;
     this.queueTracker(() => this.tracker.stop(), 'stop');
-    this.stopSensors();
+    this.queueSensors('stop');
     await this.completeRun(record, this.runGeneration);
   }
 
@@ -904,7 +904,7 @@ export class RunEngine {
   }
 
   // KNOWN GAP (important, pre-existing, not fixed in the barometer slice): unbounded, unlike
-  // queueSensor, so an op that never settles strands the stop() that ends background location —
+  // queueSensors, so an op that never settles strands the stop() that ends background location —
   // battery drain, not a lost run.
   //
   // A bare `withTimeout(op())` is NOT the fix and would be worse than the gap: `tracker.start()`
@@ -915,35 +915,40 @@ export class RunEngine {
   // device pass to confirm it against real CoreLocation timing. Its own slice, not a one-liner.
   //
   // The asymmetry is why this is the chain that matters: the sensor chains' ops are native-synchronous
-  // except the Android step counter's permission read, and a start() abandoned at its timeout is
-  // harmless there because the adapter re-checks that it is still armed before registering. The
-  // tracker's chain has no such re-check, so its fix is the real slice.
+  // except the Android step counter's permission read, and StepCounterSource's contract makes a
+  // start() abandoned at its timeout harmless. The tracker's port promises no such thing, so its fix
+  // is the real slice.
   private queueTracker(op: () => Promise<void>, label: string): void {
     this.trackerOps = this.trackerOps
       .then(op)
       .catch((error) => console.warn(`[run-engine] location ${label} failed`, error));
   }
 
-  private startSensors(): void {
-    this.queueSensor('altitudeOps', () => this.elevation.start(), 'altitude start');
-    this.queueSensor('stepOps', () => this.stepCounter.start(), 'step counter start');
+  private queueSensors(action: 'start' | 'stop'): void {
+    this.altitudeOps = this.afterBounded(
+      this.altitudeOps,
+      () => this.elevation[action](),
+      `altitude ${action}`,
+    );
+    this.stepOps = this.afterBounded(
+      this.stepOps,
+      () => this.stepCounter[action](),
+      `step counter ${action}`,
+    );
   }
 
-  private stopSensors(): void {
-    this.queueSensor('altitudeOps', () => this.elevation.stop(), 'altitude stop');
-    this.queueSensor('stepOps', () => this.stepCounter.stop(), 'step counter stop');
-  }
-
-  private queueSensor(
-    chain: 'altitudeOps' | 'stepOps',
+  private afterBounded(
+    chain: Promise<unknown>,
     op: () => Promise<void>,
     label: string,
-  ): void {
-    this[chain] = this[chain]
-      // why bounded and trackerOps is not: these chains carry the stops that release the barometer
-      // and step counter, so one op that never settles leaves it sampling for the process's lifetime.
-      .then(() => withTimeout<void>(op(), undefined, this.nativeTimeoutMs, label))
-      .catch((error) => console.warn(`[run-engine] ${label} failed`, error));
+  ): Promise<unknown> {
+    return (
+      chain
+        // why bounded and trackerOps is not: these chains carry the stops that release the barometer
+        // and step counter, so one op that never settles leaves it sampling for the process's lifetime.
+        .then(() => withTimeout<void>(op(), undefined, this.nativeTimeoutMs, label))
+        .catch((error) => console.warn(`[run-engine] ${label} failed`, error))
+    );
   }
 
   private emit(): void {

@@ -26,7 +26,7 @@ import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resum
 export { endCountsAsCompleted } from './engine';
 
 // why wrap start() rather than note from the engine: this is the only seam that fires exactly once
-// per run start/restore (engine.ts's queueSensor) without engine.ts importing anything to log it
+// per run start/restore (engine.ts's queueSensors) without engine.ts importing anything to log it
 // (spec §6.1).
 const elevationWithSensorLog: ElevationSource = {
   ...elevationSource,

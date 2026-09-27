@@ -59,10 +59,10 @@ export function IslandButton({
 
   if (inline) return button;
 
+  // why: a fixed height is known to RN at first layout; a `fitToContents` sheet measured before
+  // Compose reported the height came up one button short.
   return fill ? (
-    <IslandHost matchContents={{ vertical: true }} style={{ width: '100%' }}>
-      {button}
-    </IslandHost>
+    <IslandHost style={{ width: '100%', height: CTA_HEIGHT }}>{button}</IslandHost>
   ) : (
     <IslandHost matchContents>{button}</IslandHost>
   );

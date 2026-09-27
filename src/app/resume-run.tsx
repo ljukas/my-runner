@@ -37,7 +37,7 @@ export default function ResumeRunScreen() {
   };
 
   return (
-    <View className="gap-8 bg-background px-6 pt-8">
+    <View className="gap-8 bg-background px-6 pt-8 android:pb-safe-offset-6">
       <View className="gap-2">
         <Text variant="subtitle" accessibilityRole="header">
           Resume run?

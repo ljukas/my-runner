@@ -29,8 +29,8 @@ function withTimeout<T>(promise: Promise<T>, fallback: T, ms: number): Promise<T
 
 /**
  * The Settings row that starts a field-test capture (spec §8.0) — captures never borrow a plan
- * day (docs/field-test-capture-protocol.md). Settings stays a pure-SwiftUI leaf (ADR 0005 §1): a
- * bare `Island.Button inline` row rather than the Uniwind `Card` its RN siblings
+ * day (docs/field-test-capture-protocol.md). Settings is a native list on both platforms (ADR 0005
+ * §1, ADR 0025 §2): a bare `Island.Button inline` row rather than the Uniwind `Card` its RN siblings
  * (health-status-row, run-export-row) use on the run summary.
  */
 export function FieldTestRow() {

@@ -4,10 +4,12 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 
+import { FieldTestRow } from '@/components/field-test-row';
 import { Island } from '@/components/island';
 import { ListSectionHeader } from '@/components/list-section-header';
 import { SettingsToggle } from '@/components/settings-toggle';
 import { useTheme } from '@/hooks/use-theme';
+import { isFieldTestBuild } from '@/services/field-test';
 import {
   openHealthApp,
   requestWriteAccess,
@@ -35,8 +37,6 @@ const HEALTH_ACCESS: Record<HealthAuthorization, string> = {
   unavailable: 'Not available',
 };
 
-// The field-test capture is iOS-only until its Android stage lands (ADR 0025); the row is absent
-// rather than "not available".
 export default function SettingsScreen() {
   const router = useRouter();
   const colors = useTheme();
@@ -155,6 +155,22 @@ export default function SettingsScreen() {
                 <Text>Reset onboarding</Text>
               </ListItem.HeadlineContent>
             </ListItem>
+          </>
+        ) : null}
+
+        {isFieldTestBuild() ? (
+          <>
+            <ListSectionHeader title="Field test" />
+            <ListItem>
+              <ListItem.SupportingContent>
+                <Text>
+                  Starts an untracked capture for the barometer field tests
+                  (docs/field-test-capture-protocol.md). No cues, no plan progress, no Health
+                  Connect write.
+                </Text>
+              </ListItem.SupportingContent>
+            </ListItem>
+            <FieldTestRow />
           </>
         ) : null}
       </LazyColumn>

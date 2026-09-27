@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { toAltitudeReading, toMotionPermissionStatus } from './reading';
+import {
+  relativeAltitudeFromPressure,
+  toAltitudeReading,
+  toMotionPermissionStatus,
+} from './reading';
 
 describe('toAltitudeReading', () => {
   test('drops a reading whose pressure is not finite', () => {
@@ -71,5 +75,26 @@ describe('toMotionPermissionStatus', () => {
 
   test('not granted with canAskAgain: false maps to "denied"', () => {
     expect(toMotionPermissionStatus(false, false)).toBe('denied');
+  });
+});
+
+describe('relativeAltitudeFromPressure', () => {
+  test("the epoch's first reading is exactly zero", () => {
+    expect(Object.is(relativeAltitudeFromPressure(1008.4, 1008.4), 0)).toBe(true);
+  });
+
+  test('falling pressure is a climb, rising pressure a descent', () => {
+    expect(relativeAltitudeFromPressure(1000, 1010)).toBeGreaterThan(0);
+    expect(relativeAltitudeFromPressure(1010, 1000)).toBeLessThan(0);
+  });
+
+  test('about 8.3 m per hPa near sea level', () => {
+    expect(relativeAltitudeFromPressure(1012.25, 1013.25)).toBeCloseTo(8.33, 1);
+  });
+
+  test('the same pressure drop reads the same climb whatever the weather', () => {
+    const lowDay = relativeAltitudeFromPressure(989, 990);
+    const highDay = relativeAltitudeFromPressure(1029, 1030);
+    expect(Math.abs(lowDay - highDay)).toBeLessThan(0.4);
   });
 });

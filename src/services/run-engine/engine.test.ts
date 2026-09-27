@@ -17,16 +17,12 @@ import type {
 import { FIELD_TEST_SESSION_KEY } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
+import type { StepCounterSource } from '@/services/step-counter/port';
 import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
 import { parseSnapshotState } from './resumable';
 import type { PendingEntry, PendingSample } from './run-log';
-import type {
-  BufferedRunPoint,
-  CompletedRunRecord,
-  RunLifecyclePersistence,
-  StepCounter,
-} from './types';
+import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
 function makeFakeCue() {
@@ -156,7 +152,8 @@ function makeEngine(
     deferStartRun?: boolean;
     failStartRunTimes?: number;
     elevation?: ElevationSource;
-    stepCounter?: StepCounter;
+    stepCounter?: StepCounterSource['read'];
+    stepCounterStart?: StepCounterSource['start'];
     nativeTimeoutMs?: number;
   } = {},
 ) {
@@ -237,12 +234,23 @@ function makeEngine(
   const fakeBarometer = fakeElevation();
   let stepCounterReturn: number | null = 0;
   const stepCounterCalls: { start: Date; end: Date }[] = [];
-  const stepCounter: StepCounter =
-    options.stepCounter ??
-    (async (start, end) => {
-      stepCounterCalls.push({ start, end });
-      return stepCounterReturn;
-    });
+  const stepCounterLifecycle: string[] = [];
+  const stepCounter: StepCounterSource = {
+    start:
+      options.stepCounterStart ??
+      (async () => {
+        stepCounterLifecycle.push('start');
+      }),
+    stop: async () => {
+      stepCounterLifecycle.push('stop');
+    },
+    read:
+      options.stepCounter ??
+      (async (start, end) => {
+        stepCounterCalls.push({ start, end });
+        return stepCounterReturn;
+      }),
+  };
   const engine = new RunEngine({
     persistence,
     runStore,
@@ -260,6 +268,7 @@ function makeEngine(
     elevationCalls: fakeBarometer.calls,
     emitReading: fakeBarometer.emit,
     stepCounterCalls,
+    stepCounterLifecycle,
     setStepCounterReturn: (v: number | null) => (stepCounterReturn = v),
     saved,
     finalized,
@@ -1538,6 +1547,43 @@ describe('barometer capture (spec §6)', () => {
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
     expect(calls).toEqual(['start-entered', 'stop']);
+  });
+
+  test('the step counter is armed and released alongside the barometer', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start']);
+    h.tick(80);
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start', 'stop']);
+    expect(h.stepCounterCalls).toHaveLength(1);
+    h.engine.reset();
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start', 'stop', 'stop']);
+  });
+
+  test('the step counter is re-armed on restore()', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    h.engine.restore({ runId: 'run-1', session: SESSION, state: stateAtStart(), points: [] });
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start']);
+  });
+
+  test('a step-counter start that never settles cannot strand the barometer stop', async () => {
+    const h = makeEngine({
+      nativeTimeoutMs: 10,
+      stepCounterStart: () => new Promise<void>(() => {}),
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await settle(80);
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.elevationCalls).toEqual(['start', 'stop']);
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
   });
 
   test('a failed flush returns its rows with their original seq, never renumbered', async () => {

@@ -136,3 +136,33 @@ xcrun simctl location <udid> start --speed=2.8 --interval=1.0 59.3293,18.0686 59
 That is a **manual** tool, not a suite step: a scenario cannot run for the whole
 suite, because `complete-session.yaml` asserts the *absence* of distance. Revisit
 if Maestro ever routes iOS `setLocation` through `simctl location`.
+
+## Amendment (2026-09-27): the `e2e-android` lane (ADR 0025 stage 7)
+
+The 2026-07-13 amendment left Android E2E on free Linux runners as a possible
+follow-up; it now exists as a second job in `.github/workflows/e2e.yml`, and is
+meant to become a required check beside `e2e-ios` after its first green run.
+
+- **Same shape, not a matrix.** `e2e-android` mirrors `e2e-ios` step for step —
+  fingerprint (`--platform android`), `actions/cache` keyed
+  `e2e-native-app-android-<hash>`, `@expo/repack-app --platform android` on a
+  hit, `eas build --local` via `.github/scripts/build-e2e-android-app.sh` on a
+  miss — and shares the `precheck` job, so docs-only changes skip both. A matrix
+  would have renamed the required `e2e-ios` context.
+- **Runner:** `ubuntu-latest` with KVM enabled, `reactivecircus/android-emulator-runner`
+  on an x86_64 `google_apis` image, and the build restricted to that ABI
+  (`ORG_GRADLE_PROJECT_reactNativeArchitectures`). The E2E APK is built
+  `withoutCredentials`, so the lane needs `EXPO_TOKEN` and nothing from Play.
+- **Settling:** `disable-animations: true` zeroes the animator scales — the
+  counterpart of the iOS job's Reduce Motion step.
+- **Which flows:** every flow not tagged `ios-only` (`maestro test
+  --exclude-tags ios-only .maestro/`); the iOS job's invocation is unchanged.
+  Measured locally on `emulator-5554` (Pixel 10 Pro, API 37) with the scales
+  zeroed: 6/6 pass.
+- **Permissions:** Android's `permissions` block takes `location: allow` and no
+  `motion` key; the step counter's `ACTIVITY_RECOGNITION` is granted by its full
+  permission id in `launch-and-onboard.yaml`, re-applied on every `clearState`
+  launch.
+- **GPS motion stays out of scope** on Android too. The 2026-07-31 amendment's
+  finding was not re-measured here; nothing in the Android flow set needs
+  recorded distance.

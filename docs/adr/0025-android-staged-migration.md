@@ -79,7 +79,7 @@ screens.
 | 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card, viewer, degradations and rendering all verified on the emulator with a real Maps key (see the amendment below). |
 | 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | **Built 2026-09-22** — [plan](../superpowers/plans/2026-09-22-android-stage-5-health-connect.md); mechanics and measurements in ADR 0011's 2026-09-22 amendment; the deliberate iOS fingerprint move in ADR 0012's. |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | **Built 2026-09-27** — [plan](../superpowers/plans/2026-09-27-android-stage-6-elevation.md); capture parity only (elevation is unrendered on both platforms, so the GPS fallback is a render-slice choice, not an adapter); mechanics and measurements in ADR 0015's 2026-09-27 amendment. |
-| 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | Planned |
+| 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | **Built 2026-09-27** — [plan](../superpowers/plans/2026-09-27-android-stage-7-release-pipeline.md); release mechanics in ADR 0012's, the E2E lane in ADR 0001's and ADR 0016's amendments of the same date; the Play Console steps the repo cannot take are in [`docs/android-release-checklist.md`](../android-release-checklist.md). |
 
 Live Activities (ADR 0022) stay iOS-only by nature; the Android adapter is a
 no-op or, later, a foreground-service notification decided in stage 2.
@@ -488,3 +488,42 @@ the stage adds to this record:
   CPU suspension, real step counts and their `ACTIVITY_RECOGNITION` dialog, and
   delivery under Doze on a real phone.
 
+
+## Amendment (2026-09-27): stage 7 built — release pipeline
+
+Stage 7 shipped with no app-code change beyond one bug the new lane found: the
+release configuration is in `eas.json` (ADR 0012's amendment), the Android jobs
+in `deploy-production.yml` were already written and needed nothing, and
+`e2e-android` runs beside `e2e-ios` (ADR 0001's amendment). What the stage adds
+to this record:
+
+- **`appId` did not need to be per platform.** The table's "`appId` per
+  platform" assumed the ids would differ; ADR 0019's variant suffix applies to
+  `ios.bundleIdentifier` and `android.package` alike, so the e2e build is
+  `se.lukaslindqvist.runbro.e2e` on both and every flow keeps its literal.
+- **Item 9's selector prediction was wrong for Maestro.** Compose's `ListItem`
+  is one merged node only in argent's `describe` (`"Day 1 / Up next / 29 min"`);
+  UiAutomator, which Maestro reads, exposes each text as its own `TextView`, so
+  `tapOn: "Day 1"` works unchanged. What did differ is recorded in ADR 0016's
+  amendment.
+- **Flows split by tag, not by directory.** The seven flows that exercise an
+  iOS-only surface (Apple Health, iOS's location tri-state and its dialog, the
+  page-sheet swipe) carry `ios-only`; the iOS job still runs `.maestro/` whole,
+  and Android runs `--exclude-tags ios-only` — onboarding, run-controls,
+  run-lock, run-abandon, run-resume and resume-decline, 6/6 green on the
+  emulator. Android's own permission, Settings and Health Connect flows are the
+  follow-up.
+- **The lane found a real bug on its first run.** The resume-offer sheet cut
+  "Save as Partial" off below the screen: a `fitToContents` sheet measures at
+  first layout, before a Compose button's `matchContents` host reports its
+  height. `Island.Button fill` on Android now gives the host the fixed 52 dp CTA
+  height, and the sheet gained the `android:pb-safe-offset-6` its session-sheet
+  sibling has. The session sheet, summary and onboarding CTAs were re-checked on
+  the emulator after the island change.
+- **Emulator facts** for AGENTS.md: argent's Android devtools server blocks
+  Maestro's driver the way its iOS server does (flows exit silently until
+  `stop-all-simulator-servers`); `ACTIVITY_RECOGNITION` is granted per launch by
+  its full id in the `permissions` block, so `clearState` cannot strand the step
+  counter's run-start dialog; repack needs `ANDROID_SDK_ROOT` and signs with the
+  same debug certificate as the `withoutCredentials` build, so `adb install -r`
+  over it works.

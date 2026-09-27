@@ -68,3 +68,28 @@ Consequences:
 - A gesture-based dismissal is still worth one deliberate flow where the gesture
   is itself the affordance under test — `log-revisit.yaml` keeps its swipe for
   that reason, now that the summary has exactly two ways out.
+
+## Amendment (2026-09-27): one flow, two platforms
+
+Six flows now run on Android as well (ADR 0025 stage 7). Text-first held; three
+Android renderings needed a wider anchor, each measured against the emulator's
+hierarchy:
+
+- **Same control, different label → alternation.** The run summary's way out is
+  a toolbar `xmark` labelled "Close" on iOS and the header's up arrow, labelled
+  "Navigate up", on Android: `tapOn: "(Close|Navigate up)"`. Still an anchored
+  full match on real, spoken labels, so the tripwire property survives.
+- **Android merges what iOS splits → leading wildcard.** The Log row's status is
+  one `"Sun, Sep 27 · Partial"` text on Android and a separate `"Partial"` on
+  iOS, so Log assertions use `".*Partial"`. The same widening applies to an
+  `assertNotVisible` — left exact, it would pass on Android without checking
+  anything, which is the failure mode to watch for whenever a flow crosses
+  platforms.
+- **Different copy for the same step → alternation of both strings**
+  (`"Your runs, in (Apple Health|Health Connect)"`).
+
+Compose `ListItem` rows did **not** need this: Maestro sees their texts as
+separate nodes, so `"Day 1"` still matches exactly. Branch a flow by platform
+(`runFlow` + `when: platform`) only where the commands differ, as the launch
+permissions do; a flow exercising a surface only one platform has is tagged
+`ios-only` rather than branched.

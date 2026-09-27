@@ -15,6 +15,11 @@ private const val PRESSURE_PERIOD_US = 1_000_000
 // why batched: lets the sensor hub hold readings in its FIFO while the CPU sleeps between location
 // fixes, instead of dropping them (a non-wake-up sensor's events are lost while suspended).
 private const val PRESSURE_MAX_LATENCY_US = 5_000_000
+// why thinned here: the period is only a hint — the sensor runs at its fastest client's rate and
+// every client gets every event (Play services' location validation asks for 10 Hz whenever a
+// location session is live). Keyed on the event's own clock so a batched burst is thinned by when
+// each reading was taken, not when it arrived. Just under 1 s so jitter can't halve the cadence.
+private const val PRESSURE_MIN_GAP_NS = 950_000_000L
 
 // Barometer and step counter registered straight on SensorManager, per ADR 0015's Android
 // amendment: expo-sensors' SensorProxy unregisters on OnActivityEntersBackground, which silences a
@@ -25,6 +30,7 @@ class MotionSensorsModule : Module() {
       .getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
   private var pressureListener: SensorEventListener? = null
+  private var lastPressureAtNs = Long.MIN_VALUE
   private var stepListener: SensorEventListener? = null
   private var firstSteps: Float? = null
   private var latestSteps: Float? = null
@@ -64,8 +70,11 @@ class MotionSensorsModule : Module() {
   private fun startBarometer(): Boolean {
     if (pressureListener != null) return true
     val pressure = sensor(Sensor.TYPE_PRESSURE) ?: return false
+    lastPressureAtNs = Long.MIN_VALUE
     val listener = object : SensorEventListener {
       override fun onSensorChanged(event: SensorEvent) {
+        if (lastPressureAtNs != Long.MIN_VALUE && event.timestamp - lastPressureAtNs < PRESSURE_MIN_GAP_NS) return
+        lastPressureAtNs = event.timestamp
         sendEvent(
           "onPressure",
           mapOf(

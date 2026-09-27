@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - session
 ---
 # Location denied → the session still runs correctly, and the run screen says plainly what is

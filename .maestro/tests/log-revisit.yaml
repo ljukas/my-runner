@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - session
 ---
 - runFlow: ../helpers/start-first-session.yaml

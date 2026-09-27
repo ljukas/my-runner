@@ -30,9 +30,9 @@ tags:
     visible:
       text: "Good effort.*"
     timeout: 30000
-- tapOn: "Close"
+- tapOn: "(Close|Navigate up)" # the summary's toolbar xmark (iOS) or header up arrow (Android)
 - tapOn: "Log"
 - scrollUntilVisible:
     element:
       text: "Week 1 · Day 1"
-- assertVisible: "Partial"
+- assertVisible: ".*Partial" # Android's Log row is one "date · status" text

@@ -18,9 +18,9 @@ tags:
 # (`celebrate`): the ended-early headline, not a Log revisit's neutral date.
 - assertVisible: "Good effort.*"
 - assertVisible: "Partial"
-- tapOn: "Close"
+- tapOn: "(Close|Navigate up)" # the summary's toolbar xmark (iOS) or header up arrow (Android)
 - tapOn: "Log"
 - scrollUntilVisible:
     element:
       text: "Week 1 · Day 1"
-- assertVisible: "Partial"
+- assertVisible: ".*Partial" # Android's Log row is one "date · status" text

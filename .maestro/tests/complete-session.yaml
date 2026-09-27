@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - session
 ---
 # A fixed point, set before the run opens the fix stream: the location task keeps delivering

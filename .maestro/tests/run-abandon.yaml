@@ -37,7 +37,7 @@ tags:
 - scrollUntilVisible:
     element:
       text: "Week 1 · Day 1"
-- assertVisible: "Partial"
+- assertVisible: ".*Partial" # Android's Log row is one "date · status" text
 # Belt and braces for the one ordering the Log assertion cannot see: detection is async, so a sheet
 # pushed for an already-abandoned run would arrive after those assertions had passed.
 - assertNotVisible: "Resume run.*"

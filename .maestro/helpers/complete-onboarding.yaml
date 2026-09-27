@@ -14,7 +14,7 @@ appId: se.lukaslindqvist.runbro.e2e
     maxRetries: 3
     commands:
       - tapOn: "Not Now"
-      - assertVisible: "Your runs, in Apple Health" # health primer follows the location primer
+      - assertVisible: "Your runs, in (Apple Health|Health Connect)" # health primer follows the location primer
 - retry:
     maxRetries: 3
     commands:

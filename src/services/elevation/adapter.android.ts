@@ -2,9 +2,8 @@ import { MotionSensors } from '@/modules/motion-sensors';
 import type { AltitudeReading, ElevationSource } from './port';
 import { relativeAltitudeFromPressure, toAltitudeReading } from './reading';
 
-// One subscription with a JS fan-out, as in adapter.ios.ts. The native side is our own module, not
-// expo-sensors' Barometer: that one unregisters whenever the Activity pauses (ADR 0015's Android
-// amendment), which is every screen-off run.
+// One subscription with a JS fan-out, as in adapter.ios.ts; the native side is our own module, not
+// expo-sensors' Barometer (ADR 0015's 2026-09-27 amendment).
 let subscription: { remove: () => void } | null = null;
 let epoch = 0;
 const listeners = new Set<(reading: AltitudeReading) => void>();

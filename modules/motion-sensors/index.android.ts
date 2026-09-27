@@ -1,6 +1,5 @@
 import { requireNativeModule } from 'expo';
 
-/** Raw SensorManager access for elevation capture (ADR 0015); registration ignores the Activity lifecycle. */
 interface MotionSensorsModule {
   hasBarometer(): boolean;
   /** Whether the listener is registered; idempotent. Readings arrive as `onPressure` at ~1 Hz. */
@@ -10,7 +9,7 @@ interface MotionSensorsModule {
   /** False without ACTIVITY_RECOGNITION; idempotent, and a fresh registration clears the counts. */
   startSteps(): boolean;
   stopSteps(): void;
-  /** Cumulative-since-boot counter values seen by this registration; null before its first event. */
+  /** The counter's first and latest values since startSteps(); null before its first event. */
   stepCounts(): { first: number; latest: number } | null;
   addListener(
     event: 'onPressure',

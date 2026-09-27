@@ -1,5 +1,5 @@
-import { LazyColumn, ListItem, Text } from '@expo/ui/jetpack-compose';
-import { background, clickable, fillMaxSize } from '@expo/ui/jetpack-compose/modifiers';
+import { Box, LazyColumn, ListItem, Text } from '@expo/ui/jetpack-compose';
+import { background, clickable, fillMaxSize, padding } from '@expo/ui/jetpack-compose/modifiers';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
@@ -170,7 +170,10 @@ export default function SettingsScreen() {
                 </Text>
               </ListItem.SupportingContent>
             </ListItem>
-            <FieldTestRow />
+            {/* The only bare button in this list; ListItem rows inset themselves. */}
+            <Box modifiers={[padding(16, 8, 16, 0)]}>
+              <FieldTestRow />
+            </Box>
           </>
         ) : null}
       </LazyColumn>

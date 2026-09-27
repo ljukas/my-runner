@@ -20,10 +20,12 @@ private const val PRESSURE_MAX_LATENCY_US = 5_000_000
 // location session is live). Keyed on the event's own clock so a batched burst is thinned by when
 // each reading was taken, not when it arrived. Just under 1 s so jitter can't halve the cadence.
 private const val PRESSURE_MIN_GAP_NS = 950_000_000L
+// Same FIFO reason as the barometer. The cost is that a count read at finalize can miss the last
+// few seconds of steps — this count is a diagnostic, not a metric.
+private const val STEP_MAX_LATENCY_US = 5_000_000
 
-// Barometer and step counter registered straight on SensorManager, per ADR 0015's Android
-// amendment: expo-sensors' SensorProxy unregisters on OnActivityEntersBackground, which silences a
-// screen-off run. Nothing here listens to the Activity lifecycle — only start/stop do.
+// Registers on SensorManager directly and ignores the Activity lifecycle — per ADR 0015's
+// 2026-09-27 amendment, which has why expo-sensors cannot serve a screen-off run.
 class MotionSensorsModule : Module() {
   private val sensorManager: SensorManager
     get() = (appContext.reactContext ?: throw Exceptions.ReactContextLost())
@@ -32,8 +34,9 @@ class MotionSensorsModule : Module() {
   private var pressureListener: SensorEventListener? = null
   private var lastPressureAtNs = Long.MIN_VALUE
   private var stepListener: SensorEventListener? = null
-  private var firstSteps: Float? = null
-  private var latestSteps: Float? = null
+  // why volatile: written by sensor callbacks on the main looper, read by stepCounts() on the JS thread.
+  @Volatile private var firstSteps: Float? = null
+  @Volatile private var latestSteps: Float? = null
 
   override fun definition() = ModuleDefinition {
     Name("MotionSensors")
@@ -73,7 +76,8 @@ class MotionSensorsModule : Module() {
     lastPressureAtNs = Long.MIN_VALUE
     val listener = object : SensorEventListener {
       override fun onSensorChanged(event: SensorEvent) {
-        if (lastPressureAtNs != Long.MIN_VALUE && event.timestamp - lastPressureAtNs < PRESSURE_MIN_GAP_NS) return
+        val tooSoon = event.timestamp - lastPressureAtNs < PRESSURE_MIN_GAP_NS
+        if (lastPressureAtNs != Long.MIN_VALUE && tooSoon) return
         lastPressureAtNs = event.timestamp
         sendEvent(
           "onPressure",
@@ -97,8 +101,6 @@ class MotionSensorsModule : Module() {
     pressureListener = null
   }
 
-  // The counter is cumulative since boot with no history query, so the run's count is the spread
-  // between the first and latest events this registration sees.
   private fun startSteps(): Boolean {
     if (stepListener != null) return true
     val counter = sensor(Sensor.TYPE_STEP_COUNTER) ?: return false
@@ -116,7 +118,12 @@ class MotionSensorsModule : Module() {
     // why guarded: without ACTIVITY_RECOGNITION the framework refuses the registration — by return
     // value or by exception depending on the release.
     val registered = try {
-      sensorManager.registerListener(listener, counter, SensorManager.SENSOR_DELAY_NORMAL)
+      sensorManager.registerListener(
+        listener,
+        counter,
+        SensorManager.SENSOR_DELAY_NORMAL,
+        STEP_MAX_LATENCY_US
+      )
     } catch (e: SecurityException) {
       false
     }

@@ -317,8 +317,7 @@ export class RunEngine {
     this.openRunRow(session.key, this.events[0].at);
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
-    this.queueSensor(() => this.elevation.start(), 'altitude start');
-    this.queueSensor(() => this.stepCounter.start(), 'step counter start');
+    this.startSensors();
     this.refresh();
     this.armFlush();
   }
@@ -377,8 +376,7 @@ export class RunEngine {
     if (!this.rebuild(input)) return false;
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
-    this.queueSensor(() => this.elevation.start(), 'altitude start');
-    this.queueSensor(() => this.stepCounter.start(), 'step counter start');
+    this.startSensors();
     this.refresh();
     this.armFlush();
     // why here and not on the resume screen that offers this: announcing through the engine is what
@@ -420,8 +418,7 @@ export class RunEngine {
     this.queueTracker(() => this.tracker.stop(), 'stop');
     // why here too: a path to idle that skips finalize would otherwise leave CMAltimeter running
     // with the app backgrounded, and desync the adapter's idempotence flag from native state.
-    this.queueSensor(() => this.elevation.stop(), 'altitude stop');
-    this.queueSensor(() => this.stepCounter.stop(), 'step counter stop');
+    this.stopSensors();
     this.emit();
   }
 
@@ -736,8 +733,7 @@ export class RunEngine {
     ]);
     record.motionPermission = motionPermission;
     this.queueTracker(() => this.tracker.stop(), 'stop');
-    this.queueSensor(() => this.elevation.stop(), 'altitude stop');
-    this.queueSensor(() => this.stepCounter.stop(), 'step counter stop');
+    this.stopSensors();
     await this.completeRun(record, this.runGeneration);
   }
 
@@ -918,14 +914,24 @@ export class RunEngine {
   // re-assert the desired state after a timeout (or check a generation inside the op), and needs a
   // device pass to confirm it against real CoreLocation timing. Its own slice, not a one-liner.
   //
-  // The asymmetry is why this is the chain that matters: `elevationSource.start()`/`stop()` await
-  // nothing native (`Barometer.addListener` and `subscription.remove()` are synchronous), so
-  // queueSensor's timeout cannot fire against the shipped adapter — the bounded chain is the one
-  // that never stalls, and the one that genuinely can is unbounded.
+  // The asymmetry is why this is the chain that matters: the sensor chain's ops are native-synchronous
+  // except the Android step counter's permission read, and a start() abandoned at its timeout is
+  // harmless there because the adapter re-checks that it is still armed before registering. The
+  // tracker's chain has no such re-check, so its fix is the real slice.
   private queueTracker(op: () => Promise<void>, label: string): void {
     this.trackerOps = this.trackerOps
       .then(op)
       .catch((error) => console.warn(`[run-engine] location ${label} failed`, error));
+  }
+
+  private startSensors(): void {
+    this.queueSensor(() => this.elevation.start(), 'altitude start');
+    this.queueSensor(() => this.stepCounter.start(), 'step counter start');
+  }
+
+  private stopSensors(): void {
+    this.queueSensor(() => this.elevation.stop(), 'altitude stop');
+    this.queueSensor(() => this.stepCounter.stop(), 'step counter stop');
   }
 
   private queueSensor(op: () => Promise<void>, label: string): void {

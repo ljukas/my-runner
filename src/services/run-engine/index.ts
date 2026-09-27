@@ -12,7 +12,7 @@ import { runs } from '@/db/schema';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
-import { elevationSource, type ElevationSource } from '@/services/elevation';
+import { elevationSource, hasBarometer, type ElevationSource } from '@/services/elevation';
 import { resumeDispositionOf, skipForFieldTest } from '@/services/field-test';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
@@ -24,16 +24,6 @@ import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
 
 export { endCountsAsCompleted } from './engine';
-
-// why memoized, and consulted before the Motion permission read: iOS raises the Motion & Fitness prompt
-// on the first Pedometer call while authorization is undetermined, and on hardware with no barometer
-// there is nothing that prompt could serve — no reading can ever arrive (ADR 0015 item 2's feature
-// detection). Every simulator is such hardware, so an ungated read strands the whole Maestro suite
-// behind a system alert `clearState` cannot dismiss. The answer cannot change within a process.
-let barometerAvailable: Promise<boolean> | null = null;
-function hasBarometer(): Promise<boolean> {
-  return (barometerAvailable ??= elevationSource.isAvailable().catch(() => false));
-}
 
 // why wrap start() rather than note from the engine: this is the only seam that fires exactly once
 // per run start/restore (engine.ts's queueSensor) without engine.ts importing anything to log it
@@ -48,7 +38,7 @@ const elevationWithSensorLog: ElevationSource = {
   },
   start() {
     // why nothing here is awaited: a permission read that never settles would strand the engine's
-    // elevation op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
+    // sensor op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
     // only have to belong to this run, not precede the start. Accepted consequence: in the
     // millisecond-wide reset()+start() window between two runs, either note can land in the
     // neighbouring run's log — both are process-level facts, so a mislabelled row misstates nothing.

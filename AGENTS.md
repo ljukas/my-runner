@@ -79,7 +79,8 @@ Releases are automated per [ADR 0012](docs/adr/0012-release-please-fingerprint-g
 
 E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 `e2e-simulator` build** and enforced in CI by `.github/workflows/e2e.yml` (the
-`e2e-ios` and `e2e-android` checks) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
+required `e2e-ios` check; `e2e-android` runs beside it and becomes required after
+its first green run) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
 
 - **iOS 27 simulators crash this app at launch** (`EXC_BREAKPOINT` in `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`): built with Xcode 27, iOS 27 requires the UIScene lifecycle, which the app has not adopted (it needs `expo` ≥ 57.0.23 plus `expo-build-properties`' `ios.enableSceneSupport`; expo/expo#46664). Until then run flows on an iOS 26.5 simulator and pass `--device <udid>` — with an Android emulator up, Maestro otherwise picks it.
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E
@@ -111,8 +112,8 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   XCUITest runners kill and relaunch each other, stealing the port. The CLI tears
   its own driver down on exit; the MCP server keeps one alive, which is what
   poisons the *next* run and reads like a flow bug rather than a leftover driver.
-- **CI build reuse:** the `e2e-ios` workflow caches the native simulator `.app`
-  by `@expo/fingerprint` hash — JS-only PRs skip the build and repack the JS via
+- **CI build reuse:** both E2E jobs go through `.github/actions/e2e-native-app`,
+  which caches the native `.app` / `.apk` by `@expo/fingerprint` hash — JS-only PRs skip the build and repack the JS via
   `@expo/repack-app` (~5–7 min); native changes trigger a full `eas build
   --local` and re-cache. See the fingerprint-reuse design spec. `eas.json` is
   itself a fingerprint source, and `e2e-simulator` `extends: "preview"` where EAS
@@ -125,7 +126,7 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 - **Android (ADR 0025 stage 7):** the same flows run on the emulator except those
   tagged `ios-only` (they exercise Apple Health, iOS's location tri-state and
   dialog, or the page-sheet swipe). Build the APK with
-  `APP_VARIANT=e2e bash .github/scripts/build-e2e-android-app.sh build/android-e2e`
+  `APP_VARIANT=e2e bash .github/scripts/build-e2e-app.sh android build/android-e2e`
   (the profile builds `withoutCredentials`, so no keystore is needed), repack
   current JS onto it with `ANDROID_SDK_ROOT=$ANDROID_HOME APP_VARIANT=e2e
   EXPO_PUBLIC_E2E=1 npx @expo/repack-app --platform android --source-app
@@ -149,8 +150,9 @@ E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
   wrap scrollable-list targets in `scrollUntilVisible`. Ids are escape hatches
   only, commented at each use site — currently the icon-only `plan-next-*`
   arrow. An icon-only **native** control is not one of those cases: tap its
-  `accessibilityLabel` (`tapOn: "Close"` hits the run summary's toolbar `xmark`;
-  ADR 0016's 2026-07-30 amendment), and keep those labels distinct across
+  `accessibilityLabel` (the run summary's toolbar `xmark` is "Close" —
+  `helpers/close-summary.yaml` pairs it with Android's "Navigate up"; ADR 0016's
+  2026-07-30 and 2026-09-27 amendments), and keep those labels distinct across
   stacked modals. Ground every string with the MCP `inspect_screen` tool against the
   running app; consult the MCP `cheat_sheet` tool and
   https://docs.maestro.dev/llms.txt for flow syntax.

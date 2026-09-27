@@ -31,7 +31,7 @@
 1. Baseline fingerprints, both platforms × three variants.
 2. `eas.json`: `preview.android.buildType: apk`, `e2e-simulator.android.withoutCredentials`, `submit.production.android`; confirm the resolved profile with `eas config`; re-measure.
 3. Maestro: `ios-only` tags; platform-branched permissions in `launch-and-onboard.yaml`; widened anchors.
-4. `.github/scripts/build-e2e-android-app.sh` and the `e2e-android` job.
+4. The `e2e-android` job (after review: both jobs on one composite action, `.github/actions/e2e-native-app`, and one `build-e2e-app.sh <platform>` script).
 5. Local proof of the CI path: `eas build --local` → APK → emulator → the Android flow set; repack onto it.
 6. Gates: `bun run lint && bun run typecheck && bun run typecheck:android && bun test`; `actionlint`.
 7. iOS regression flows on a fresh `e2e-simulator` build.
@@ -40,7 +40,7 @@
 ## As built (2026-09-27)
 
 - **Fingerprints (eas.json is a source on both platforms):** iOS variant-less `7daa9686… → 4dcc819d…`, dev `cbccdd29… → 21830c2a…`, e2e `ddabf451… → 37efde2f…`; Android variant-less `de43b8f2… → 376b2d86…`, dev `eae68314… → 30ec1f57…`, e2e `54bc2de7… → 9d493c09…`. The JS-only commits after it moved nothing.
-- **Local build:** `build-e2e-android-app.sh` produced a 132 MB all-ABI APK signed with prebuild's debug certificate (SHA-1 `5E:8F:16…`), package `se.lukaslindqvist.runbro.e2e`. `@expo/repack-app --platform android` repacked it in ~40 s (needs `ANDROID_SDK_ROOT`), reporting runtime version `9d493c09…` and re-signing with the same certificate.
+- **Local build:** the Android build script produced a 132 MB all-ABI APK signed with prebuild's debug certificate (SHA-1 `5E:8F:16…`), package `se.lukaslindqvist.runbro.e2e`. `@expo/repack-app --platform android` repacked it in ~40 s (needs `ANDROID_SDK_ROOT`), reporting runtime version `9d493c09…` and re-signing with the same certificate.
 - **Emulator (`emulator-5554`, Pixel 10 Pro API 37, animator scales zeroed):** first run 1/6 — onboarding passed; the rest failed on the summary's `Close` (Android's is "Navigate up"), the Log's split `Partial` (Android's row reads "Sun, Sep 27 · Partial") and a missing "Save as Partial". After the anchors and the bug fix below: **6/6** (once on the intermediate build, again on the final one, 6m 50s).
 - **A finding that changed app code:** the resume-offer sheet clipped its second button — `fitToContents` measured before the Compose button's `matchContents` host had a height. `Island.Button fill` (Android) now sizes its host to the 52 dp CTA height up front, and the sheet gained `android:pb-safe-offset-6`. Re-checked on the emulator: the resume sheet, the session sheet, the summary's Export button and the onboarding CTAs.
 - **Selector prediction corrected:** Compose `ListItem` rows expose separate `TextView`s to Maestro; only argent merges them. `ACTIVITY_RECOGNITION: allow` by full id works in `permissions` (verified with `dumpsys package`).

@@ -77,11 +77,13 @@ hierarchy:
 
 - **Same control, different label → alternation.** The run summary's way out is
   a toolbar `xmark` labelled "Close" on iOS and the header's up arrow, labelled
-  "Navigate up", on Android: `tapOn: "(Close|Navigate up)"`. Still an anchored
-  full match on real, spoken labels, so the tripwire property survives.
+  "Navigate up", on Android: `tapOn: "(Close|Navigate up)"`, kept once in
+  `helpers/close-summary.yaml`. Still an anchored full match on real, spoken
+  labels, so the tripwire property survives.
 - **Android merges what iOS splits → leading wildcard.** The Log row's status is
-  one `"Sun, Sep 27 · Partial"` text on Android and a separate `"Partial"` on
-  iOS, so Log assertions use `".*Partial"`. The same widening applies to an
+  one text on Android (date, status and distance joined, e.g.
+  `"Sun, Sep 27 · Partial"`) and a separate `"Partial"` on iOS, so Log
+  assertions use `".*Partial"` after `helpers/open-log-row.yaml`. The same widening applies to an
   `assertNotVisible` — left exact, it would pass on Android without checking
   anything, which is the failure mode to watch for whenever a flow crosses
   platforms.

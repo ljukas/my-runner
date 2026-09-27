@@ -193,12 +193,15 @@ needed no change; what was missing was the configuration they resolve
   EAS servers where a local path would not exist anyway. The Maps key is an EAS
   environment variable in `production` and `preview`; profiles resolve to those
   environments by distribution, so none sets `environment` explicitly.
-- **The approval gate is the bootstrap switch.** Play's API cannot create an
-  app's first release, so until one AAB has been uploaded by hand
-  `submit_android` would fail. Nothing is disabled for that:
-  `approve_android_submission` is simply left unapproved, and the AAB the first
-  run builds is the one to upload. The ordered one-time steps are in
-  [`docs/android-release-checklist.md`](../android-release-checklist.md).
+- **Bootstrap, with nothing disabled.** A release run cannot create the upload
+  keystore (it is non-interactive), so `build_android` fails in every release
+  until one interactive `eas build -p android --profile production` has
+  generated it; the iOS jobs in the same run are independent and ship. That
+  build's AAB is also the first release, uploaded to Play by hand, because
+  Play's API cannot create an app's first release. After that,
+  `approve_android_submission` stays unapproved until the service-account key
+  is in EAS and Play's store declarations are complete. The ordered one-time
+  steps are in [`docs/android-release-checklist.md`](../android-release-checklist.md).
 - **Fingerprint.** `eas.json` is a source on both platforms, so this moved every
   hash, measured on the same tree before and after the edit: iOS variant-less
   `7daa9686… → 4dcc819d…`, `development` `cbccdd29… → 21830c2a…`, `e2e`

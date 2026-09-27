@@ -8,9 +8,13 @@ the repo cannot do is create the Play listing, the signing key, the service acco
 or the store declarations. This checklist is that gap ([ADR 0025](adr/0025-android-staged-migration.md)
 stage 7). Work through it once, in order; the numbered steps depend on each other.
 
-Until step 6 is done, **do not approve** `approve_android_submission` in a release's
-EAS workflow run — `submit_android` cannot succeed before Play has seen one manual
-upload. The iOS jobs in the same run are independent and ship regardless.
+Until step 2 is done, `build_android` **fails** in every release run: the workflow
+is non-interactive and cannot create the upload keystore. Until the whole checklist
+is done (steps 1–8 and the store declarations), **do not approve**
+`approve_android_submission` — `submit_android` cannot succeed before Play has seen
+one manual upload, has a service account to accept uploads from, and has its
+declarations. The iOS jobs in the same run are independent and ship regardless.
+Steps 1–3 do not need the Play account.
 
 ## Before the Play account is verified
 

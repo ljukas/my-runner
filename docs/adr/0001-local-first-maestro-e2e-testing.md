@@ -143,12 +143,13 @@ The 2026-07-13 amendment left Android E2E on free Linux runners as a possible
 follow-up; it now exists as a second job in `.github/workflows/e2e.yml`, and is
 meant to become a required check beside `e2e-ios` after its first green run.
 
-- **Same shape, not a matrix.** `e2e-android` mirrors `e2e-ios` step for step —
-  fingerprint (`--platform android`), `actions/cache` keyed
-  `e2e-native-app-android-<hash>`, `@expo/repack-app --platform android` on a
-  hit, `eas build --local` via `.github/scripts/build-e2e-android-app.sh` on a
-  miss — and shares the `precheck` job, so docs-only changes skip both. A matrix
-  would have renamed the required `e2e-ios` context.
+- **Same shape, not a matrix.** Both jobs call one composite action,
+  `.github/actions/e2e-native-app` (`platform` input): fingerprint,
+  `actions/cache` keyed `e2e-native-app-<platform>-<hash>`, `@expo/repack-app`
+  on a hit, `eas build --local` via `.github/scripts/build-e2e-app.sh
+  <platform>` on a miss or a failed repack. Only the runner and the device steps
+  differ. The jobs share the `precheck` job, so docs-only changes skip both; a
+  matrix would have renamed the required `e2e-ios` context.
 - **Runner:** `ubuntu-latest` with KVM enabled, `reactivecircus/android-emulator-runner`
   on an x86_64 `google_apis` image, and the build restricted to that ABI
   (`ORG_GRADLE_PROJECT_reactNativeArchitectures`). The E2E APK is built

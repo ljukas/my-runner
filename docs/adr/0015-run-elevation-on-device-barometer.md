@@ -1,6 +1,6 @@
 # 15. Run elevation: on-device barometer-first behind an Elevation port, network DEM excluded from the default
 
-> **Android: stage 6 (elevation)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 6 (elevation): the Android barometer/GPS-fallback adapter. Check ADR 0025's stage table for whether they have shipped.
+> **Android: stage 6 (elevation) is built** ([ADR 0025](0025-android-staged-migration.md)) — the Android barometer capture and what became of the GPS fallback are in [Amendment (2026-09-27)](#amendment-2026-09-27-android-capture).
 
 Date: 2026-07-13
 
@@ -11,7 +11,9 @@ Proposed — draft for review. Flip to `Accepted` on approval. Numbered 0015 bec
 **Amended 2026-08-03** with measurements from the run-elevation-and-pace-chart
 slice — see [Amendment (2026-08-03)](#amendment-2026-08-03). **Amended 2026-08-04**
 with what the run-barometer-field-logging slice settled — see
-[Amendment (2026-08-04)](#amendment-2026-08-04).
+[Amendment (2026-08-04)](#amendment-2026-08-04). **Amended 2026-09-27** with the
+Android capture (ADR 0025 stage 6) — see
+[Amendment (2026-09-27)](#amendment-2026-09-27-android-capture).
 
 ## Context
 
@@ -331,3 +333,95 @@ event, nothing to log — because a thread cannot observe its own
 non-scheduling: the code that would write "I was blocked" cannot run while it
 is blocked. Any future analysis of a delivery gap has to treat these two causes
 as indistinguishable from the data alone.
+
+## Amendment (2026-09-27): Android capture
+
+Android stage 6 ([ADR 0025](0025-android-staged-migration.md), [plan](../superpowers/plans/2026-09-27-android-stage-6-elevation.md))
+brings the 2026-08-04 capture path to Android: barometer samples and a step
+count, recorded and exported exactly as on iOS. **Elevation is still rendered
+nowhere, on either platform.** What the stage settled:
+
+1. **Item 3's "`adapter.android.ts` wraps `expo-sensors`" does not hold.**
+   expo-sensors' Android `SensorProxy` wires `OnActivityEntersBackground` to
+   `unregisterListener` (`SensorProxy.kt`, `UseSensorProxy`), so its
+   `Barometer` records nothing while the screen is off — the run this app is
+   for. The adapter is backed by a local module, `modules/motion-sensors/`
+   (Android-only, ADR 0025's local-module pattern), that registers
+   `TYPE_PRESSURE` on `SensorManager` itself (the wake-up variant when one
+   exists, 1 s period, 5 s max report latency so the sensor hub buffers across
+   CPU sleep) and unregisters only on the port's `stop()`. Measured on the
+   emulator: the registration survives `KEYCODE_SLEEP` (`dumpsys sensorservice`
+   shows no unregister, while the dev menu's expo-sensors `ShakeDetector` is
+   dropped the same second) and samples arrive gap-free through a 45 s screen-off
+   window. The emulator's sensor has no FIFO, so the batching claim needs a
+   device (the device checklist).
+2. **The sampling period is a hint; the module thins to 1 Hz itself.** Android
+   runs a sensor at its fastest client's rate and delivers every event to every
+   client. Play services' location validation registers the pressure sensor at
+   100 ms whenever a location session is live, so an unthinned run stored ~10
+   samples a second (2 180 in 3.6 min). The module keeps an event when its own
+   sensor timestamp reaches the next slot of a 1 s grid (100 ms jitter
+   allowance), so a batched burst is thinned by when each reading was taken, not
+   when it arrived. A grid, not a gap from the last kept event: a gap test halves
+   the cadence of a sensor whose nearest native rate is just above 1 Hz
+   (909 ms apart fails a 950 ms gap every other event). Each reading's `at` is
+   likewise derived from the event clock (`System.currentTimeMillis()` minus the
+   reading's age against `elapsedRealtimeNanos()`), since a FIFO burst arrives
+   up to 5 s after its readings were taken. Measured
+   after the fix: 1.0 s between every sample, screen on and off — the same
+   cadence as iOS (1.065 s, 2026-08-04), so one barometer config can later tune
+   both.
+3. **`relativeAltitudeM` is derived, not read.** `TYPE_PRESSURE` reports only
+   hPa. `reading.ts`'s `relativeAltitudeFromPressure` applies
+   `SensorManager.getAltitude`'s standard-atmosphere formula and differences it
+   against the epoch's first reading, so the first sample is exactly 0 as with
+   CMAltimeter. The standard sea-level pressure stands in for the day's real
+   one: only differences are taken, and the error is well under 1 % of a climb.
+   A pure mapper beside `toAltitudeReading`, not a `domain/` helper (item 4):
+   it shapes a sensor event into the port's reading, while `domain/` owns the
+   rollup. Emulator check: a 7.2 hPa ramp read as a 60.5 m climb.
+   `sensorTimestampS` is `SensorEvent.timestamp` in seconds (boot-relative,
+   monotonic, as on iOS); pressure continuity stays the rebase detector.
+4. **No permission guards the Android barometer**, so the adapter's
+   `getPermissionStatus`/`requestPermission` report the one Android permission
+   in play: the step counter's `ACTIVITY_RECOGNITION` (item 5), through
+   expo-sensors' Pedometer as on iOS. A run's `motionPermission` therefore tells
+   a denied `steps: null` apart from a counter that never registered.
+5. **The step count became a port.** `Pedometer.getStepCountAsync` is
+   unimplemented on Android (`PedometerModule.kt` throws
+   `NotSupportedException`), and `TYPE_STEP_COUNTER` is cumulative since boot
+   with no history query, so a count can only be taken from a registration made
+   when the run begins. The bare `StepCounter` function the engine received
+   (`run-engine/types.ts`, justified by "finalize needs only this one call")
+   became `services/step-counter/`'s `StepCounterSource` with `start()`,
+   `stop()` and `read()`; the engine queues its start/stop on a bounded chain
+   of its own beside the barometer's, so a stalled permission read cannot hold
+   the next run's barometer start. The iOS adapter's `read()` is
+   the former `getStepCountAsync` call unchanged and its `start()`/`stop()` do
+   nothing. The Android adapter registers at `start()` and reads the spread
+   between the first and latest counter values at `read()` (null when the
+   counter went backwards — a reboot). Consequences, all accepted because the
+   count is a diagnostic: a crash-resumed run counts only from its resume; the
+   5 s batching can leave the last few seconds of steps out at finalize. The
+   first counter event is seeded as `count - 1` (the step that woke a counter
+   that fires only on the next step, as expo-sensors' `PedometerModule` does),
+   and a registration that heard no event reads as 0 steps, not null.
+   **Gating is the same on both platforms:** no barometer, no step count, no
+   prompt. On Android the prompt is `ACTIVITY_RECOGNITION` (declared by
+   expo-sensors' own manifest, so no `app.json` change), raised through
+   expo-sensors' still-working `Pedometer` permission calls at run start, only
+   when the app is foreground (a crash-resume can restore with no Activity to
+   host the dialog), and not awaited. The emulator has no step counter, so only
+   the null path was exercised; counting needs a device.
+6. **Item 2's GPS fallback is a render-time choice, so stage 6 built no GPS
+   code.** GPS altitude has been stored in `run_points` on every Android fix
+   since stage 2, exactly as on iOS. A phone without a barometer records no
+   `run_altitude_samples` and a `sensor` note of `available: false`, which is
+   what iOS does on the same hardware. Picking `run_points.altitude` with
+   `GPS_ELEVATION_CONFIG` when there are no samples belongs to the unbuilt render
+   slice on both platforms. One Android difference that slice must handle:
+   expo-location reports `coords.altitude` as WGS84 ellipsoidal height, not the
+   mean-sea-level height iOS gives, and writes `0` rather than null when the fix
+   has no altitude. Gain and loss are unaffected (the geoid offset is locally
+   constant); absolute values are ~20–30 m high in Sweden.
+

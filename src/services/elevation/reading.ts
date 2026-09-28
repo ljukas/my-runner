@@ -35,3 +35,19 @@ export function toMotionPermissionStatus(
   if (granted) return 'granted';
   return canAskAgain ? 'undetermined' : 'denied';
 }
+
+const ISA_SEA_LEVEL_HPA = 1013.25;
+
+// SensorManager.getAltitude's standard-atmosphere formula. Only differences are ever taken, and the
+// real day's sea-level pressure would move a climb by well under 1 %, so the standard one stands in.
+function pressureAltitudeM(pressureHpa: number): number {
+  return 44330 * (1 - (pressureHpa / ISA_SEA_LEVEL_HPA) ** (1 / 5.255));
+}
+
+/**
+ * Metres above the epoch's first reading, derived from pressure where the platform reports none
+ * (Android's TYPE_PRESSURE). Zero for the first reading, matching CMAltimeter's rebase.
+ */
+export function relativeAltitudeFromPressure(pressureHpa: number, basePressureHpa: number): number {
+  return pressureAltitudeM(pressureHpa) - pressureAltitudeM(basePressureHpa);
+}

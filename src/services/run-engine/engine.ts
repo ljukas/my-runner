@@ -22,6 +22,7 @@ import type {
 } from '@/services/elevation';
 import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
+import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import {
   createPointBatchScheduler,
@@ -37,7 +38,6 @@ import type {
   RunEvent,
   RunLifecyclePersistence,
   RunSnapshot,
-  StepCounter,
 } from './types';
 
 const IDLE_SNAPSHOT: RunSnapshot = {
@@ -66,8 +66,8 @@ const MAX_TAIL_FLUSHES = 6;
 // expo-sensors' PedometerModule.getPermissionsAsync returns without resolving or rejecting when its
 // permissions manager is absent, and getStepCountAsync's callback may only arrive once a system
 // alert is answered — which never happens on a pocketed auto-complete. Unbounded, that leaves the
-// run unsaved, its row `'active'` and the run screen with no route out; on the elevation chain it
-// leaves CMAltimeter sampling for the process's lifetime. 2 s is ~1000x the real latency of every
+// run unsaved, its row `'active'` and the run screen with no route out; on a sensor chain it leaves
+// the barometer or step counter sampling for the process's lifetime. 2 s is ~1000x the real latency of every
 // call it guards, so expiry means "stuck", never "slow".
 const NATIVE_TIMEOUT_MS = 2000;
 
@@ -212,7 +212,7 @@ export class RunEngine {
   private readonly runStore: RunStore;
   private readonly tracker: LocationTracker;
   private readonly elevation: ElevationSource;
-  private readonly stepCounter: StepCounter;
+  private readonly stepCounter: StepCounterSource;
   private readonly nativeTimeoutMs: number;
   private readonly scheduler: PointBatchScheduler;
 
@@ -259,9 +259,12 @@ export class RunEngine {
   // why: reset() + start() fire back-to-back (session screen); unordered, the old stop() can land
   // after the new start() and leave tracking off for the whole run.
   private trackerOps: Promise<unknown> = Promise.resolve();
-  // Same hazard as trackerOps, one sensor over: an unordered stop() landing after a start() would
-  // leave the barometer running with the app backgrounded.
-  private elevationOps: Promise<unknown> = Promise.resolve();
+  // Same hazard as trackerOps, for the barometer and step counter: an unordered stop() landing after
+  // a start() would leave a sensor running with the app backgrounded. One chain each, since only a
+  // sensor's own start and stop need ordering — a stalled step-permission read must not hold the
+  // barometer's start.
+  private altitudeOps: Promise<unknown> = Promise.resolve();
+  private stepOps: Promise<unknown> = Promise.resolve();
 
   constructor(deps: {
     persistence: RunLifecyclePersistence;
@@ -269,7 +272,7 @@ export class RunEngine {
     runStore: RunStore;
     tracker: LocationTracker;
     elevation: ElevationSource;
-    stepCounter: StepCounter;
+    stepCounter: StepCounterSource;
     clock?: Clock;
     createScheduler?: (flush: () => void) => PointBatchScheduler;
     // A test seam like createScheduler: the suite cannot afford real multi-second waits to prove
@@ -317,7 +320,7 @@ export class RunEngine {
     this.openRunRow(session.key, this.events[0].at);
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
-    this.queueElevation(() => this.elevation.start(), 'start');
+    this.queueSensors('start');
     this.refresh();
     this.armFlush();
   }
@@ -376,7 +379,7 @@ export class RunEngine {
     if (!this.rebuild(input)) return false;
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
-    this.queueElevation(() => this.elevation.start(), 'start');
+    this.queueSensors('start');
     this.refresh();
     this.armFlush();
     // why here and not on the resume screen that offers this: announcing through the engine is what
@@ -418,7 +421,7 @@ export class RunEngine {
     this.queueTracker(() => this.tracker.stop(), 'stop');
     // why here too: a path to idle that skips finalize would otherwise leave CMAltimeter running
     // with the app backgrounded, and desync the adapter's idempotence flag from native state.
-    this.queueElevation(() => this.elevation.stop(), 'stop');
+    this.queueSensors('stop');
     this.emit();
   }
 
@@ -544,13 +547,10 @@ export class RunEngine {
     }
   };
 
-  // why Date, not the record's own ISO strings: getStepCountAsync throws on a string argument
-  // (no .getTime), and the injected stepCounter's own signature takes Date so that mistake can't
-  // happen at this call site either.
   private async capturePedometerSteps(startedAt: number, endedAt: number): Promise<void> {
     try {
       const steps = await withTimeout<number | null | undefined>(
-        this.stepCounter(new Date(startedAt), new Date(endedAt)),
+        this.stepCounter.read(new Date(startedAt), new Date(endedAt)),
         undefined,
         this.nativeTimeoutMs,
         'step count read',
@@ -733,7 +733,7 @@ export class RunEngine {
     ]);
     record.motionPermission = motionPermission;
     this.queueTracker(() => this.tracker.stop(), 'stop');
-    this.queueElevation(() => this.elevation.stop(), 'stop');
+    this.queueSensors('stop');
     await this.completeRun(record, this.runGeneration);
   }
 
@@ -904,7 +904,7 @@ export class RunEngine {
   }
 
   // KNOWN GAP (important, pre-existing, not fixed in the barometer slice): unbounded, unlike
-  // queueElevation, so an op that never settles strands the stop() that ends background location —
+  // queueSensors, so an op that never settles strands the stop() that ends background location —
   // battery drain, not a lost run.
   //
   // A bare `withTimeout(op())` is NOT the fix and would be worse than the gap: `tracker.start()`
@@ -914,22 +914,41 @@ export class RunEngine {
   // re-assert the desired state after a timeout (or check a generation inside the op), and needs a
   // device pass to confirm it against real CoreLocation timing. Its own slice, not a one-liner.
   //
-  // The asymmetry is why this is the chain that matters: `elevationSource.start()`/`stop()` await
-  // nothing native (`Barometer.addListener` and `subscription.remove()` are synchronous), so
-  // queueElevation's timeout cannot fire against the shipped adapter — the bounded chain is the one
-  // that never stalls, and the one that genuinely can is unbounded.
+  // The asymmetry is why this is the chain that matters: the sensor chains' ops are native-synchronous
+  // except the Android step counter's permission read, and StepCounterSource's contract makes a
+  // start() abandoned at its timeout harmless. The tracker's port promises no such thing, so its fix
+  // is the real slice.
   private queueTracker(op: () => Promise<void>, label: string): void {
     this.trackerOps = this.trackerOps
       .then(op)
       .catch((error) => console.warn(`[run-engine] location ${label} failed`, error));
   }
 
-  private queueElevation(op: () => Promise<void>, label: string): void {
-    this.elevationOps = this.elevationOps
-      // why bounded and trackerOps is not: this chain carries the stop() that releases CMAltimeter,
-      // so one op that never settles leaves the barometer sampling for the process's lifetime.
-      .then(() => withTimeout<void>(op(), undefined, this.nativeTimeoutMs, `altitude ${label}`))
-      .catch((error) => console.warn(`[run-engine] altitude ${label} failed`, error));
+  private queueSensors(action: 'start' | 'stop'): void {
+    this.altitudeOps = this.afterBounded(
+      this.altitudeOps,
+      () => this.elevation[action](),
+      `altitude ${action}`,
+    );
+    this.stepOps = this.afterBounded(
+      this.stepOps,
+      () => this.stepCounter[action](),
+      `step counter ${action}`,
+    );
+  }
+
+  private afterBounded(
+    chain: Promise<unknown>,
+    op: () => Promise<void>,
+    label: string,
+  ): Promise<unknown> {
+    return (
+      chain
+        // why bounded and trackerOps is not: these chains carry the stops that release the barometer
+        // and step counter, so one op that never settles leaves it sampling for the process's lifetime.
+        .then(() => withTimeout<void>(op(), undefined, this.nativeTimeoutMs, label))
+        .catch((error) => console.warn(`[run-engine] ${label} failed`, error))
+    );
   }
 
   private emit(): void {

@@ -17,16 +17,13 @@ import type {
 import { FIELD_TEST_SESSION_KEY } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
+import type { StepCounterSource } from '@/services/step-counter/port';
+import { createReadingHub } from '@/services/elevation/reading-hub';
 import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
 import { parseSnapshotState } from './resumable';
 import type { PendingEntry, PendingSample } from './run-log';
-import type {
-  BufferedRunPoint,
-  CompletedRunRecord,
-  RunLifecyclePersistence,
-  StepCounter,
-} from './types';
+import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
 function makeFakeCue() {
@@ -48,7 +45,7 @@ function makeFakeCue() {
 
 /** A recording fake barometer: the engine subscribes once, so `emit` is how a reading arrives. */
 function fakeElevation() {
-  const listeners = new Set<(reading: AltitudeReading) => void>();
+  const hub = createReadingHub();
   const calls: string[] = [];
   const source: ElevationSource = {
     isAvailable: async () => true,
@@ -56,16 +53,9 @@ function fakeElevation() {
     getPermissionStatus: async () => 'granted',
     start: async () => void calls.push('start'),
     stop: async () => void calls.push('stop'),
-    onReading: (cb) => {
-      listeners.add(cb);
-      return () => void listeners.delete(cb);
-    },
+    onReading: hub.onReading,
   };
-  return {
-    calls,
-    source,
-    emit: (reading: AltitudeReading) => listeners.forEach((listener) => listener(reading)),
-  };
+  return { calls, source, emit: hub.emit };
 }
 
 const SESSION: PlanSession = {
@@ -156,7 +146,7 @@ function makeEngine(
     deferStartRun?: boolean;
     failStartRunTimes?: number;
     elevation?: ElevationSource;
-    stepCounter?: StepCounter;
+    stepCounter?: Partial<StepCounterSource>;
     nativeTimeoutMs?: number;
   } = {},
 ) {
@@ -237,12 +227,20 @@ function makeEngine(
   const fakeBarometer = fakeElevation();
   let stepCounterReturn: number | null = 0;
   const stepCounterCalls: { start: Date; end: Date }[] = [];
-  const stepCounter: StepCounter =
-    options.stepCounter ??
-    (async (start, end) => {
+  const stepCounterLifecycle: string[] = [];
+  const stepCounter: StepCounterSource = {
+    start: async () => {
+      stepCounterLifecycle.push('start');
+    },
+    stop: async () => {
+      stepCounterLifecycle.push('stop');
+    },
+    read: async (start, end) => {
       stepCounterCalls.push({ start, end });
       return stepCounterReturn;
-    });
+    },
+    ...options.stepCounter,
+  };
   const engine = new RunEngine({
     persistence,
     runStore,
@@ -260,6 +258,7 @@ function makeEngine(
     elevationCalls: fakeBarometer.calls,
     emitReading: fakeBarometer.emit,
     stepCounterCalls,
+    stepCounterLifecycle,
     setStepCounterReturn: (v: number | null) => (stepCounterReturn = v),
     saved,
     finalized,
@@ -1540,6 +1539,56 @@ describe('barometer capture (spec §6)', () => {
     expect(calls).toEqual(['start-entered', 'stop']);
   });
 
+  test('the step counter is armed and released alongside the barometer', async () => {
+    const h = makeEngine();
+    h.engine.start(SESSION);
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start']);
+    h.tick(80);
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start', 'stop']);
+    expect(h.stepCounterCalls).toHaveLength(1);
+    h.engine.reset();
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start', 'stop', 'stop']);
+  });
+
+  test('the step counter is re-armed on restore()', async () => {
+    const h = makeEngine();
+    h.setNow(FIX_START + 20_000);
+    h.engine.restore({ runId: 'run-1', session: SESSION, state: stateAtStart(), points: [] });
+    await flush();
+    expect(h.stepCounterLifecycle).toEqual(['start']);
+  });
+
+  test('a step-counter start that never settles cannot strand the barometer stop', async () => {
+    const h = makeEngine({
+      nativeTimeoutMs: 10,
+      stepCounter: { start: () => new Promise<void>(() => {}) },
+    });
+    const warnings = await withoutWarnings(async () => {
+      h.engine.start(SESSION);
+      h.tick(80);
+      await settle(80);
+    });
+    expect(warnings).toBeGreaterThanOrEqual(1);
+    expect(h.elevationCalls).toEqual(['start', 'stop']);
+    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+  });
+
+  test('a stalled step-counter start does not delay the next run’s barometer', async () => {
+    const h = makeEngine({
+      nativeTimeoutMs: 60_000,
+      stepCounter: { start: () => new Promise<void>(() => {}) },
+    });
+    h.engine.start(SESSION);
+    await flush();
+    h.engine.reset();
+    h.engine.start(SESSION);
+    await flush();
+    expect(h.elevationCalls).toEqual(['start', 'stop', 'start']);
+  });
+
   test('a failed flush returns its rows with their original seq, never renumbered', async () => {
     const h = makeEngine();
     const warnings = await withoutWarnings(async () => {
@@ -1731,7 +1780,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
 
   test('a step-count read failure cannot fail the run', async () => {
     const h = makeEngine({
-      stepCounter: () => Promise.reject(new Error('motion denied')),
+      stepCounter: { read: () => Promise.reject(new Error('motion denied')) },
     });
     const warnings = await withoutWarnings(async () => {
       h.engine.start(SESSION);
@@ -1769,7 +1818,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
   test('a step count that never settles still saves the run', async () => {
     const h = makeEngine({
       nativeTimeoutMs: 10,
-      stepCounter: () => new Promise<number | null>(() => {}),
+      stepCounter: { read: () => new Promise<number | null>(() => {}) },
     });
     const warnings = await withoutWarnings(async () => {
       h.engine.start(SESSION);
@@ -1816,10 +1865,12 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       // why the real-timer hop and not a microtask: `queueTracker` defers its stop by one microtask,
       // so a read that resolves synchronously observes zero stops whichever order finalize uses. A
       // native read takes real time — this measures what a *resolved* read sees, which is the point.
-      stepCounter: async () => {
-        await settle(0);
-        stopsWhenRead = h.trackerCalls.filter((c) => c === 'stop').length;
-        return 0;
+      stepCounter: {
+        read: async () => {
+          await settle(0);
+          stopsWhenRead = h.trackerCalls.filter((c) => c === 'stop').length;
+          return 0;
+        },
       },
     });
     h.engine.start(SESSION);

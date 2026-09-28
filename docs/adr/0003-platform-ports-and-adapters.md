@@ -128,3 +128,18 @@ Two further rules from the same stage: a component that imports a platform
 because expo-router bundles every platform's route files into both bundles,
 anything a route fork imports must resolve on both platforms — hence the
 occasional `.ios.tsx` stub that renders nothing.
+
+## Amendment (2026-09-27): the step counter became a port
+
+`run-engine/types.ts` carried the step count as a bare function,
+`StepCounter = (start, end) => Promise<number | null>`, argued for because
+finalize needs only that one call and CMPedometer can answer it from history.
+Android's counter has no history (ADR 0015's 2026-09-27 amendment, item 5), so
+a count has to be armed when the run begins — a lifecycle a function cannot
+express. It is now `services/step-counter/` (`StepCounterSource`: `start()`,
+`stop()`, `read()`), a port like the others; the iOS adapter's `read()` is the
+old function body and its `start()`/`stop()` do nothing. A second rule from
+the same stage: a local native module (`modules/*`) may back more than one
+adapter — `modules/motion-sensors/` serves both `elevation` and
+`step-counter` — but only adapters import it.
+

@@ -299,3 +299,17 @@ G6 stays covered automatically; G1–G5 do not. Verified manually on 2026-07-31 
 the route-engine command above: all five passed (0.11 km over a 40 s compressed
 session, pace 5:57 /km, route card and viewer both rendering, splits and Log row
 correct).
+
+## Android elevation capture — device-only (stage 6, 2026-09-27)
+
+The emulator proved the harness (screen-off registration, 1 Hz cadence, export;
+ADR 0015's 2026-09-27 amendment) but has no hardware FIFO and no step counter.
+On an Android phone **with a barometer** (a recent Pixel or Galaxy S), during a
+locked 20+ minute outdoor run:
+
+| # | Check | How |
+| --- | --- | --- |
+| E1 | Barometer samples keep arriving at ~1 s with the screen off — no gap longer than a few seconds | Export → `## altitude`: `sensorTimestampS` deltas |
+| E2 | The first run on a fresh install asks for **Physical activity** once, at run start; allowing it gives a plausible `pedometer` step count | `## log` → `pedometer` row |
+| E3 | Denying it leaves the barometer unaffected and the step count `null` | same export |
+| E4 | A phone **without** a barometer is never asked, records no altitude samples, and logs `sensor` `available: false` | `## log` → `sensor` row |

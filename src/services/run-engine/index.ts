@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm';
 import * as Battery from 'expo-battery';
-import { Pedometer } from 'expo-sensors';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 
@@ -13,31 +12,21 @@ import { runs } from '@/db/schema';
 import { getSession, type PlanSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
-import { elevationSource, type ElevationSource } from '@/services/elevation';
+import { elevationSource, hasBarometer, type ElevationSource } from '@/services/elevation';
 import { resumeDispositionOf, skipForFieldTest } from '@/services/field-test';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
+import { stepCounterSource } from '@/services/step-counter';
 import { isTimelineExhausted, RunEngine, type RunRestoreInput } from './engine';
 import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
-import type { StepCounter } from './types';
 
 export { endCountsAsCompleted } from './engine';
 
-// why memoized, and consulted before every CoreMotion touch: iOS raises the Motion & Fitness prompt
-// on the first Pedometer call while authorization is undetermined, and on hardware with no barometer
-// there is nothing that prompt could serve — no reading can ever arrive (ADR 0015 item 2's feature
-// detection). Every simulator is such hardware, so an ungated read strands the whole Maestro suite
-// behind a system alert `clearState` cannot dismiss. The answer cannot change within a process.
-let barometerAvailable: Promise<boolean> | null = null;
-function hasBarometer(): Promise<boolean> {
-  return (barometerAvailable ??= elevationSource.isAvailable().catch(() => false));
-}
-
 // why wrap start() rather than note from the engine: this is the only seam that fires exactly once
-// per run start/restore (engine.ts's queueElevation) without engine.ts importing anything to log it
+// per run start/restore (engine.ts's queueSensors) without engine.ts importing anything to log it
 // (spec §6.1).
 const elevationWithSensorLog: ElevationSource = {
   ...elevationSource,
@@ -49,7 +38,7 @@ const elevationWithSensorLog: ElevationSource = {
   },
   start() {
     // why nothing here is awaited: a permission read that never settles would strand the engine's
-    // elevation op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
+    // sensor op chain and every stop() behind it (see NATIVE_TIMEOUT_MS in engine.ts). The notes
     // only have to belong to this run, not precede the start. Accepted consequence: in the
     // millisecond-wide reset()+start() window between two runs, either note can land in the
     // neighbouring run's log — both are process-level facts, so a mislabelled row misstates nothing.
@@ -71,23 +60,6 @@ const elevationWithSensorLog: ElevationSource = {
   },
 };
 
-// why wrapped rather than passed raw: getStepCountAsync performs no permission check of its own —
-// it rejects when Motion & Fitness isn't authorized — and a finalize that throws is a run that
-// never gets saved (spec §6.3).
-const stepCounter: StepCounter = async (start, end) => {
-  // why gated on the barometer: the step count exists only to accompany a barometer capture, it
-  // shares the one Motion & Fitness authorization CMAltimeter needs, and hardware without a
-  // barometer has no pedometer worth asking either — so the only effect of asking is the prompt.
-  if (!(await hasBarometer())) return null;
-  try {
-    const { steps } = await Pedometer.getStepCountAsync(start, end);
-    return steps;
-  } catch (error) {
-    console.warn('[run-engine] step count read failed', error);
-    return null;
-  }
-};
-
 // `withHealthSync`'s sync callback only carries a runId (ADR 0011 §4), so a field-test skip has to
 // re-derive the session key here rather than through the decorator's signature (spec §8.0).
 function sessionKeyOfRun(runId: string): string | undefined {
@@ -105,7 +77,7 @@ export const runEngine = new RunEngine({
   runStore: dbRunStore,
   tracker: locationTracker,
   elevation: elevationWithSensorLog,
-  stepCounter,
+  stepCounter: stepCounterSource,
 });
 
 // Module scope, never a React effect, and imported from the app entry rather than a route: iOS

@@ -78,7 +78,7 @@ screens.
 | 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md); mechanics and measurements in ADR 0009's 2026-09-21 amendment. |
 | 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card, viewer, degradations and rendering all verified on the emulator with a real Maps key (see the amendment below). |
 | 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | **Built 2026-09-22** — [plan](../superpowers/plans/2026-09-22-android-stage-5-health-connect.md); mechanics and measurements in ADR 0011's 2026-09-22 amendment; the deliberate iOS fingerprint move in ADR 0012's. |
-| 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | Planned |
+| 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | **Built 2026-09-27** — [plan](../superpowers/plans/2026-09-27-android-stage-6-elevation.md); capture parity only (elevation is unrendered on both platforms, so the GPS fallback is a render-slice choice, not an adapter); mechanics and measurements in ADR 0015's 2026-09-27 amendment. |
 | 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | Planned |
 
 Live Activities (ADR 0022) stay iOS-only by nature; the Android adapter is a
@@ -132,8 +132,8 @@ the capability is deferred: location reports a new
 `LocationPermissionStatus` value, **`'unsupported'`** ("nothing to prompt for,
 nothing to disclose"), which the run banner and Settings honour; health reports
 `'unavailable'`; elevation reports unavailable (which is what keeps the
-composition root away from the pedometer); the route map renders an empty
-view. The cue adapter is haptic-only and shares `CUE_HAPTIC` with iOS through
+composition root away from the pedometer — superseded by stage 6, see its
+amendment); the route map renders an empty view. The cue adapter is haptic-only and shares `CUE_HAPTIC` with iOS through
 `cue-service/cue-haptics.ts`. UI haptics dropped their `.ios` suffix: one Pulsar
 adapter serves both platforms.
 
@@ -441,3 +441,50 @@ stage adds to this record:
   browser (Activity → Exercise / Distance, stepped by day) that shows what was
   written, including "Exercise map route available"; `uiautomator dump` reads
   the Compose and RN text of every screen except the animated run screen.
+
+## Amendment (2026-09-27): stage 6 built — elevation capture
+
+Stage 6 shipped as capture parity: an Android phone with a barometer records
+`run_altitude_samples`, a step count and the field diagnostics exactly as an
+iPhone does, and the summary's "Field data" export works on Android. The
+mechanics and measurements are in ADR 0015's amendment of the same date. What
+the stage adds to this record:
+
+- **The third local module, `modules/motion-sensors/`** (Kotlin, ~130 lines:
+  barometer and step counter on `SensorManager`, an `onPressure` event, sync
+  `Function`s). Same shape as `audio-focus` and `launch-intent`
+  (`platforms: ["android"]`, `index.android.ts`, nested `.gitignore`), imported
+  by two adapters (`elevation`, `step-counter`). It exists because
+  expo-sensors unregisters its listeners whenever the Activity pauses. **iOS
+  fingerprint unchanged**, measured before and after: dev `cbccdd29…`,
+  variant-less `7daa9686…` (also unchanged after a local Gradle build, so the
+  manifest hook from item 8 still holds). Android moved (`e525fc07…` →
+  `c74f4b13…`) with the new autolinked module.
+- **A new port instead of an adapter swap:** `services/step-counter/` replaces
+  the engine's bare `StepCounter` function, because Android's counter has no
+  history and must be armed at run start (ADR 0015's amendment, item 5). The
+  one engine change: `queueElevation` became `queueSensors('start' | 'stop')`,
+  one bounded chain per sensor. `hasBarometer()`
+  moved from the composition root into the elevation barrel so the root and
+  both step-counter adapters share one memoized answer.
+- **Stubs and forks:** `run-export-row.android.tsx` is deleted and the shared
+  row renders on Android unchanged. The Android Settings route gains the
+  "Field test" section behind `isFieldTestBuild()`, as on iOS; its
+  `Island.Button inline` is the only bare button in that `LazyColumn`, so the
+  route wraps it in a padded Compose `Box` rather than changing the shared
+  island.
+- **No `app.json` change, no onboarding step.** `ACTIVITY_RECOGNITION` is
+  already merged from expo-sensors' manifest (verified in the merged manifest);
+  it is asked just in time at run start, like iOS's Motion & Fitness prompt.
+- **Emulator facts** for AGENTS.md: the Pixel 10 Pro image (API 37) has a
+  pressure sensor but **no step counter**, so step counting needs a device;
+  `adb emu sensor set pressure <hPa>` drives the barometer (−0.12 hPa ≈ +1 m);
+  `dumpsys sensorservice` lists each registration with its granted period and
+  batching (`+`/`-` lines per client) and is the evidence that a listener
+  survived `KEYCODE_SLEEP`; the emulator clamps the pressure period to 500 ms
+  and has no hardware FIFO. The export file lands in the app's `cache/` and is
+  readable with `run-as … cat cache/runbro-*.txt`.
+- **Not exercised here, on the device checklist:** FIFO batching across real
+  CPU suspension, real step counts and their `ACTIVITY_RECOGNITION` dialog, and
+  delivery under Doze on a real phone.
+

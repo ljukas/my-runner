@@ -177,4 +177,4 @@ short version:
   pre-existing layout of the shared `OnboardingStepScreen` on Android, owned by
   the carousel redesign spec); Maestro on Android remains stage 7.
 
-Handoff for stage 6 (elevation): not yet written.
+**Stage 6 (elevation):** built 2026-09-27 — see [its plan](2026-09-27-android-stage-6-elevation.md).

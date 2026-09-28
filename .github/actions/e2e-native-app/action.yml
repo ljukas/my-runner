@@ -14,7 +14,7 @@ inputs:
 outputs:
   app-path:
     description: The .app (iOS simulator) or .apk (Android) to install
-    value: ${{ steps.select.outputs.path }}
+    value: ${{ steps.repack.outputs.path || steps.build.outputs.path }}
 runs:
   using: composite
   steps:
@@ -27,7 +27,6 @@ runs:
           echo "::error::fingerprint generation failed"; exit 1
         fi
         echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-        echo "ext=$([ "${{ inputs.platform }}" = ios ] && echo app || echo apk)" >> "$GITHUB_OUTPUT"
         echo "Native fingerprint: $HASH"
 
     - name: Restore cached native app (keyed by fingerprint)
@@ -39,10 +38,14 @@ runs:
 
     - name: Build E2E app (cache miss — full native build)
       if: steps.cache.outputs.cache-hit != 'true'
+      id: build
       shell: bash
       env:
         EXPO_TOKEN: ${{ inputs.expo-token }}
-      run: bash .github/scripts/build-e2e-app.sh "${{ inputs.platform }}" "$RUNNER_TEMP/native-app"
+        EXT: ${{ inputs.platform == 'ios' && 'app' || 'apk' }}
+      run: |
+        bash .github/scripts/build-e2e-app.sh "${{ inputs.platform }}" "$RUNNER_TEMP/native-app"
+        echo "path=$RUNNER_TEMP/native-app/app.$EXT" >> "$GITHUB_OUTPUT"
 
     # why: saved here, not in actions/cache's post step, which skips the save when the
     # job fails — a red Maestro run would otherwise discard a fresh full build.
@@ -56,39 +59,21 @@ runs:
     - name: Repack cached app with current JS (cache hit — no native build)
       if: steps.cache.outputs.cache-hit == 'true'
       id: repack
-      continue-on-error: true
       shell: bash
       env:
+        EXPO_TOKEN: ${{ inputs.expo-token }}
+        EXT: ${{ inputs.platform == 'ios' && 'app' || 'apk' }}
         # Must mirror the e2e-simulator profile's `env` in eas.json: repack
         # re-bundles JS via `expo export:embed`, which inlines EXPO_PUBLIC_* at
         # bundle time. Without this the repacked app runs the real NHS plan
         # (not the compressed one) and full-session flows time out.
         EXPO_PUBLIC_E2E: '1'
       run: |
-        npx @expo/repack-app --platform "${{ inputs.platform }}" \
-          --source-app "$RUNNER_TEMP/native-app/app.${{ steps.fp.outputs.ext }}" \
-          -o "$RUNNER_TEMP/repacked.${{ steps.fp.outputs.ext }}"
-
-    - name: Fallback to a full build (repack failed)
-      if: steps.cache.outputs.cache-hit == 'true' && steps.repack.outcome == 'failure'
-      shell: bash
-      env:
-        EXPO_TOKEN: ${{ inputs.expo-token }}
-      run: |
-        echo "::warning::@expo/repack-app failed; falling back to a full native build"
-        bash .github/scripts/build-e2e-app.sh "${{ inputs.platform }}" "$RUNNER_TEMP/fallback"
-
-    - name: Select the app to install
-      id: select
-      shell: bash
-      run: |
-        EXT="${{ steps.fp.outputs.ext }}"
-        if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ] && [ "${{ steps.repack.outcome }}" != "failure" ]; then
-          APP_PATH="$RUNNER_TEMP/repacked.$EXT"
-        elif [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+        APP_PATH="$RUNNER_TEMP/repacked.$EXT"
+        if ! npx @expo/repack-app --platform "${{ inputs.platform }}" \
+          --source-app "$RUNNER_TEMP/native-app/app.$EXT" -o "$APP_PATH"; then
+          echo "::warning::@expo/repack-app failed; falling back to a full native build"
+          bash .github/scripts/build-e2e-app.sh "${{ inputs.platform }}" "$RUNNER_TEMP/fallback"
           APP_PATH="$RUNNER_TEMP/fallback/app.$EXT"
-        else
-          APP_PATH="$RUNNER_TEMP/native-app/app.$EXT"
         fi
-        echo "Installing: $APP_PATH"
         echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"

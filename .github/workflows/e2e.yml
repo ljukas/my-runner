@@ -144,6 +144,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # why: setup-java's `cache: gradle` hashes build files under the gitignored android/,
+      # so it would never hit; this caches ~/.gradle for the cache-miss build.
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Install dependencies (frozen)
         run: bun ci
 

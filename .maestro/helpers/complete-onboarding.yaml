@@ -1,6 +1,7 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Completes all four onboarding steps, dismissing the location and health primers with "Not Now".
+# Completes all four onboarding steps, dismissing the location and health primers with "Not Now"
+# ("Not now" on Android, whose primers are sentence case).
 # Callers that need location pre-grant it via launchApp (see launch-and-onboard.yaml); the location
 # primer's own two CTAs are owned by tests/location-primer-allow.yaml and
 # tests/location-primer-deny.yaml.
@@ -13,10 +14,10 @@ appId: se.lukaslindqvist.runbro.e2e
 - retry:
     maxRetries: 3
     commands:
-      - tapOn: "Not Now"
+      - tapOn: "Not [Nn]ow"
       - assertVisible: "Your runs, in (Apple Health|Health Connect)" # health primer follows the location primer
 - retry:
     maxRetries: 3
     commands:
-      - tapOn: "Not Now"
+      - tapOn: "Not [Nn]ow"
       - assertVisible: "Week 1 ·.*" # plan list

@@ -22,6 +22,7 @@ export function RunLocationBanner({
   locked: boolean;
 }) {
   const colors = useTheme();
+  if (status === 'unsupported') return null;
   const denied = status === 'denied';
   return (
     <View className="items-center gap-6">

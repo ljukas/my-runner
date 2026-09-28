@@ -5,6 +5,7 @@
  * in JS (`useTheme`, @expo/ui SwiftUI islands) — keep both in sync.
  */
 
+import type { AndroidSymbol } from 'expo-symbols';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
 import type { SegmentKind } from '@/domain/plan';
@@ -106,11 +107,11 @@ export const ChartGridColors: Record<'light' | 'dark', string> = {
   dark: 'hsla(0, 0%, 100%, 0.25)',
 };
 
-/** Segment-kind SF Symbols for the run screen phase label. Warm-up/cool-down are
- * walking phases in the plan; only the run intervals get the running figure. */
-export const SegmentSymbols: Record<SegmentKind, SFSymbol> = {
-  warmup: 'figure.walk',
-  run: 'figure.run',
-  walk: 'figure.walk',
-  cooldown: 'figure.cooldown',
+/** Segment-kind symbols for the run screen phase label, per platform glyph set. Warm-up/cool-down
+ * are walking phases in the plan; only the run intervals get the running figure. */
+export const SegmentSymbols: Record<SegmentKind, { ios: SFSymbol; android: AndroidSymbol }> = {
+  warmup: { ios: 'figure.walk', android: 'directions_walk' },
+  run: { ios: 'figure.run', android: 'directions_run' },
+  walk: { ios: 'figure.walk', android: 'directions_walk' },
+  cooldown: { ios: 'figure.cooldown', android: 'self_improvement' },
 };

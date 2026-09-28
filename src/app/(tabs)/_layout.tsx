@@ -5,17 +5,17 @@ export default function TabsLayout() {
     <NativeTabs>
       <NativeTabs.Trigger name="(index)">
         <NativeTabs.Trigger.Label>Plan</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="figure.run" />
+        <NativeTabs.Trigger.Icon sf="figure.run" md="directions_run" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="log">
         <NativeTabs.Trigger.Label>Log</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="book.closed.fill" />
+        <NativeTabs.Trigger.Icon sf="book.closed.fill" md="menu_book" />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="settings">
         <NativeTabs.Trigger.Label>Settings</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf="gearshape.fill" />
+        <NativeTabs.Trigger.Icon sf="gearshape.fill" md="settings" />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

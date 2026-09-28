@@ -24,6 +24,7 @@ const LOCATION_ACCESS: Record<LocationPermissionStatus, string> = {
   granted: 'While Using the App',
   denied: 'Never',
   undetermined: 'Ask Next Time Or When I Share',
+  unsupported: 'Not Available',
 };
 
 // Values deliberately share no suffix with LOCATION_ACCESS: both rows are labelled "Access", and

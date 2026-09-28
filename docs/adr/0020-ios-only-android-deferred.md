@@ -4,7 +4,10 @@ Date: 2026-07-15
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge.
+Superseded by [ADR 0025](0025-android-staged-migration.md) on 2026-09-20: Android is
+back in `platforms` and ships in stages. This ADR stays as the record of why Android
+was paused and of the fingerprint-pollution mechanism, which ADR 0025 item 8 measured
+again and mitigates.
 
 ## Context
 

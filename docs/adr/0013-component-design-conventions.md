@@ -1,6 +1,6 @@
 # 13. Component design: variant-carrying primitives and compound modules
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: stage 1 (built 2026-09-20)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 1 (built 2026-09-20): the per-file `.ios.tsx` / `.android.tsx` fork of `island/`, amended below. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-12
 
@@ -264,3 +264,21 @@ Maestro suite (ADR 0001 policy).
   rejected: conflicts with the system-native @expo/ui direction (ADR 0005)
   and the official-tooling posture; react-native-reusables remains useful
   as prior art for individual component recipes.
+
+## Amendment (2026-09-20): the island seam is a pair of files per idiom
+
+"ADR 0005 §4's Android fork then edits this seam, not six screens" is now
+literal (ADR 0025): every module in `src/components/island/` is a `.ios.tsx` /
+`.android.tsx` pair with identical public props, and `index.ts` stays the single
+shared spelling. The Compose side threads the device's Material palette the way
+the SwiftUI side threads the `Colors` mirror, through `useTheme()`, which is
+itself forked. Domain components that import a platform vocabulary directly
+follow the same pairing when they need an Android body (`run-transport`,
+`run-lock`, `run-unavailable`, `stat-grid`, `settings-toggle`); those with no
+Android capability yet pair with a stub that renders nothing. An Android-only
+domain component still needs an `.ios.tsx` stub when a route fork imports it,
+for the reason ADR 0003's 2026-09-20 amendment records. Pairs consumed only by
+forked screens may diverge in props where a platform idiom earns it
+(`settings-toggle.android.tsx` takes a `description` for the Material row's
+supporting text; the SwiftUI `Toggle` has no such slot) — the island pairs,
+which shared screens consume, may not.

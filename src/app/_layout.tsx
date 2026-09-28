@@ -1,19 +1,22 @@
 import '@/global.css';
 
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter } from 'expo-router';
+import { Stack, ThemeProvider, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme, View } from 'react-native';
 
 import { ResumeRunGate } from '@/components/resume-run-gate';
 import { Text } from '@/components/ui/text';
-import { Colors } from '@/constants/theme';
 import { db } from '@/db/client';
 import migrations from '@/db/migrations/migrations';
 import { useTheme } from '@/hooks/use-theme';
+import { navigationTheme } from '@/lib/navigation-theme';
+import { applyPlatformTheme } from '@/lib/platform-theme';
+import { sheetOptions } from '@/lib/sheet-options';
 import { onboarding } from '@/services/onboarding-store';
 
+applyPlatformTheme();
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 400, fade: true });
 
@@ -53,7 +56,7 @@ export default function RootLayout() {
   if (!success) return null; // splash stays up
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={navigationTheme(colorScheme)}>
       <OnboardingGate />
       <ResumeRunGate />
       <Stack
@@ -70,12 +73,11 @@ export default function RootLayout() {
             presentation: 'formSheet',
             sheetAllowedDetents: 'fitToContents',
             sheetGrabberVisible: true,
+            ...sheetOptions,
             headerShown: false,
             // Paint the whole sheet container (incl. the bottom safe-area inset the
             // content view no longer covers under fitToContents) with the theme background.
-            contentStyle: {
-              backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].background,
-            },
+            contentStyle: { backgroundColor: colors.background },
           }}
         />
         <Stack.Screen
@@ -83,12 +85,11 @@ export default function RootLayout() {
           options={{
             presentation: 'formSheet',
             sheetAllowedDetents: 'fitToContents',
+            ...sheetOptions,
             // Not swipe-dismissible: an undecided dismissal would leave the run `'active'` and invisible.
             gestureEnabled: false,
             headerShown: false,
-            contentStyle: {
-              backgroundColor: Colors[colorScheme === 'dark' ? 'dark' : 'light'].background,
-            },
+            contentStyle: { backgroundColor: colors.background },
           }}
         />
         <Stack.Screen

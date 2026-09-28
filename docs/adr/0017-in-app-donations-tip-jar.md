@@ -1,6 +1,6 @@
 # 17. In-app donations: a client-only tip jar behind a Tip-jar port via expo-iap, RevenueCat and external links excluded from the default
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: a later stage (unscheduled)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to a later stage (unscheduled): the Play Billing adapter. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-14
 

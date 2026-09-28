@@ -1,6 +1,6 @@
 # 5. System-native UI via @expo/ui SwiftUI islands
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: stage 1 (built 2026-09-20)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 1 (built 2026-09-20): the Compose island fork of the `island/` seam. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-11
 
@@ -230,3 +230,16 @@ cards; that also makes `CARD_ASPECT_RATIO` exact rather than an under-estimate.
 Contrast `runs/[runId]/route.tsx`, which puts its 1 pt a11y node *in flow above*
 the map and cites this same rule: that node exists **to be spoken**, so no
 deviation is available to it.
+
+## Amendment (2026-09-20): Decision item 4 realised — the Android fork edits the seam
+
+Stage 1 of the Android migration (ADR 0025) built the posture item 4 decided:
+the `island/` modules each have a `.android.tsx` counterpart over
+`@expo/ui/jetpack-compose`, the three pure-SwiftUI screens (Plan, Log,
+Settings) have Compose route siblings, and everything else is shared RN +
+Uniwind. One refinement to "Compose where native feel earns it": icon-only
+controls (transport, lock) stay RN on Android, because Compose's `Icon` takes
+bundled drawables and the app's glyphs come from `expo-symbols`; Compose is used
+for text CTAs, dialogs, lists and switches. The boundary rules of item 1 carry
+over unchanged: RN owns the screen root, Compose islands sit in flow, sized to
+content (`matchContents`, which Compose reports back, unlike SwiftUI).

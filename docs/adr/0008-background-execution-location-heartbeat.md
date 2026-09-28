@@ -1,6 +1,6 @@
 # 8. Background execution: When-In-Use location as the locked-phone heartbeat
 
-> **iOS-only atm** — the app currently ships iOS only (`platforms: ["ios"]`; see [ADR 0020](0020-ios-only-android-deferred.md)). The Android-specific provisions below are **deferred**, not active today — they record the intended shape of a future Android pass.
+> **Android: stage 2 (location & background)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 2 (location & background): the foreground-service heartbeat. Check ADR 0025's stage table for whether they have shipped.
 
 Date: 2026-07-11
 
@@ -177,3 +177,17 @@ never requests Always.**
   close; retained as the degraded mode when location is denied.
 - **Deferred location updates for battery** — rejected: batching kills cue
   latency; the 1 Hz stream is the product, not overhead.
+
+## Amendment (2026-09-20): Android stage 1 holds the display for the whole run
+
+Decision item 5 and the rejected mitigation (b) — no automatic screen hold, the
+runner keeps the lock as their own trade — are the iOS rule and stay so. Android
+stage 1 ([ADR 0025](0025-android-staged-migration.md)) deliberately does the
+opposite: `runHoldsScreenAwake(locked)` returns true for the whole run there,
+because that stage has *no* heartbeat of any kind — no location stream and no
+timer that survives the activity pausing — so a sleeping screen would not merely
+silence cues, it would stop every segment boundary until the next foregrounding.
+That is a different trade from iOS's "cues stop, timer stays correct", and it is
+temporary: stage 2 brings the foreground-service heartbeat this ADR anticipated
+for Android and reverts the hold to lock-only. The iOS branch of the helper is
+`locked`, unchanged.

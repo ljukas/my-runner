@@ -3,17 +3,30 @@ const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended');
 const unusedImports = require('eslint-plugin-unused-imports');
+const { allExtensions } = require('eslint-config-expo/flat/utils/extensions');
 
 module.exports = defineConfig([
   expoConfig,
   eslintPluginPrettierRecommended,
+  {
+    // The `@/` alias resolves through the TypeScript resolver, which knows tsconfig paths but not
+    // Metro's platform suffixes — give it the same `.ios`/`.android` extension list Expo gives the
+    // node resolver, or every `@/components/run-lock` import reads as unresolved.
+    settings: {
+      'import/resolver': {
+        typescript: { extensions: allExtensions },
+      },
+    },
+  },
   {
     // Type-aware rules: a dropped promise around the run engine's event log or
     // expo-sqlite writes is silent data loss, not a style issue.
     files: ['src/**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Both projects, because each excludes the other platform's forks (ADR 0003 item 3 as
+        // amended by ADR 0025): every file under src/ is in exactly one of them.
+        project: ['./tsconfig.json', './tsconfig.android.json'],
         tsconfigRootDir: __dirname,
       },
     },
@@ -34,6 +47,23 @@ module.exports = defineConfig([
       'unused-imports/no-unused-vars': [
         'warn',
         { vars: 'all', args: 'none', ignoreRestSiblings: true, caughtErrors: 'all' },
+      ],
+    },
+  },
+  {
+    // A SwiftUI import in an Android fork (or vice versa) is a native-module-not-found crash at
+    // runtime, not a type error — the two vocabularies only exist on their own platform (ADR 0025).
+    files: ['**/*.android.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: ['@expo/ui/swift-ui', '@expo/ui/swift-ui/*'] }],
+    },
+  },
+  {
+    files: ['**/*.ios.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: ['@expo/ui/jetpack-compose', '@expo/ui/jetpack-compose/*'] },
       ],
     },
   },

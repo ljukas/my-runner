@@ -1,34 +1,11 @@
 import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio';
 import * as Speech from 'expo-speech';
 import { AppState } from 'react-native';
-import { Presets } from 'react-native-pulsar';
 
 import { CUE_PHRASE, type CueId } from '@/domain/cues';
+import { CUE_HAPTIC } from './cue-haptics';
 import type { CueService } from './port';
 import { createReleaseScheduler, RELEASE_DEBOUNCE_MS } from './release-scheduler';
-
-/**
- * iOS cue adapter (ADR 0003, ADR 0009): expo-speech spoken over a ducked
- * expo-audio session, with a Pulsar haptic accent.
- *
- * Haptic accent per cue, chosen from Pulsar's designed preset library and
- * meaning-mapped per Software Mansion's "Haptics is music": crisp/assertive to
- * start running, soft to ease into a walk, a crescendo for the final run, an
- * applause for the finish. Platform-specific, so it lives with the adapter, and
- * it fires only while the app is foreground (ADR 0009 §7).
- */
-const CUE_HAPTIC: Record<CueId, () => void> = {
-  warmupStart: () => Presets.bloom(), // gentle opening
-  startRun: () => Presets.charge(), // assertive "go, lift the effort"
-  startWalk: () => Presets.breath(), // soft "ease off"
-  cooldownStart: () => Presets.afterglow(), // winding down
-  halfway: () => Presets.chime(), // a bright progress marker
-  lastRun: () => Presets.buildup(), // rising crescendo — finish strong
-  complete: () => Presets.applause(), // celebration
-  paused: () => Presets.System.impactSoft(),
-  resumed: () => Presets.System.impactMedium(),
-  resuming: () => Presets.System.impactMedium(),
-};
 
 const warn = (context: string) => (error: unknown) =>
   console.warn(`[cue] ${context} failed (non-fatal)`, error);

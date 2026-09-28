@@ -1,12 +1,14 @@
 import type { LocationFix } from '@/domain/geo';
 
 /**
- * Location permission collapsed to the three states the app acts on (ADR 0008 §2):
+ * Location permission collapsed to the states the app acts on (ADR 0008 §2):
  * prompt on `'undetermined'`, deep-link to Settings on `'denied'`. Named distinctly
  * from expo-location's own `PermissionStatus` to avoid an import collision in the
  * adapter. When-In-Use only — no "always"/background state by design.
+ * `'unsupported'`: a platform without location tracking yet (Android, ADR 0025) — nothing
+ * to prompt for and nothing to disclose, so screens hide their location UI outright.
  */
-export type LocationPermissionStatus = 'granted' | 'denied' | 'undetermined';
+export type LocationPermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unsupported';
 
 /**
  * Location tracking port (ADR 0003, 0008). When-In-Use only. Denial degrades, never

@@ -20,4 +20,4 @@ tags:
 - assertVisible: "Partial"
 - runFlow: ../helpers/close-summary.yaml
 - runFlow: ../helpers/open-log-row.yaml
-- assertVisible: ".*Partial"
+- assertVisible: ".*Partial.*"

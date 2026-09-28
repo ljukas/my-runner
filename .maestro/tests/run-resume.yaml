@@ -49,4 +49,4 @@ tags:
     timeout: 120000
 - runFlow: ../helpers/close-summary.yaml
 - runFlow: ../helpers/open-log-row.yaml
-- assertNotVisible: ".*Partial"
+- assertNotVisible: ".*Partial.*"

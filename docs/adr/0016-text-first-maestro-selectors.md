@@ -80,10 +80,11 @@ hierarchy:
   "Navigate up", on Android: `tapOn: "(Close|Navigate up)"`, kept once in
   `helpers/close-summary.yaml`. Still an anchored full match on real, spoken
   labels, so the tripwire property survives.
-- **Android merges what iOS splits → leading wildcard.** The Log row's status is
+- **Android merges what iOS splits → wildcards on both sides.** The Log row's status is
   one text on Android (date, status and distance joined, e.g.
-  `"Sun, Sep 27 · Partial"`) and a separate `"Partial"` on iOS, so Log
-  assertions use `".*Partial"` after `helpers/open-log-row.yaml`. The same widening applies to an
+  `"Sun, Sep 27 · Partial · 0.42 km"`) and a separate `"Partial"` on iOS, so Log
+  assertions use `".*Partial.*"` after `helpers/open-log-row.yaml` — a leading
+  wildcard alone breaks as soon as a distance follows the status. The same widening applies to an
   `assertNotVisible` — left exact, it would pass on Android without checking
   anything, which is the failure mode to watch for whenever a flow crosses
   platforms.

@@ -34,7 +34,7 @@ tags:
 # chose to abandon. A sheet offered instead swallows this tap and strands the flow on the plan list,
 # where the Log row it scrolls for does not exist.
 - runFlow: ../helpers/open-log-row.yaml
-- assertVisible: ".*Partial"
+- assertVisible: ".*Partial.*"
 # Belt and braces for the one ordering the Log assertion cannot see: detection is async, so a sheet
 # pushed for an already-abandoned run would arrive after those assertions had passed.
 - assertNotVisible: "Resume run.*"

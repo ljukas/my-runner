@@ -48,17 +48,22 @@ describe('createOnboarding', () => {
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(ONBOARDING_STEPS.map((s) => s.id));
   });
 
-  test('android sees only the steps its platform has a capability for', () => {
+  test('android sees every step now that each capability has shipped (ADR 0025 stages 2–5)', () => {
     const onboarding = createOnboarding(fakeStorage(), 'android');
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
       'welcome-v1',
       'audio-cues-v1',
       'location-primer-v1',
+      'health-primer-v1',
     ]);
-    onboarding.completeStep('welcome-v1');
-    onboarding.completeStep('audio-cues-v1');
-    onboarding.completeStep('location-primer-v1');
-    expect(onboarding.pendingSteps()).toEqual([]);
+  });
+
+  test('a step declaring platforms is hidden from the other platform', () => {
+    const onboarding = createOnboarding(fakeStorage(), 'android', [
+      { id: 'welcome-v1', route: '/onboarding' },
+      { id: 'health-primer-v1', route: '/onboarding/health', platforms: ['ios'] },
+    ]);
+    expect(onboarding.pendingSteps().map((s) => s.id)).toEqual(['welcome-v1']);
   });
 
   test('corrupted persisted JSON is treated as no steps completed', () => {

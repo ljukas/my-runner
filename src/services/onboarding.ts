@@ -4,35 +4,39 @@ import { readJson, type StringStorage } from './storage';
 
 export type OnboardingPlatform = 'ios' | 'android';
 
+export type OnboardingStepDefinition = {
+  id: string;
+  route: Href;
+  platforms?: readonly OnboardingPlatform[];
+};
+
 /**
  * Versioned first-launch steps (spec §13). A later release that needs a new
  * permission appends a step here; existing users then see only that step.
- * A step without `platforms` shows everywhere; a primer for a capability
- * Android does not have yet names iOS only (ADR 0025).
+ * A step without `platforms` shows everywhere; a primer for a capability one
+ * platform lacks names the other (ADR 0025 §7).
  */
 export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },
   { id: 'audio-cues-v1', route: '/onboarding/audio-cues' },
   { id: 'location-primer-v1', route: '/onboarding/location-primer' },
-  { id: 'health-primer-v1', route: '/onboarding/health', platforms: ['ios'] },
-] as const satisfies readonly {
-  id: string;
-  route: Href;
-  platforms?: readonly OnboardingPlatform[];
-}[];
+  { id: 'health-primer-v1', route: '/onboarding/health' },
+] as const satisfies readonly OnboardingStepDefinition[];
 
 export type OnboardingStepId = (typeof ONBOARDING_STEPS)[number]['id'];
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
 const STORAGE_KEY = 'onboarding.completedSteps';
 
-function stepAppliesTo(step: OnboardingStep, platform: OnboardingPlatform): boolean {
-  if (!('platforms' in step)) return true;
-  const platforms: readonly OnboardingPlatform[] = step.platforms;
-  return platforms.includes(platform);
+function stepAppliesTo(step: OnboardingStepDefinition, platform: OnboardingPlatform): boolean {
+  return step.platforms === undefined || step.platforms.includes(platform);
 }
 
-export function createOnboarding(storage: StringStorage, platform: OnboardingPlatform) {
+export function createOnboarding(
+  storage: StringStorage,
+  platform: OnboardingPlatform,
+  steps: readonly OnboardingStepDefinition[] = ONBOARDING_STEPS,
+) {
   const readCompleted = (): string[] => {
     // Corrupt storage reads as nothing completed — re-showing onboarding is benign.
     const parsed = readJson(storage, STORAGE_KEY);
@@ -40,11 +44,9 @@ export function createOnboarding(storage: StringStorage, platform: OnboardingPla
   };
 
   return {
-    pendingSteps(): OnboardingStep[] {
+    pendingSteps(): OnboardingStepDefinition[] {
       const completed = readCompleted();
-      return ONBOARDING_STEPS.filter(
-        (step) => !completed.includes(step.id) && stepAppliesTo(step, platform),
-      );
+      return steps.filter((step) => !completed.includes(step.id) && stepAppliesTo(step, platform));
     },
     completeStep(id: OnboardingStepId): void {
       const completed = readCompleted();

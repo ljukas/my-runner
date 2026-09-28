@@ -1,6 +1,6 @@
 # 11. Apple Health writes via @kingstinct/react-native-healthkit
 
-> **Android: stage 5 (Health Connect)** — Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Android provisions below belong to stage 5 (Health Connect): the Health Connect adapter. Check ADR 0025's stage table for whether they have shipped.
+> **Android: stage 5 (Health Connect) — built 2026-09-22.** Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Health Connect adapter and the three Android UI surfaces shipped in stage 5. See the [Amendment (2026-09-22)](#amendment-2026-09-22-android--health-connect-behind-the-same-port) for where Decision item 7's "designed against both APIs' shapes" needed correcting.
 
 Date: 2026-07-11
 
@@ -241,3 +241,91 @@ are corrected in place; this section explains where and why.
    `totalDistance`) is what makes a run appear in the user's distance history
    and count toward their totals. Item 6's sync-identifier mechanics are
    unaffected: one sample tagged with the run id behaves exactly as N did.
+
+## Amendment (2026-09-22): Android — Health Connect behind the same port
+
+Written on shipping Android stage 5 (ADR 0025 row 5), verified on the shared
+emulator (Pixel 9 Pro, Android 16, platform Health Connect) the same day. The
+plan is [`2026-09-22-android-stage-5-health-connect.md`](../superpowers/plans/2026-09-22-android-stage-5-health-connect.md).
+
+1. **`react-native-health-connect` 4.1.3 is the Android half**, as Decision
+   item 7 pre-approved, with its bundled Expo module registering the permission
+   delegate (no `MainActivity` edit) and its config plugin adding only the
+   rationale intent filters. The write permissions
+   (`android.permission.health.WRITE_EXERCISE`, `WRITE_EXERCISE_ROUTE`,
+   `WRITE_DISTANCE`) go in `android.permissions`, and `expo-build-properties`
+   raises `minSdkVersion` to 26 (SDK 57 defaults to 24; `connect-client:1.1.0`
+   requires 26). **Three files reference the library, not one:** two runtime
+   imports — `health/adapter.android.ts` and `health/open-health-app.android.ts`
+   (Health Connect's settings are an intent the library wraps,
+   `ACTION_HEALTH_CONNECT_SETTINGS`; never a port member on iOS either) — and one
+   type-only import in the pure, unsuffixed `health/health-connect.ts`, erased at
+   runtime, which is why that file resolves on iOS too. All three sit inside
+   `services/health/`, the containment boundary ADR 0003 enforces. The version
+   is pinned exactly (`4.1.3`), like the HealthKit library, because the mapper
+   restates three of its numeric constants.
+2. **Item 7's "designed against both APIs' shapes" was true of the payload and
+   false in three places, each absorbed on the Android side so iOS is untouched:**
+   - `getAuthorization()` is synchronous and every Health Connect status call is
+     async. The Android adapter **caches a probed status** — probed at module
+     load, after every `requestWriteAccess`, and on every AppState `active` —
+     and calls `notifyAuthorizationChanged` when the answer changes. The
+     listener `Set` moved from the hook module to `authorization-events.ts`
+     (the hook re-exports it) so the adapter can import it without a cycle. The
+     cache starts `'unavailable'` so nothing is offered or written before the
+     first probe resolves, which happens during startup.
+   - `domain/health.ts` is Apple-shaped (`CL_UNKNOWN = -1`). Health Connect
+     rejects a negative accuracy, requires route times to satisfy
+     `start ≤ t < end` and to be strictly increasing (`ExerciseSessionRecord.kt`,
+     `ExerciseRoute.kt`), and the library's writer **throws `InvalidLength` when
+     any of `horizontalAccuracy`/`verticalAccuracy`/`altitude` is absent**
+     (`ReactExerciseSessionRecord.parseWriteRecord` calls `getLengthFromJsMap`
+     unconditionally — the TypeScript `?` is a lie for writes). The pure,
+     `bun test`-ed `health/health-connect.ts` therefore filters and de-duplicates
+     the route, always emits all three lengths, and writes an unknown accuracy
+     as `0` m — Android's own `Location` convention for "not available".
+   - `HKSyncIdentifier`/`HKSyncVersion` become `clientRecordId` /
+     `clientRecordVersion` (`Date.now()`, same reasoning as item 6). The
+     distance record is keyed `${runId}:distance`. **Verified:** saving the same
+     run twice left one session and one distance entry in Health Connect.
+3. **"Denied" is the app's own memory.** Health Connect exposes only granted
+   permissions; a missing grant reads as `'notDetermined'` until the app has
+   asked once (`health.writeAccessRequested` in the kv-store) and `'denied'`
+   after, and a partial grant is `'denied'` (the session is not written without
+   its route and distance permissions). Google's guidance says a twice-cancelled
+   request is auto-declined afterwards, so the denied row sends the user to
+   Health Connect rather than re-prompting.
+4. **The rationale link kills the dialog.** The permission dialog's privacy
+   policy link fires `ACTION_SHOW_PERMISSIONS_RATIONALE` (≤ 13) or
+   `VIEW_PERMISSION_USAGE` (14+) at `MainActivity`, which is `singleTask`, so
+   the dialog above it is destroyed and the pending request resolves with
+   nothing granted — the same shape as *Don't allow*. Measured: the first build
+   marked the user denied and advanced the primer for reading the policy. The
+   adapter now treats an empty result that coincides with a rationale intent
+   (allowing up to 1 s for it to reach JS) as still undetermined and persists
+   nothing, and the Android primer stays on screen for an undetermined answer.
+   The intent's action is read through `modules/launch-intent/` (the repo's
+   second Android-only local module; React Native's `Linking` exposes only an
+   intent's data URI, and these carry none) by one forked service seam,
+   `subscribeHealthRationaleIntent` (`rationale-intent.android.ts`; the iOS
+   file is a no-op), which the adapter and the shared `HealthRationaleGate`
+   both subscribe to — the gate routes it to the new `privacy` screen, which
+   Android Settings also links. The module has exactly one importer.
+5. **UI:** `health-status-row.android.tsx`, `onboarding/health.android.tsx` and
+   a Health Connect section in Android Settings are `.android` forks with
+   Health Connect copy; the primer names the three data types written. Settings
+   is a reporting row plus *Set up Health Connect* / *Open Health Connect* — no
+   switch, because `revokeAllPermissions()` only takes effect after an app
+   restart and Google's UX guidance sends users to Health Connect instead.
+   `health-primer-v1` dropped `platforms: ['ios']`; the step order is shared.
+6. **Verified on the emulator:** the primer → Health Connect's first-use intro →
+   the dialog listing exactly Distance, Exercise, Exercise route → *Allow all* →
+   Settings *Saving workouts*; a manual save of the 0.67 km fixture → a Running
+   session with "Exercise map route available" and a 0.671 km Distance entry;
+   the retry above; an auto-save on a fresh 40-second finish (0 m → session
+   only, route attached); `pm revoke` of the three permissions → *Off* + *Open
+   Health Connect* (opens Health Connect); `pm grant` → the foreground re-probe
+   flips Settings back to *Saving workouts*. **Not exercised:** `SDK_UNAVAILABLE`
+   and `SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED` (Health Connect is part of the
+   platform on this image), an explicit *Don't allow*, and the twice-cancelled
+   auto-decline.

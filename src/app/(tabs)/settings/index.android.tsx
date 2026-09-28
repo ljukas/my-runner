@@ -9,6 +9,12 @@ import { ListSectionHeader } from '@/components/list-section-header';
 import { SettingsToggle } from '@/components/settings-toggle';
 import { useTheme } from '@/hooks/use-theme';
 import {
+  openHealthApp,
+  requestWriteAccess,
+  useHealthAuthorization,
+  type HealthAuthorization,
+} from '@/services/health';
+import {
   locationTracker,
   useLocationPermission,
   type LocationPermissionStatus,
@@ -22,12 +28,20 @@ const LOCATION_ACCESS: Record<LocationPermissionStatus, string> = {
   unsupported: 'Not available',
 };
 
-// Health and the field-test capture are iOS-only until their Android stages land (ADR 0025); the
-// rows are absent rather than "not available".
+const HEALTH_ACCESS: Record<HealthAuthorization, string> = {
+  authorized: 'Saving workouts',
+  denied: 'Off',
+  notDetermined: 'Not set up',
+  unavailable: 'Not available',
+};
+
+// The field-test capture is iOS-only until its Android stage lands (ADR 0025); the row is absent
+// rather than "not available".
 export default function SettingsScreen() {
   const router = useRouter();
   const colors = useTheme();
   const location = useLocationPermission();
+  const health = useHealthAuthorization();
 
   return (
     <Island>
@@ -78,6 +92,46 @@ export default function SettingsScreen() {
             </ListItem.HeadlineContent>
           </ListItem>
         ) : null}
+
+        {/* No switch: Health Connect's revokeAllPermissions() only takes effect after an app
+            restart, and Google's guidance sends users to Health Connect instead (ADR 0011). */}
+        <ListSectionHeader title="Health Connect" />
+        <ListItem>
+          <ListItem.HeadlineContent>
+            <Text>Access</Text>
+          </ListItem.HeadlineContent>
+          <ListItem.SupportingContent>
+            <Text>
+              {health === 'authorized'
+                ? 'Finished runs are saved to Health Connect, with a route if location is on. Older runs can be saved one at a time from their summary.'
+                : health === 'unavailable'
+                  ? "Health Connect isn't available on this device."
+                  : 'Save your finished runs to Health Connect, with distance and route. Nothing is ever read from Health Connect.'}
+            </Text>
+          </ListItem.SupportingContent>
+          <ListItem.TrailingContent>
+            <Text>{HEALTH_ACCESS[health]}</Text>
+          </ListItem.TrailingContent>
+        </ListItem>
+        {health === 'notDetermined' ? (
+          <ListItem modifiers={[clickable(() => void requestWriteAccess())]}>
+            <ListItem.HeadlineContent>
+              <Text color={colors.primary}>Set up Health Connect</Text>
+            </ListItem.HeadlineContent>
+          </ListItem>
+        ) : null}
+        {health === 'denied' ? (
+          <ListItem modifiers={[clickable(() => void openHealthApp())]}>
+            <ListItem.HeadlineContent>
+              <Text color={colors.primary}>Open Health Connect</Text>
+            </ListItem.HeadlineContent>
+          </ListItem>
+        ) : null}
+        <ListItem modifiers={[clickable(() => router.push('/privacy'))]}>
+          <ListItem.HeadlineContent>
+            <Text color={colors.primary}>Privacy policy</Text>
+          </ListItem.HeadlineContent>
+        </ListItem>
 
         <ListSectionHeader title="About" />
         <ListItem>

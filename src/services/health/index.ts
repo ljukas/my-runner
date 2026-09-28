@@ -5,6 +5,7 @@ import { notifyAuthorizationChanged } from './use-health-authorization';
 export type { HealthAuthorization } from './port';
 
 export { openHealthApp } from './open-health-app';
+export { subscribeHealthRationaleIntent } from './rationale-intent';
 export { isHealthSyncFailure, syncRunToHealth, type HealthSyncResult } from './sync';
 export { useHealthAuthorization } from './use-health-authorization';
 export { withHealthSync } from './with-health-sync';

@@ -151,3 +151,22 @@ nested `.gitignore` beside what they ignore (`modules/audio-focus/android/.gitig
 is the precedent), never in the root file, or a housekeeping rule costs a release
 its OTA eligibility. The staged-migration ADR's item 8 has the manifest
 `package` attribute hook this amendment's strip sits beside.
+
+## Amendment (2026-09-22): Android stage 5 moves the iOS fingerprint on purpose
+
+Health Connect (ADR 0025 row 5) needs three genuinely native config changes:
+`react-native-health-connect` in `plugins` (its `app.plugin.js` is also an
+`expoConfigPlugins` file source), the three `android.permission.health.WRITE_*`
+entries in `android.permissions`, and `expo-build-properties` raising
+`minSdkVersion` to 26. All three land in the `expoConfig` source that both
+platforms hash, so the **iOS** hash moved too — measured, `APP_VARIANT=development`
+`99862a79… → cbccdd29…` and variant-less `9061ec14… → 7daa9686…`; Android
+`a222c043… → aa17e5a5…` (`3b5530e3…` after the config alone, before the local
+module below was added). Unlike the Maps key (the 2026-09-21 amendment), these
+were **not** stripped: the `fileHookTransform` is platform-blind, so hiding them
+from the iOS hash would also hide them from the Android hash and manufacture the
+silent OTA-compatibility bug this ADR forbids. The new hashes are the baselines
+until the next native change; the next iOS release goes through a native build.
+The second Android-only local module (`modules/launch-intent/`) moved only the
+Android hash (it is an Android autolinking source) and not the iOS one,
+confirming the stage-3 finding.

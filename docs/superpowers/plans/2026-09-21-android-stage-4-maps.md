@@ -251,3 +251,41 @@ export function endpointRadiusM(bbox: BoundingBox): number; // Decision 1A: ~1.5
 - POI-muting `mapStyleOptions` for parity with Apple's `MUTED` emphasis.
 - Health Connect (5); elevation (6); Android release pipeline, EAS env for the key, Maestro on Android (7).
 - `POST_NOTIFICATIONS` for the tracking notification (open since stage 2).
+
+## As built (2026-09-21) — read before the next stage
+
+Shipped as PR #66 on `ll/android-stage-4`, stacked on #65. All four decisions
+above went with the recommended option. The record of what was verified and
+what deviated lives in ADR 0010's, ADR 0012's, ADR 0019's and ADR 0025's
+2026-09-21 amendments; the short version:
+
+- **"Without a key the map renders grey tiles" was wrong.** No key meta-data at
+  all crashes the app (`API key not found` from `MapView.onCreate`); only an
+  *invalid* key degrades. `app.config.ts` always bakes a key, falling back to
+  `MISSING_GOOGLE_MAPS_ANDROID_API_KEY`, and the stage-3 dev client (no
+  meta-data) could not render a map, so the Gradle rebuild came first, not last.
+- **The key's SHA-1 is prebuild's `android/app/debug.keystore`**
+  (`5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`), not
+  `~/.android/debug.keystore`'s as written above. The key lives in `.env.local`
+  (copy it into each new worktree).
+- **An unauthorised map is blank, not grey**: maps-compose gates its
+  `AndroidView(MapView)` on `GoogleMapsInitializer`, the SDK creates only the
+  first `MapView` per process once authorisation has failed, and nothing draws —
+  no tiles, overlays or logo. Everything was re-verified with the real key the
+  same day.
+- **Two adjustments the key surfaced:** `colorScheme` is passed as `LIGHT`/`DARK`
+  from `useColorScheme()` (`FOLLOW_SYSTEM` is read once at creation), and the
+  summary's content container gained `android:pb-safe-offset-10` (the last card
+  ran into the gesture bar — the third Android screen to ship without the inset;
+  the rule is in AGENTS.md).
+- **Fixtures:** a 1-minute compressed run recorded 17 fixes / 52 m, under the
+  extent gate; the route fixtures are real-plan runs ended by hand (0.67 km
+  warm-up-only; 0.47 km with run/walk segments after skipping the warm-up).
+- **Emulator storage** at ~620 MB free fails even `adb install -r`; the
+  uninstall → install → `run-as` restore → `pm grant` recipe is in ADR 0025's
+  amendment.
+- **Open tuning:** the metric endpoint circles read small at card zoom; the
+  fixed-size icon needs `expo-image` (a both-platform native bump — the natural
+  batch partner for stage 5's iOS fingerprint move, see the stage 5 handoff).
+
+Handoff for stage 5: [`2026-09-22-android-stage-5-health-connect.md`](2026-09-22-android-stage-5-health-connect.md).

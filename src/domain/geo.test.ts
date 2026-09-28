@@ -10,6 +10,8 @@ import {
   DP_EPSILON_M,
   EARTH_RADIUS_M,
   encodePolyline,
+  endpointRadiusM,
+  googleCameraForBoundingBox,
   haversineMeters,
   MAX_GAP_S,
   MIN_ROUTE_EXTENT_M,
@@ -789,3 +791,77 @@ describe('route extent gate (spec §8)', () => {
 function chunkFrom(points: LatLng[], segmentSeq = 0, gapBefore = false): SegmentPolyline {
   return { segmentSeq, points, gapBefore };
 }
+
+describe('googleCameraForBoundingBox', () => {
+  // ~667 m north–south, ~28 m east–west: a straight run up one street.
+  const bbox: BoundingBox = { minLat: 59.3293, maxLat: 59.3353, minLng: 18.0686, maxLng: 18.0691 };
+  const card = { widthDp: 360, heightDp: 240 };
+  const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  const worldDp = (zoom: number) => 256 * 2 ** zoom;
+
+  test('centres on the bbox midpoint', () => {
+    const fit = googleCameraForBoundingBox(bbox, card);
+    expect(fit.center.lat).toBeCloseTo(59.3323, 6);
+    expect(fit.center.lng).toBeCloseTo(18.06885, 6);
+  });
+
+  test('a north–south route is bound by height: the padded lat span fills the view exactly', () => {
+    const fit = googleCameraForBoundingBox(bbox, card, 0.15);
+    const latDp =
+      ((mercatorY(bbox.maxLat) - mercatorY(bbox.minLat)) / (2 * Math.PI)) * worldDp(fit.zoom);
+    expect(latDp * 1.3).toBeCloseTo(card.heightDp, 3);
+  });
+
+  test('a wide route is bound by width: the padded lng span fills the view exactly', () => {
+    const wide: BoundingBox = { minLat: 59.33, maxLat: 59.3305, minLng: 18.0, maxLng: 18.05 };
+    const fit = googleCameraForBoundingBox(wide, card, 0.15);
+    const lngDp = ((wide.maxLng - wide.minLng) / 360) * worldDp(fit.zoom);
+    expect(lngDp * 1.3).toBeCloseTo(card.widthDp, 3);
+  });
+
+  test("floors a degenerate bbox and stays inside Google's 3–21 zoom range", () => {
+    const dot: BoundingBox = { minLat: 59.33, maxLat: 59.33, minLng: 18.06, maxLng: 18.06 };
+    const fit = googleCameraForBoundingBox(dot, card);
+    expect(Number.isFinite(fit.zoom)).toBe(true);
+    expect(fit.zoom).toBeLessThanOrEqual(21);
+    expect(fit.zoom).toBeGreaterThanOrEqual(3);
+  });
+
+  test('clamps a continent-sized bbox to the minimum zoom', () => {
+    const huge: BoundingBox = { minLat: -60, maxLat: 60, minLng: -170, maxLng: 170 };
+    expect(googleCameraForBoundingBox(huge, card).zoom).toBe(3);
+  });
+
+  test('a zero-size viewport (pre-layout) does not produce NaN', () => {
+    const fit = googleCameraForBoundingBox(bbox, { widthDp: 0, heightDp: 0 });
+    expect(Number.isFinite(fit.zoom)).toBe(true);
+  });
+
+  test('zoom decreases monotonically as the bbox grows', () => {
+    let previous = Infinity;
+    for (const size of [0.002, 0.02, 0.2, 2]) {
+      const box: BoundingBox = {
+        minLat: 59.33,
+        maxLat: 59.33 + size,
+        minLng: 18.07,
+        maxLng: 18.07 + size,
+      };
+      const { zoom } = googleCameraForBoundingBox(box, card);
+      expect(zoom).toBeLessThan(previous);
+      previous = zoom;
+    }
+  });
+});
+
+describe('endpointRadiusM', () => {
+  test('is floored so a route at the 100 m extent gate still shows a dot', () => {
+    // 100 m diagonal → 1.5 % is 1.5 m, under the 4 m floor.
+    const bbox: BoundingBox = { minLat: 0, maxLat: 100 / M_PER_DEG, minLng: 0, maxLng: 0 };
+    expect(endpointRadiusM(bbox)).toBe(4);
+  });
+
+  test('scales with the bbox diagonal above the floor', () => {
+    const bbox: BoundingBox = { minLat: 0, maxLat: 2000 / M_PER_DEG, minLng: 0, maxLng: 0 };
+    expect(endpointRadiusM(bbox)).toBeCloseTo(30, 6);
+  });
+});

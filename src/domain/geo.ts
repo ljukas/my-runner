@@ -560,6 +560,49 @@ export function cameraForBoundingBox(
   };
 }
 
+const GOOGLE_TILE_DP = 256;
+const GOOGLE_MIN_ZOOM = 3;
+const GOOGLE_MAX_ZOOM = 21;
+
+export interface ViewportDp {
+  widthDp: number;
+  heightDp: number;
+}
+
+const mercatorY = (latDeg: number) => Math.log(Math.tan(Math.PI / 4 + (latDeg * DEG_TO_RAD) / 2));
+
+/**
+ * Smallest Google Maps camera containing `bbox`. `zoom` is Google's convention — the world is
+ * 256·2^zoom dp wide, Web-Mercator on latitude — not the isotropic `CameraFit.zoom` Apple uses,
+ * and it depends on the viewport's dp size. Pole- and antimeridian-naive like `boundingBox`;
+ * clamped to Google's 3–21 range.
+ */
+export function googleCameraForBoundingBox(
+  bbox: BoundingBox,
+  viewport: ViewportDp,
+  paddingRatio = CAMERA_PADDING_RATIO,
+): CameraFit {
+  // why: a pre-layout viewport measures 0/0, which turns the whole fit NaN.
+  const widthDp = viewport.widthDp > 0 ? viewport.widthDp : GOOGLE_TILE_DP;
+  const heightDp = viewport.heightDp > 0 ? viewport.heightDp : GOOGLE_TILE_DP;
+  const lngSpanDeg = Math.max(bbox.maxLng - bbox.minLng, MIN_SPAN_DEG);
+  const latSpanY = Math.max(
+    mercatorY(bbox.maxLat) - mercatorY(bbox.minLat),
+    MIN_SPAN_DEG * DEG_TO_RAD,
+  );
+  const pad = 1 + 2 * paddingRatio;
+  const zoomForWidth = Math.log2(widthDp / (GOOGLE_TILE_DP * (lngSpanDeg / 360) * pad));
+  const zoomForHeight = Math.log2(heightDp / (GOOGLE_TILE_DP * (latSpanY / (2 * Math.PI)) * pad));
+
+  return {
+    center: { lat: (bbox.minLat + bbox.maxLat) / 2, lng: (bbox.minLng + bbox.maxLng) / 2 },
+    zoom: Math.min(
+      GOOGLE_MAX_ZOOM,
+      Math.max(GOOGLE_MIN_ZOOM, Math.min(zoomForWidth, zoomForHeight)),
+    ),
+  };
+}
+
 /** why: a treadmill run has plenty of fixes and no extent — without this the card draws a dot on a
  * street map of the user's home. Never gated on a camera span; spec §8 has the arithmetic.
  * why derived from the accuracy limit: two accepted fixes can each sit ACCURACY_LIMIT_M off truth, so
@@ -573,6 +616,15 @@ export const MIN_ROUTE_EXTENT_M = 2 * ACCURACY_LIMIT_M;
 
 /** Below this the start and finish markers collapse to one — loops start and end at the same door. */
 export const ENDPOINT_MERGE_M = 25;
+
+const ENDPOINT_RADIUS_RATIO = 0.015;
+const ENDPOINT_RADIUS_FLOOR_M = 4;
+
+/** Start/finish dot radius in metres (Google circles are metric, ADR 0010 Android amendment), floored
+ * so a route at the `MIN_ROUTE_EXTENT_M` gate still shows a dot. */
+export function endpointRadiusM(bbox: BoundingBox): number {
+  return Math.max(ENDPOINT_RADIUS_FLOOR_M, ENDPOINT_RADIUS_RATIO * boundingBoxDiagonalM(bbox));
+}
 
 /**
  * Floor for presenting a recorded distance at all, as an average speed rather than a distance.

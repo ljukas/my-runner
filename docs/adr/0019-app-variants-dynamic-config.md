@@ -119,3 +119,20 @@ sequencing*).
   Can be added later behind the same `APP_VARIANT` switch.
 - **Distinct per-variant icons** — deferred: distinct names are enough today; custom
   icons add asset work for no functional gain.
+
+## Amendment (2026-09-21): `app.config.ts` also carries build-time credentials from the environment
+
+Decision item 1 said the dynamic config "overrides only identity". Since Android
+stage 4 (ADR 0025) it also sets `android.config.googleMaps.apiKey` from
+`GOOGLE_MAPS_ANDROID_API_KEY`, with a `MISSING_GOOGLE_MAPS_ANDROID_API_KEY`
+fallback — the Maps SDK crashes when the manifest carries no key at all, and only
+degrades to grey tiles when the key is invalid (ADR 0010, 2026-09-21 amendment
+item 5). Item 1 is widened to: **identity, plus build-time credentials read from
+the environment.** A credential belongs here rather than in `app.json` because the
+JSON is committed and the key must not be (ADR 0010 item 5); it stays
+fingerprint-neutral because `fingerprint.config.js` strips the field from the
+`expoConfig` source (ADR 0012, 2026-09-21 amendment). The `plugins` override that
+registers the dev-client scheme per variant predates this note and is identity
+plumbing under the same rule. Everything else about item 1 stands: `slug`, icons,
+`infoPlist` and every other field still pass through untouched, and an unset
+`APP_VARIANT` still yields the clean production identity.

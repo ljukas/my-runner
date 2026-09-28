@@ -106,3 +106,48 @@ versioning and changelogs; a **fingerprint-gated EAS workflow** owns deploys.
   fingerprint gate on GitHub Actions, but its README declares it not
   production-ready. The EAS Workflows pre-packaged jobs are the maintained
   first-party equivalent.
+
+## Amendment (2026-09-21): the Android Maps key is stripped from the fingerprint
+
+Written for Android stage 4 (maps, ADR 0025). `GoogleMaps.View` needs a Maps
+SDK key baked into the Android manifest as
+`android.config.googleMaps.apiKey` (ADR 0010 item 5). Three facts about how
+that field meets the fingerprint, all measured on the stage-3 tip:
+
+1. **The whole normalised Expo config is one `contents` source on both
+   platforms** (`expoConfig`, serialised with `@expo/fingerprint`'s own
+   `stringifyJsonSorted`). Adding the Android-only field moved the **iOS** hash
+   (`99862a79… → b99fb28a…` under `APP_VARIANT=development`) — a config field iOS
+   never reads would have cost the next iOS release its OTA path.
+2. **`fingerprint.config.js` now strips `android.config.googleMaps` from that
+   source** (and an emptied `android.config`) in its `fileHookTransform`, which
+   `@expo/fingerprint` calls for `contents` sources as well as files
+   (`build/hash/Hash.js`). It re-serialises with the sourcer's own
+   `stringifyJsonSorted`, because `JSON.stringify` formats differently and hashes
+   to a third value matching neither tree. Verified: with the field absent,
+   present with a real-shaped key, and present with the placeholder below, iOS
+   hashes `99862a79…` and Android `a222c043…` every time (the variant-less iOS
+   baseline `9061ec14…` too).
+3. **The key always exists in a built manifest.** `app.config.ts` reads
+   `GOOGLE_MAPS_ANDROID_API_KEY` from the environment (gitignored `.env.local`
+   locally, an EAS environment variable from stage 7) and falls back to
+   `MISSING_GOOGLE_MAPS_ANDROID_API_KEY`. Measured on the emulator: with *no*
+   `com.google.android.geo.API_KEY` meta-data the Maps SDK throws
+   `IllegalStateException: API key not found` from `MapView.onCreate` and takes
+   the app down the first time a route renders; an *invalid* key only logs
+   `Authorization failure` and draws grey tiles. The placeholder converts a
+   forgotten secret from a crash into a visibly broken map.
+
+**Trade-off, deliberate:** a key rotation alone no longer changes the
+fingerprint, so it no longer forces a native build. That is safe because the key
+is a build-time manifest value that JS never reads — an already-shipped binary
+keeps working on its own baked key, and an OTA update cannot depend on which key
+it was built with. Rotating the key still requires the *next* native build to
+carry it, which is the same as before; only the automatic build trigger is gone.
+
+**Related, discovered the same day (stage 3):** the root `.gitignore` is also a
+fingerprint source on both platforms (`bareGitIgnore`). New ignore rules go in a
+nested `.gitignore` beside what they ignore (`modules/audio-focus/android/.gitignore`
+is the precedent), never in the root file, or a housekeeping rule costs a release
+its OTA eligibility. The staged-migration ADR's item 8 has the manifest
+`package` attribute hook this amendment's strip sits beside.

@@ -190,9 +190,16 @@ jobs:
           # The Android counterpart of e2e-ios's Reduce Motion step: zeroed
           # animator scales collapse the run screen's animations so Maestro settles.
           disable-animations: true
+          # why: on the default 2 cores the freshly booted Pixel Launcher ANRs, and its
+          # system dialog covers the app for every flow (clearState can't dismiss it).
+          cores: 4
+          ram-size: 4096M
           # Each line runs in its own shell, so nothing here can depend on the one before.
           script: |
             adb install -r "${{ steps.app.outputs.app-path }}"
+            sleep 30
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
+            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
             maestro test --exclude-tags ios-only .maestro/
 
       - name: Upload Maestro artifacts on failure

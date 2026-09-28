@@ -13,7 +13,7 @@ export type OnboardingPlatform = 'ios' | 'android';
 export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },
   { id: 'audio-cues-v1', route: '/onboarding/audio-cues', platforms: ['ios'] },
-  { id: 'location-primer-v1', route: '/onboarding/location-primer', platforms: ['ios'] },
+  { id: 'location-primer-v1', route: '/onboarding/location-primer' },
   { id: 'health-primer-v1', route: '/onboarding/health', platforms: ['ios'] },
 ] as const satisfies readonly {
   id: string;

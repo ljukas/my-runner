@@ -5,8 +5,9 @@ import type { LocationFix } from '@/domain/geo';
  * prompt on `'undetermined'`, deep-link to Settings on `'denied'`. Named distinctly
  * from expo-location's own `PermissionStatus` to avoid an import collision in the
  * adapter. When-In-Use only — no "always"/background state by design.
- * `'unsupported'`: a platform without location tracking yet (Android, ADR 0025) — nothing
- * to prompt for and nothing to disclose, so screens hide their location UI outright.
+ * `'unsupported'`: a platform without location tracking — nothing to prompt for and nothing to
+ * disclose, so screens hide their location UI outright. No adapter returns it since Android
+ * stage 2 (ADR 0025); kept for the next platform that ships without location first.
  */
 export type LocationPermissionStatus = 'granted' | 'denied' | 'undetermined' | 'unsupported';
 
@@ -24,8 +25,8 @@ export interface LocationTracker {
   /** Read the current When-In-Use permission status without prompting. */
   getPermissionStatus(): Promise<LocationPermissionStatus>;
   /**
-   * Begin location updates (ADR 0008 §3). Idempotent. Starts even when permission is
-   * not granted — no fixes arrive, but wall-clock timing is unaffected (ADR 0008 §5).
+   * Begin location updates (ADR 0008 §3). Idempotent. Resolves without tracking when permission
+   * is not granted — no fixes arrive, but wall-clock timing is unaffected (ADR 0008 §5).
    */
   start(): Promise<void>;
   /** Stop location updates. Idempotent — safe to call when not started. */

@@ -191,3 +191,67 @@ That is a different trade from iOS's "cues stop, timer stays correct", and it is
 temporary: stage 2 brings the foreground-service heartbeat this ADR anticipated
 for Android and reverts the hold to lock-only. The iOS branch of the helper is
 `locked`, unchanged.
+
+## Amendment (2026-09-21): Android mechanics realised (stage 2)
+
+Android stage 2 ([ADR 0025](0025-android-staged-migration.md)) implements the
+"Android later" note in Consequences. Same port, same permission posture,
+different aliveness mechanism — measured on the Pixel 9 Pro API 36 emulator
+with `expo-location` 57.0.7 / `expo-task-manager` 57.0.7.
+
+- **The heartbeat is a foreground service.** `adapter.android.ts` starts
+  `startLocationUpdatesAsync` with a `foregroundService` option; expo-location
+  then runs its `LocationTaskService` as a `foregroundServiceType="location"`
+  service, and each fix reaches the module-scope TaskManager task exactly as on
+  iOS. The composition root is untouched. Screen-off measurement: 182 fixes in a
+  190 s dark window, median gap 1.02 s, worst gap 2.04 s (one gap over 2 s); the
+  two cues due in that window (`startRun`, `startWalk`) fired 0.2 s and 0.1 s
+  after their scheduled instant while the app reported `background`. Doze never
+  engaged in a 3 min window (`mState=INACTIVE`) — expected for a running
+  foreground service, and not a substitute for the device gate.
+- **Permission posture unchanged: foreground-only.** Only
+  `ACCESS_FINE/COARSE_LOCATION` are requested (Android's "While using the app");
+  `ACCESS_BACKGROUND_LOCATION` is neither declared nor requested, and
+  `isAndroidBackgroundLocationEnabled` stays unset. The plugin adds
+  `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_LOCATION` from
+  `isAndroidForegroundServiceEnabled: true`. expo-location's module gates the
+  foreground-service path on foreground permission only, and refuses to start it
+  while the app is backgrounded — the engine only ever starts tracking from the
+  run screen, so that constraint costs nothing.
+- **`RECEIVE_BOOT_COMPLETED` is load-bearing, not optional.** expo-task-manager
+  delivers every location batch through a *persisted* `JobScheduler` job
+  (`setPersisted(true)`), and Android throws
+  `IllegalArgumentException: Requested job cannot be persisted without holding
+  android.permission.RECEIVE_BOOT_COMPLETED` on the first fix — a fatal crash of
+  the whole process, repeated when the OS restarts the service. Nothing in the
+  toolchain declares it (the task-manager config plugin is a no-op and its own
+  manifest only registers the boot receiver), so `app.json` declares it under
+  `android.permissions`. The app does nothing at boot; the permission exists to
+  satisfy the job scheduler.
+- **Android 13+ hides the service notification without `POST_NOTIFICATIONS`.**
+  The service is a real foreground service (`isForeground=true`, type
+  `location`, notification attached) and the status bar shows the location
+  indicator, but the shade reads "No notifications": on API 33+ a
+  foreground-service notification is suppressed until the runtime notifications
+  permission is granted, and this app does not request it. The plan's assumption
+  that FGS notifications are exempt was wrong on this API level. Left as is for
+  this stage — surfacing the notification means one more permission prompt,
+  which is a product decision, not a stage-2 mechanic. When taken, it needs
+  `POST_NOTIFICATIONS` in `android.permissions` plus a runtime request (React
+  Native's `PermissionsAndroid` suffices; no `expo-notifications`).
+- **The stage-1 whole-run display hold is reverted.** `runHoldsScreenAwake`
+  returns `locked` on both platforms again; decision item 5 is now the rule on
+  Android too, because the timer and the fixes survive a sleeping screen.
+- **Denied degrades as on iOS, verified:** with "Don't allow", the run starts, the
+  banner names both losses, no distance row appears, no service is started, and
+  the timer read 1:20 after 81 s of wall time across a 45 s dark window.
+- **Vibration cues stay foreground-gated** (`cue-service/adapter.android.ts`,
+  stage 1's "a vibration the runner cannot place" rule). The heartbeat now makes
+  an off-screen vibration *possible*; whether it is wanted is for stage 3 to
+  decide together with speech.
+- **Observed once, not reproduced:** on the very first launch after a native
+  install, the primer's `requestForegroundPermissionsAsync()` promise did not
+  settle after the grant (the OS recorded it; a second tap resolved instantly).
+  Two later attempts through the primer and one through Settings all resolved
+  normally. Noted here so a recurrence is recognised as a cold-start race in
+  expo-modules-core's permission requester rather than an app bug.

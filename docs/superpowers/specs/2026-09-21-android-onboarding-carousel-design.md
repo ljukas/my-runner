@@ -1,8 +1,10 @@
 # Android onboarding: benefits carousel + permission steps — design
 
 Date: 2026-09-21
-Status: **Designed** — approved in conversation 2026-09-21 (option B of the
-research; B4 layout for permission steps). No implementation plan yet.
+Status: **Implemented** 2026-09-28 (branch `ll/android-onboarding-carousel`) —
+approved in conversation 2026-09-21 (option B of the research; B4 layout for
+permission steps). Built without a separate plan after an on-device spike; §11
+records where the build departs from §6 and settles §9.
 
 Companions:
 
@@ -313,3 +315,62 @@ design introduces are recorded here for that lane: "From couch to 5K", "Next",
 - A notifications permission step for the foreground-service notification
   (ADR 0008 amendment): a separate product decision.
 - Any iOS change, including harmonising copy.
+
+---
+
+## 11. As built (2026-09-28)
+
+The spike on the Pixel 10 Pro API 37 emulator settled §9 and changed three
+§6 rows:
+
+- **Pages are Compose, not RN.** `@expo/ui`'s `community/pager-view` hosts RN
+  pages cleanly, but a Compose `Host` nested in such a page (the hero shape)
+  takes layout space and never paints. So `OnboardingCarousel` is one `Host`
+  holding counter, `HorizontalPager` and footer, and every page is a Compose
+  `Column`; RN appears only inside `RNHostView`s for the symbols
+  (`compose-symbol.android.tsx`, since Compose's `Icon` needs drawables — the
+  §6 fallback, inverted). Text uses the M3 type roles directly.
+- **Heroes use `Shapes.Material`:** `Clover4Leaf` (page 1), `Clover8Leaf`
+  (page 2), `Cookie4Sided` (page 3), `Cookie6Sided` (permission steps), all in
+  `primaryContainer` via `useMaterialColors()`.
+- **The permission scaffold is `permission-step-screen.android.tsx`, not an
+  `onboarding-step-screen` fork.** The unsuffixed iOS route bodies are compiled
+  in the Android typecheck project and bundle, so a same-named fork with
+  different props would break them; structured props (symbol, headline, body,
+  rows, disclosure) replace `children`. It is also all Compose.
+- **Route forks need iOS stubs.** expo-router's `require.context` bundles every
+  route file for both platforms, so `onboarding-carousel.ios.tsx` and
+  `permission-step-screen.ios.tsx` exist as never-rendered stubs; the dev bundle
+  loads routes lazily and did not show the break, `expo export --platform ios`
+  did.
+- **Stages 3 and 5 adopted the template** in the same change:
+  `audio-cues.android.tsx` and `health.android.tsx` are B4 screens with their
+  existing copy recast as three rows. Health keeps "stay on the step while the
+  dialog is undetermined" (ADR 0011).
+- **Large font scales:** at ≥ 1.5 the carousel hero drops to 160 dp, the
+  permission hero to 120 dp, and the permission footer stacks (full-width
+  primary over the text button) so a long label wraps instead of clipping;
+  `Island.Button`'s `cta` makes 52 dp a minimum, not a fixed height.
+- **The dots follow the finger, not the settled page** (§3.3 amended after
+  review on device): widths interpolate from `onPageScroll`; the counter and
+  the Next/Get started button still wait for `onSettledPageChange`. Material 3
+  has no page-indicator component (Compose's Progress indicators are progress
+  bars), so the dots stay hand-drawn.
+- **Next morphs into Get started** instead of being swapped for it:
+  `OnboardingAdvanceButton` is one M3 `Button` whose container colour is an
+  animated `background` (tonal → primary, 300 ms), whose width follows
+  `animateContentSize`, and whose labels cross-fade in a shared `Box` through
+  `AnimatedVisibility` (fade only — expand/shrink clipped the text). Reversed
+  on the way back to page 2; instant under "Remove animations".
+- **Back:** `BackHandler` consumes the event before the native Stack, with
+  predictive back enabled (verified on API 37).
+- **Location disclosure amended:** the §5.2 text dropped ADR 0008's required
+  consequence of declining; the built disclosure ends "Not now is fine: every run
+  is still timed, but without location there is no distance and cues stop once
+  the screen is off. You can change this in Settings."
+- **Buttons live in `onboarding-button.android.tsx`,** not `Island.Button`
+  (§6): ADR 0013 keeps island pairs' props identical across platforms, and the
+  tonal/text/trailing-symbol styles are Android-only.
+- **Not done:** headline `heading` semantics (Compose `Text` exposes no role
+  through `@expo/ui`), and the TalkBack pass (§8 item 5) is still owed.
+

@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - onboarding
 ---
 # "Not Now" leaves the permission undetermined: the ask must arrive just in time at the first run

@@ -9,10 +9,7 @@ type IslandButtonVariant = 'primary' | 'secondary' | 'destructive';
 
 const CTA_HEIGHT = 52;
 
-/**
- * Standalone by default; `inline` renders bare for an existing Compose tree.
- * Compose reports its own size, so `fill` needs none of the iOS height arithmetic.
- */
+/** Standalone by default; `inline` renders bare for an existing Compose tree. */
 export function IslandButton({
   variant = 'primary',
   label,
@@ -59,10 +56,10 @@ export function IslandButton({
 
   if (inline) return button;
 
+  // why: a fixed height is known to RN at first layout; a `fitToContents` sheet measured before
+  // Compose reported the height came up one button short.
   return fill ? (
-    <IslandHost matchContents={{ vertical: true }} style={{ width: '100%' }}>
-      {button}
-    </IslandHost>
+    <IslandHost style={{ width: '100%', height: CTA_HEIGHT }}>{button}</IslandHost>
   ) : (
     <IslandHost matchContents>{button}</IslandHost>
   );

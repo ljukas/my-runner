@@ -16,8 +16,9 @@ jobs:
   precheck:
     # Decide whether the change is app-affecting (run E2E) or provably docs-only
     # (skip). Always runs, and is a REQUIRED check — so a failure here blocks the
-    # PR and can't let e2e-ios skip-to-success without testing. A job skipped by
-    # `if:` (docs-only) reports success and satisfies its required check.
+    # PR and can't let e2e-ios or e2e-android skip-to-success without testing.
+    # A job skipped by `if:` (docs-only) reports success and satisfies its
+    # required check.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -68,69 +69,22 @@ jobs:
       - name: Install dependencies (frozen)
         run: bun ci
 
-      - name: Compute native fingerprint
-        id: fp
-        run: |
-          HASH=$(npx expo-updates fingerprint:generate --platform ios 2>/dev/null | jq -r '.hash')
-          if [ -z "$HASH" ] || [ "$HASH" = "null" ]; then
-            echo "::error::fingerprint generation failed"; exit 1
-          fi
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-          echo "Native fingerprint: $HASH"
-
-      - name: Restore cached native .app (keyed by fingerprint)
-        id: cache
-        uses: actions/cache@v4
+      - name: Build or repack the E2E app
+        id: app
+        uses: ./.github/actions/e2e-native-app
         with:
-          path: ${{ runner.temp }}/native-app
-          key: e2e-native-app-ios-${{ steps.fp.outputs.hash }}
-
-      - name: Build E2E simulator app (cache miss — full native build, zero EAS cloud minutes)
-        if: steps.cache.outputs.cache-hit != 'true'
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: bash .github/scripts/build-e2e-sim-app.sh "$RUNNER_TEMP/native-app"
-
-      - name: Repack cached .app with current JS (cache hit — no native build)
-        if: steps.cache.outputs.cache-hit == 'true'
-        id: repack
-        continue-on-error: true
-        env:
-          # Must mirror the e2e-simulator profile's `env` in eas.json: repack
-          # re-bundles JS via `expo export:embed`, which inlines EXPO_PUBLIC_* at
-          # bundle time. Without this the repacked app runs the real NHS plan
-          # (not the compressed one) and full-session flows time out.
-          EXPO_PUBLIC_E2E: '1'
-        run: |
-          npx @expo/repack-app --platform ios \
-            --source-app "$RUNNER_TEMP/native-app/app.app" \
-            -o "$RUNNER_TEMP/repacked.app"
-
-      - name: Fallback to a full build (repack failed)
-        if: steps.cache.outputs.cache-hit == 'true' && steps.repack.outcome == 'failure'
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          echo "::warning::@expo/repack-app failed; falling back to a full native build"
-          bash .github/scripts/build-e2e-sim-app.sh "$RUNNER_TEMP/fallback"
+          platform: ios
+          expo-token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Boot simulator and install app
         id: sim
         run: |
-          if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ] && [ "${{ steps.repack.outcome }}" != "failure" ]; then
-            APP_PATH="$RUNNER_TEMP/repacked.app"
-          elif [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
-            APP_PATH="$RUNNER_TEMP/fallback/app.app"
-          else
-            APP_PATH="$RUNNER_TEMP/native-app/app.app"
-          fi
-          echo "Installing: $APP_PATH"
           UDID=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[][] | select(.name | test("^iPhone"))] | last | .udid')
           echo "Simulator UDID: $UDID"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
-          xcrun simctl install "$UDID" "$APP_PATH"
+          xcrun simctl install "$UDID" "${{ steps.app.outputs.app-path }}"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Enable Reduce Motion (so Maestro can settle on the animated run screen)
@@ -160,5 +114,98 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: maestro-output
+          path: ~/.maestro/tests/**
+          if-no-files-found: ignore
+
+  e2e-android:
+    # Same shape as e2e-ios (ADR 0025 stage 7): the shared build-or-repack
+    # action, then the flows not tagged ios-only on a KVM emulator.
+    needs: precheck
+    if: needs.precheck.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    env:
+      APP_VARIANT: e2e
+      # why: the emulator is x86_64; building one ABI instead of four cuts the Gradle time.
+      ORG_GRADLE_PROJECT_reactNativeArchitectures: x86_64
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Set up Java (Gradle and Maestro require a JDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # why: setup-java's `cache: gradle` hashes build files under the gitignored android/,
+      # so it would never hit; this caches ~/.gradle for the cache-miss build.
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies (frozen)
+        run: bun ci
+
+      # why: prebuild's 2 GiB heap / 512 MiB Metaspace exhausts during the release build's
+      # lintVital tasks, and the wedged daemon then hangs instead of failing. The user-home
+      # file outranks android/gradle.properties and leaves the fingerprint untouched.
+      - name: Give the Gradle daemon enough memory for a release build
+        run: |
+          mkdir -p ~/.gradle
+          echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError' >> ~/.gradle/gradle.properties
+
+      - name: Build or repack the E2E app
+        id: app
+        # why: a full build takes ~15 min; a hung Gradle daemon should fail here, not at the job limit.
+        timeout-minutes: 45
+        uses: ./.github/actions/e2e-native-app
+        with:
+          platform: android
+          expo-token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot emulator, install app, run Maestro suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          # The Android counterpart of e2e-ios's Reduce Motion step: zeroed
+          # animator scales collapse the run screen's animations so Maestro settles.
+          disable-animations: true
+          # why: on the default 2 cores the freshly booted Pixel Launcher ANRs, and its
+          # system dialog covers the app for every flow (clearState can't dismiss it).
+          cores: 4
+          ram-size: 4096M
+          # Each line runs in its own shell, so nothing here can depend on the one before.
+          script: |
+            adb install -r "${{ steps.app.outputs.app-path }}"
+            sleep 30
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
+            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
+            maestro test --exclude-tags ios-only .maestro/
+
+      - name: Upload Maestro artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-output-android
           path: ~/.maestro/tests/**
           if-no-files-found: ignore

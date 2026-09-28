@@ -1,0 +1,79 @@
+name: E2E native app
+description: >
+  The e2e-simulator build for one platform, reusing the native binary cached by
+  its fingerprint: repack current JS onto it on a hit, build in full on a miss
+  (zero EAS cloud minutes either way). Expects Bun, a JDK and `bun ci` done, and
+  APP_VARIANT=e2e in the environment.
+inputs:
+  platform:
+    description: ios or android
+    required: true
+  expo-token:
+    description: EXPO_TOKEN, for eas build --local
+    required: true
+outputs:
+  app-path:
+    description: The .app (iOS simulator) or .apk (Android) to install
+    value: ${{ steps.repack.outputs.path || steps.build.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - name: Compute native fingerprint
+      id: fp
+      shell: bash
+      run: |
+        HASH=$(npx expo-updates fingerprint:generate --platform "${{ inputs.platform }}" 2>/dev/null | jq -r '.hash')
+        if [ -z "$HASH" ] || [ "$HASH" = "null" ]; then
+          echo "::error::fingerprint generation failed"; exit 1
+        fi
+        echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+        echo "Native fingerprint: $HASH"
+
+    - name: Restore cached native app (keyed by fingerprint)
+      id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/native-app
+        key: e2e-native-app-${{ inputs.platform }}-${{ steps.fp.outputs.hash }}
+
+    - name: Build E2E app (cache miss — full native build)
+      if: steps.cache.outputs.cache-hit != 'true'
+      id: build
+      shell: bash
+      env:
+        EXPO_TOKEN: ${{ inputs.expo-token }}
+        EXT: ${{ inputs.platform == 'ios' && 'app' || 'apk' }}
+      run: |
+        bash .github/scripts/build-e2e-app.sh "${{ inputs.platform }}" "$RUNNER_TEMP/native-app"
+        echo "path=$RUNNER_TEMP/native-app/app.$EXT" >> "$GITHUB_OUTPUT"
+
+    # why: saved here, not in actions/cache's post step, which skips the save when the
+    # job fails — a red Maestro run would otherwise discard a fresh full build.
+    - name: Cache the fresh native build
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/native-app
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+
+    - name: Repack cached app with current JS (cache hit — no native build)
+      if: steps.cache.outputs.cache-hit == 'true'
+      id: repack
+      shell: bash
+      env:
+        EXPO_TOKEN: ${{ inputs.expo-token }}
+        EXT: ${{ inputs.platform == 'ios' && 'app' || 'apk' }}
+        # Must mirror the e2e-simulator profile's `env` in eas.json: repack
+        # re-bundles JS via `expo export:embed`, which inlines EXPO_PUBLIC_* at
+        # bundle time. Without this the repacked app runs the real NHS plan
+        # (not the compressed one) and full-session flows time out.
+        EXPO_PUBLIC_E2E: '1'
+      run: |
+        APP_PATH="$RUNNER_TEMP/repacked.$EXT"
+        if ! npx @expo/repack-app --platform "${{ inputs.platform }}" \
+          --source-app "$RUNNER_TEMP/native-app/app.$EXT" -o "$APP_PATH"; then
+          echo "::warning::@expo/repack-app failed; falling back to a full native build"
+          bash .github/scripts/build-e2e-app.sh "${{ inputs.platform }}" "$RUNNER_TEMP/fallback"
+          APP_PATH="$RUNNER_TEMP/fallback/app.$EXT"
+        fi
+        echo "path=$APP_PATH" >> "$GITHUB_OUTPUT"

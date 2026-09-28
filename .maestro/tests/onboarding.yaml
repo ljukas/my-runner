@@ -9,6 +9,6 @@ tags:
 - assertNotVisible: "Welcome to" # welcome-marker
 - assertNotVisible: "Your pocket running coach" # audio-cues-marker
 - assertNotVisible: "Track your route and your pace" # location-primer-marker
-- assertNotVisible: "Your runs, in Apple Health" # health-primer-marker
+- assertNotVisible: "Your runs, in (Apple Health|Health Connect)" # health-primer-marker
 - assertVisible: "Week 1 ·.*"
 - assertVisible: "Day 1"

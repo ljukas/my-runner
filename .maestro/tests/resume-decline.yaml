@@ -18,9 +18,6 @@ tags:
 # (`celebrate`): the ended-early headline, not a Log revisit's neutral date.
 - assertVisible: "Good effort.*"
 - assertVisible: "Partial"
-- tapOn: "Close"
-- tapOn: "Log"
-- scrollUntilVisible:
-    element:
-      text: "Week 1 · Day 1"
-- assertVisible: "Partial"
+- runFlow: ../helpers/close-summary.yaml
+- runFlow: ../helpers/open-log-row.yaml
+- assertVisible: ".*Partial.*"

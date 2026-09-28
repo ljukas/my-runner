@@ -85,5 +85,5 @@ tags:
     visible:
       text: "Good effort.*"
     timeout: 30000
-- tapOn: "Close"
+- runFlow: ../helpers/close-summary.yaml
 - assertVisible: "Week 1 ·.*"

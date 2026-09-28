@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - session
 ---
 - runFlow: ../helpers/start-first-session.yaml
@@ -8,9 +9,9 @@ tags:
     visible:
       text: "Nice work.*"
     timeout: 120000
-- tapOn: "Close"
+- runFlow: ../helpers/close-summary.yaml
 # Revisit from the Log tab.
-- tapOn: "Log"
+- runFlow: ../helpers/open-log-row.yaml
 - tapOn:
     text: "Week 1 · Day 1"
 # The revisit header is neutral — the celebratory line must be absent.

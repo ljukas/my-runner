@@ -7,9 +7,25 @@ appId: se.lukaslindqvist.runbro.e2e
 # why motion too: the barometer needs Motion & Fitness (ADR 0015), and iOS raises that dialog
 # when the altimeter first starts — mid-run. A system alert is not app state, so `clearState`
 # does NOT dismiss it: one flow triggering it strands every later flow behind it.
-- launchApp:
-    clearState: true
-    permissions:
-      location: inuse
-      motion: allow
+#
+# Android has no `motion` key and takes allow/deny for location; the barometer capture's run-start
+# ask is ACTIVITY_RECOGNITION, granted by its full permission id (ADR 0015's 2026-09-27 amendment).
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - launchApp:
+          clearState: true
+          permissions:
+            location: inuse
+            motion: allow
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - launchApp:
+          clearState: true
+          permissions:
+            location: allow
+            android.permission.ACTIVITY_RECOGNITION: allow
 - runFlow: complete-onboarding.yaml

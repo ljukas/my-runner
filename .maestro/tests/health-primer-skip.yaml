@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - onboarding
 ---
 # The health primer's "Not Now" path, and the Settings row that reports it. The "Connect Apple

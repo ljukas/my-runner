@@ -30,9 +30,6 @@ tags:
     visible:
       text: "Good effort.*"
     timeout: 30000
-- tapOn: "Close"
-- tapOn: "Log"
-- scrollUntilVisible:
-    element:
-      text: "Week 1 · Day 1"
-- assertVisible: "Partial"
+- runFlow: ../helpers/close-summary.yaml
+- runFlow: ../helpers/open-log-row.yaml
+- assertVisible: ".*Partial.*"

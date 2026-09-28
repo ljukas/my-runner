@@ -14,11 +14,13 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "android": { "buildType": "apk" },
       "env": { "EXPO_PUBLIC_FIELD_TEST": "1" }
     },
     "e2e-simulator": {
       "extends": "preview",
       "ios": { "simulator": true },
+      "android": { "withoutCredentials": true },
       "autoIncrement": false,
       "env": {
         "EXPO_PUBLIC_E2E": "1",
@@ -32,6 +34,8 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": { "track": "internal", "releaseStatus": "draft" }
+    }
   }
 }

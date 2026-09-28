@@ -1,0 +1,5 @@
+appId: se.lukaslindqvist.runbro.e2e
+---
+# The run summary's way out: a toolbar xmark labelled "Close" on iOS, the header's up arrow
+# ("Navigate up") on Android (ADR 0016's 2026-09-27 amendment).
+- tapOn: "(Close|Navigate up)"

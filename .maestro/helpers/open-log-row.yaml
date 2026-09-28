@@ -1,0 +1,8 @@
+appId: se.lukaslindqvist.runbro.e2e
+---
+# Log tab → the w1d1 row. Android renders the row's date, status and distance as one text, so a
+# caller wraps the status in wildcards (".*Partial.*"), never matches it on its own.
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Week 1 · Day 1"

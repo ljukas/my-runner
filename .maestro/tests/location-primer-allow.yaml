@@ -1,5 +1,6 @@
 appId: se.lukaslindqvist.runbro.e2e
 tags:
+  - ios-only
   - onboarding
 ---
 # The primer's "Enable Location" CTA leading to a grant. These two flows are the sole

@@ -152,8 +152,18 @@ jobs:
       - name: Install dependencies (frozen)
         run: bun ci
 
+      # why: prebuild's 2 GiB heap / 512 MiB Metaspace exhausts during the release build's
+      # lintVital tasks, and the wedged daemon then hangs instead of failing. The user-home
+      # file outranks android/gradle.properties and leaves the fingerprint untouched.
+      - name: Give the Gradle daemon enough memory for a release build
+        run: |
+          mkdir -p ~/.gradle
+          echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError' >> ~/.gradle/gradle.properties
+
       - name: Build or repack the E2E app
         id: app
+        # why: a full build takes ~15 min; a hung Gradle daemon should fail here, not at the job limit.
+        timeout-minutes: 45
         uses: ./.github/actions/e2e-native-app
         with:
           platform: android

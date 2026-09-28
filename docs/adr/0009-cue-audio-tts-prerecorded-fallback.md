@@ -174,3 +174,77 @@ audio files as the pre-approved drop-in fallback adapter.**
   never the cue channel.
 - **No audio (visual-only)** — Stage 1's honest state, rejected as the end
   state: audible coaching is the product's core loop.
+
+## Amendment (2026-09-21): Android mechanics realised (ADR 0025 stage 3)
+
+The Android adapter (`cue-service/adapter.android.ts`) mirrors the iOS one
+behind the unchanged port, with three platform facts verified in source
+(`expo-audio` 57.0.3 `AudioModule.kt`, `expo-speech` 57.0.1 `SpeechModule.kt`)
+and one measured on the emulator (Pixel 9 Pro API 36, Google TTS):
+
+- **Ducking is ours to do.** On Android `expo-speech` never requests audio
+  focus (`useApplicationAudioSession` is iOS-only), and `expo-audio` requests it
+  only when one of *its* players starts — `setIsAudioActiveAsync(true)` requests
+  nothing, `(false)` does abandon. The iOS activate-speak-deactivate pattern
+  therefore speaks on Android but ducks nothing. Decision (Lukas, 2026-09-21):
+  **a local Expo module, `modules/audio-focus/`** (Expo Modules API, Kotlin,
+  `platforms: ["android"]`, the repo's first native code): `request()` takes
+  `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` with
+  `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE` / `CONTENT_TYPE_SPEECH`, `abandon()`
+  releases it, both idempotent; the focus-change listener logs, and on a
+  *permanent* loss forgets the hold (the framework has removed the entry, so the
+  next cue must request again) — a transient loss leaves the entry in place and
+  focus returns by itself, so un-ducking is always the adapter's `abandon()`. The adapter calls `request()`
+  before each `Speech.speak` and `abandon()` from the release scheduler, exactly
+  where iOS calls `setIsAudioActiveAsync`. Alternatives recorded in the stage
+  plan: **B**, Decision 6's pre-recorded clips through `expo-audio` (whose player
+  would request focus for free — costs an asset pipeline and an unverified
+  background-playback-service risk on Android 14+), stays the pre-approved
+  device-gate fallback; **C**, no ducking, is the degraded outcome if both fail.
+  Measured: focus requested 3–47 ms after the engine's `cue` row; the entry is
+  visible in `dumpsys audio`'s focus stack for the utterance and gone after.
+- **No release debounce on Android** — a deliberate divergence from Decision 3.
+  React Native suspends JS timers while the Android activity is paused
+  (`JavaTimerManager.doFrame` returns early unless a headless task is running),
+  and a *completed* run also stops the location heartbeat that would otherwise
+  wake JS — so the iOS-style 500 ms `setTimeout` release never fired after the
+  congratulations cue with the screen off: measured 9.5 s stuck ducked until the
+  display came back on, the exact "stuck ducked" class this ADR designs against.
+  The Android adapter injects an immediate timer into the shared scheduler, so
+  the abandon runs synchronously from the terminal callback (measured 47 ms after
+  the utterance ended, screen off). Coalescing of queued utterances rests on the
+  scheduler's in-flight count alone — verified on W3: `startRun` and `halfway`
+  fired 2 ms apart, both spoke, one request/abandon pair. `release-scheduler.ts`
+  and the iOS adapter are untouched.
+- **`language: 'en-US'` is load-bearing.** `SpeechModule.speakOut` falls back to
+  `Locale.getDefault()`, so the English script would be read with the device
+  locale's voice. iOS is unchanged (its adapter passes no language).
+- **Engine warm-up.** Any call that touches `SpeechModule`'s lazy `TextToSpeech`
+  instantiates it; `prepare()` calls `Speech.isSpeakingAsync()` so the warm-up
+  cue is not the utterance that waits for `onInit` (utterances are queued until
+  then). With Google TTS resident the engine was bound 33 ms before the first
+  cue; with the engine process cold the first utterance still started ~2 s late,
+  which `prepare()` cannot hide because it runs at the same instant as
+  `warmupStart`. Warming at session-sheet open is the follow-up if that matters
+  on devices. A `Speech.stop()` before the engine is bound logs
+  `stop failed: not bound to TTS engine` — harmless.
+- **`setAudioModeAsync` is inert for speech on Android** (it configures
+  expo-audio's own players); the adapter still calls it so both adapters read
+  from Decision 2's one session table.
+- **Haptics stay foreground-gated on Android too** (Decision 7): one rule on
+  both platforms, no per-platform explanation in Settings; revisit on field
+  feedback.
+- **Screen off, measured.** With location granted the stage-2 heartbeat keeps the
+  engine firing: `lastRun`, `cooldownStart` and `complete` fired on time while
+  `lifecycle` was `background` and all three played (TTS `AudioTrack` playback
+  in the dark). With location denied nothing fires in the dark — a run→walk
+  boundary due 28 s into a 70 s dark window spoke 41 s late, on wake — so the
+  run banner's "Cues stop when the screen sleeps" has the same truth table as
+  iOS. No focus entry leaked in any run.
+- **Observed once, not reproduced:** in one run the first utterance's terminal
+  callback did not un-duck at its end; two later cues spoke inside the same hold
+  and the abandon came after the last one, 15 s after the request. The engine's
+  `tick` rows were regular, so JS was not stalled; four later runs, including a
+  cold relaunch, were clean. The emulator was under heavy load at the time
+  (another dev client was ANR-ing). If it recurs on a device, the scheduler's
+  documented scope-out (no per-utterance watchdog) is the place to revisit.

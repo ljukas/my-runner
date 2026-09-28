@@ -1,5 +1,5 @@
 import { SymbolView } from 'expo-symbols';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 
 import { FeatureRow } from '@/components/feature-row';
 import { OnboardingStepScreen } from '@/components/onboarding-step-screen';
@@ -44,8 +44,12 @@ export default function AudioCuesScreen() {
           title="Over your music"
           template="primer"
         >
-          Cues play over Spotify or Apple Music, and you hear them even with the silent switch on —
-          your music just dips for a moment.
+          {Platform.select({
+            // Android has no silent switch, and "Apple Music" is the wrong neighbour there.
+            android: 'Cues play over Spotify or YouTube Music — your music just dips for a moment.',
+            default:
+              'Cues play over Spotify or Apple Music, and you hear them even with the silent switch on — your music just dips for a moment.',
+          })}
         </FeatureRow>
         <FeatureRow
           symbol={{ ios: 'hand.tap.fill', android: 'touch_app' }}

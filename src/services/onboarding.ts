@@ -7,12 +7,12 @@ export type OnboardingPlatform = 'ios' | 'android';
 /**
  * Versioned first-launch steps (spec §13). A later release that needs a new
  * permission appends a step here; existing users then see only that step.
- * A step without `platforms` shows everywhere; the primers for capabilities
- * Android does not have yet name iOS only (ADR 0025).
+ * A step without `platforms` shows everywhere; a primer for a capability
+ * Android does not have yet names iOS only (ADR 0025).
  */
 export const ONBOARDING_STEPS = [
   { id: 'welcome-v1', route: '/onboarding' },
-  { id: 'audio-cues-v1', route: '/onboarding/audio-cues', platforms: ['ios'] },
+  { id: 'audio-cues-v1', route: '/onboarding/audio-cues' },
   { id: 'location-primer-v1', route: '/onboarding/location-primer' },
   { id: 'health-primer-v1', route: '/onboarding/health', platforms: ['ios'] },
 ] as const satisfies readonly {

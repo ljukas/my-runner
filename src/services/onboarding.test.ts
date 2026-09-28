@@ -52,9 +52,11 @@ describe('createOnboarding', () => {
     const onboarding = createOnboarding(fakeStorage(), 'android');
     expect(onboarding.pendingSteps().map((s) => s.id)).toEqual([
       'welcome-v1',
+      'audio-cues-v1',
       'location-primer-v1',
     ]);
     onboarding.completeStep('welcome-v1');
+    onboarding.completeStep('audio-cues-v1');
     onboarding.completeStep('location-primer-v1');
     expect(onboarding.pendingSteps()).toEqual([]);
   });

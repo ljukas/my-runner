@@ -18,7 +18,7 @@ import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
-import { activeElapsedMs } from './active-time';
+import { activeElapsedMs } from '@/domain/active-time';
 import { ScriptedMode, type FinalizeOrigin, type RunMode } from './mode';
 import {
   createPointBatchScheduler,

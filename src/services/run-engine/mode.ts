@@ -1,7 +1,7 @@
 import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
-import { activeElapsedMs } from './active-time';
+import { activeElapsedMs } from '@/domain/active-time';
 import type { CompletedSegmentRecord, RunEvent, RunSnapshot } from './types';
 
 /** Active-elapsed seconds at each skip event, measured against the events before it. */

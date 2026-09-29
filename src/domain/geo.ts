@@ -401,6 +401,28 @@ export function smoothTrackBySegment(fixes: readonly SegmentedFix[]): SmoothedRo
   return { distanceM, points, distanceBySegmentSeq };
 }
 
+/**
+ * Which fixes a fold skips and where it restarts the smoother (ADR 0026 §3). Given the time of the
+ * smoother's last accepted fix, null before the first. A free run's policy is `pausePolicy`; plan runs
+ * fold with none, which is `smoothFix` unchanged.
+ */
+export interface FixPolicy {
+  ignores(lastAcceptedMs: number | null, fix: LocationFix): boolean;
+  restartsBefore(lastAcceptedMs: number | null, fix: LocationFix): boolean;
+}
+
+/** `smoothFix` under a policy; null for a fix the policy ignores. */
+export function stepWithPolicy(
+  state: SmootherState,
+  fix: LocationFix,
+  policy?: FixPolicy,
+): SmoothStep | null {
+  if (!policy) return smoothFix(state, fix);
+  const lastAcceptedMs = state.started ? state.lastAcceptedTime : null;
+  if (policy.ignores(lastAcceptedMs, fix)) return null;
+  return smoothFix(policy.restartsBefore(lastAcceptedMs, fix) ? createSmootherState() : state, fix);
+}
+
 /** why: the first two fixes after a start/gap-reset carry the RAW measurement, and DP always keeps an
  * endpoint — a legal 50 m fix would otherwise be a permanent spur and would inflate the camera fit. */
 export const SEED_FIXES = 2;
@@ -417,13 +439,17 @@ export interface RenderPoint {
  * smoothed track the distance came from. Presentation only: never a distance source (ADR 0021 §6).
  * Inputs must already pass `accuracyFilter`.
  */
-export function smoothTrackForRender(fixes: readonly SegmentedFix[]): RenderPoint[] {
+export function smoothTrackForRender(
+  fixes: readonly SegmentedFix[],
+  policy?: FixPolicy,
+): RenderPoint[] {
   let state = createSmootherState();
   const out: RenderPoint[] = [];
   let pendingGap = false;
 
   for (const fix of fixes) {
-    const step = smoothFix(state, fix);
+    const step = stepWithPolicy(state, fix, policy);
+    if (!step) continue;
     state = step.state;
     if (step.restarted && out.length > 0) pendingGap = true;
     if (!step.smoothedPoint || state.fixesSinceReset <= SEED_FIXES) continue;

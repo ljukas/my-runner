@@ -1,4 +1,10 @@
-import { createSmootherState, MAX_GAP_S, smoothFix, type LocationFix } from './geo';
+import {
+  createSmootherState,
+  MAX_GAP_S,
+  stepWithPolicy,
+  type FixPolicy,
+  type LocationFix,
+} from './geo';
 import type { TimedAltitude } from './run-altitude';
 
 /** One resampled point of the summary chart. `distanceM` is the bucket's centre. */
@@ -30,6 +36,7 @@ function bucketAt(distanceM: number, width: number, bucketCount: number): number
 interface Walked {
   distanceM: number;
   timestamp: number;
+  restarted?: boolean;
 }
 
 // why interpolated between fixes and clamped at the ends: samples arrive ~1 Hz on their own clock,
@@ -79,19 +86,27 @@ export function toRunProfile(
   {
     bucketCount = bucketCountFor(fixes.length),
     altitude = [],
-  }: { bucketCount?: number; altitude?: readonly TimedAltitude[] } = {},
+    policy,
+  }: { bucketCount?: number; altitude?: readonly TimedAltitude[]; policy?: FixPolicy } = {},
 ): ProfilePoint[] {
   if (fixes.length === 0) return [];
   if (!Number.isInteger(bucketCount) || bucketCount < 1) return [];
 
   let state = createSmootherState();
   let cumulative = 0;
-  const walked: Walked[] = fixes.map((fix) => {
-    const step = smoothFix(state, fix);
+  const walked: Walked[] = [];
+  for (const fix of fixes) {
+    const step = stepWithPolicy(state, fix, policy);
+    if (!step) continue;
     state = step.state;
     cumulative += step.acceptedDeltaMeters;
-    return { distanceM: cumulative, timestamp: fix.timestamp };
-  });
+    // why a restart is marked: the leg into it spans a pause, which is no time spent covering ground
+    walked.push({
+      distanceM: cumulative,
+      timestamp: fix.timestamp,
+      restarted: policy !== undefined && step.restarted,
+    });
+  }
 
   const total = cumulative;
   if (total <= 0) return [];
@@ -111,7 +126,7 @@ export function toRunProfile(
     // unmeasured time and must not cross into a bucket, but a duplicate/backwards timestamp
     // carries no time of its own and is not evidence the held stretch ended (pace chart
     // stationary-time design §5).
-    if (legSeconds > MAX_GAP_S) {
+    if (legSeconds > MAX_GAP_S || to.restarted) {
       // the smoother's own reset threshold (ADR 0021)
       carried = 0;
       continue;

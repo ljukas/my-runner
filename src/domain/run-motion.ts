@@ -6,6 +6,7 @@ import {
   createSmootherState,
   MAX_GAP_S,
   smoothFix,
+  type FixPolicy,
   type LatLng,
   type LocationFix,
   type SegmentedFix,
@@ -174,6 +175,7 @@ export interface OpenTrackStep {
   state: OpenTrackState;
   acceptedDeltaMeters: number;
   smoothedPoint: LatLng | null;
+  smoothedSpeedMps: number | null;
   /** Kind changes this fix confirmed, in time order; the saved buckets are built from these. */
   changes: MotionTransition[];
 }
@@ -200,6 +202,21 @@ const withinPause = (paused: readonly PausedInterval[], atMs: number) =>
   paused.some((pause) => atMs >= pause.fromMs && atMs < pause.toMs);
 
 /**
+ * A free run's fold rule, shared by every fold of its points so they agree with its saved distance
+ * (spec §4.3): a fix stamped at or before the last accepted one, or inside a pause, describes no
+ * active movement; the smoother restarts at the first fix after a pause.
+ */
+export function pausePolicy(paused: readonly PausedInterval[]): FixPolicy {
+  return {
+    ignores: (lastAcceptedMs, fix) =>
+      (lastAcceptedMs !== null && fix.timestamp <= lastAcceptedMs) ||
+      withinPause(paused, fix.timestamp),
+    restartsBefore: (lastAcceptedMs, fix) =>
+      lastAcceptedMs !== null && pauseBetween(paused, lastAcceptedMs, fix.timestamp),
+  };
+}
+
+/**
  * One accepted fix of a free run through the smoother and `motionStep` — the step the live engine
  * takes, and the one `rollupOpenTrack` folds (ADR 0026 §3). The smoother restarts at the first fix
  * after a pause, so ground covered while paused is not counted, as active time excludes the pause;
@@ -211,12 +228,17 @@ export function openTrackStep(
   { thresholdMps, paused }: OpenTrackStepOptions,
 ): OpenTrackStep {
   const previous = state.previousMs;
-  // why ignored rather than folded: a fix stamped at or before the last one, or inside a pause,
-  // describes no active movement — and would read as a gap to the next fix.
-  if ((previous !== null && fix.timestamp <= previous) || withinPause(paused, fix.timestamp)) {
-    return { state, acceptedDeltaMeters: 0, smoothedPoint: null, changes: [] };
+  const policy = pausePolicy(paused);
+  if (policy.ignores(previous, fix)) {
+    return {
+      state,
+      acceptedDeltaMeters: 0,
+      smoothedPoint: null,
+      smoothedSpeedMps: null,
+      changes: [],
+    };
   }
-  const afterPause = previous !== null && pauseBetween(paused, previous, fix.timestamp);
+  const afterPause = policy.restartsBefore(previous, fix);
   const afterGap =
     previous !== null && activeMs(paused, previous, fix.timestamp) > MAX_GAP_S * 1000;
 
@@ -248,6 +270,7 @@ export function openTrackStep(
     },
     acceptedDeltaMeters: smoothed.acceptedDeltaMeters,
     smoothedPoint: smoothed.smoothedPoint,
+    smoothedSpeedMps: smoothed.smoothedSpeedMps,
     changes,
   };
 }
@@ -378,4 +401,11 @@ export function learnThreshold(samples: readonly LabelledSpeed[]): number {
   }
   const learned = (quantile(walk, 0.9) + quantile(run, 0.1)) / 2;
   return Math.min(Math.max(learned, MOTION.learnFloorMps), MOTION.learnCeilingMps);
+}
+
+/** `learnThreshold` over a runner's recent plan runs, each labelled on its own (see `labelledSpeeds`). */
+export function learnThresholdFromRuns(
+  runs: readonly { fixes: readonly SegmentedFix[]; kindBySeq: ReadonlyMap<number, SegmentKind> }[],
+): number {
+  return learnThreshold(runs.flatMap((run) => labelledSpeeds(run.fixes, run.kindBySeq)));
 }

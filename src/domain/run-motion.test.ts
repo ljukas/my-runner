@@ -1,13 +1,23 @@
 import { describe, expect, test } from 'bun:test';
 
-import { EARTH_RADIUS_M, MAX_GAP_S, smoothTrack, type LocationFix, type SegmentedFix } from './geo';
+import {
+  EARTH_RADIUS_M,
+  MAX_GAP_S,
+  smoothTrack,
+  smoothTrackForRender,
+  type LocationFix,
+  type SegmentedFix,
+} from './geo';
+import { toRunProfile } from './run-profile';
 import {
   createMotionState,
   createOpenTrackState,
   labelledSpeeds,
   learnThreshold,
+  learnThresholdFromRuns,
   motionStep,
   openTrackStep,
+  pausePolicy,
   rollupOpenTrack,
   type LabelledSpeed,
   type MotionSample,
@@ -504,6 +514,43 @@ describe('rollupOpenTrack — noisy tracks (spec §8)', () => {
   });
 });
 
+describe('pausePolicy — every re-fold of a free run agrees (spec §4.3)', () => {
+  // walking 1.5 m/s throughout; paused 60.5–80.5 s — under MAX_GAP_S, so a plain fold bridges it
+  const fixes = track([{ seconds: 150, mps: 1.5 }]);
+  const paused = [{ fromMs: 60_500, toMs: 80_500 }];
+  const policy = pausePolicy(paused);
+  const saved = rollupOpenTrack(fixes, {
+    thresholdMps: T,
+    paused,
+    startMs: 0,
+    endMs: endOf(fixes),
+  });
+
+  test('the pace chart spans exactly the saved distance', () => {
+    const [only] = toRunProfile(fixes, { bucketCount: 1, policy });
+    expect(only.distanceM * 2).toBeCloseTo(saved.distanceM, 6);
+  });
+
+  test('the pace chart does not charge the pause to the next stretch', () => {
+    const [only] = toRunProfile(fixes, { bucketCount: 1, policy });
+    // 1.5 m/s is 666.7 s/km; the 20 s pause would make it ~20% slower
+    expect(only.paceSecPerKm).toBeLessThan(700);
+  });
+
+  test('the drawn route breaks once, at the pause', () => {
+    const gaps = smoothTrackForRender(
+      fixes.map((fix) => ({ ...fix, segmentSeq: 0 })),
+      policy,
+    ).filter((point) => point.gapBefore);
+    expect(gaps).toHaveLength(1);
+  });
+
+  test('without a policy the chart still bridges the pause, as plan runs do today', () => {
+    const [only] = toRunProfile(fixes, { bucketCount: 1 });
+    expect(only.distanceM * 2).toBeCloseTo(smoothTrack(fixes).distanceM, 6);
+  });
+});
+
 describe('learnThreshold', () => {
   // walk p90 = 1.5 + 0.1 × (1.9 − 1.5) = 1.54; run p10 = 2.2 + 0.9 × (2.8 − 2.2) = 2.74 → 2.14.
   // (The midpoint of the medians, 1.5 and 2.8, would be 2.15.)
@@ -549,6 +596,32 @@ describe('learnThreshold', () => {
   test('never learns a threshold above 3.0 m/s', () => {
     const fast = [...labelled('walk', 3.2, 100), ...labelled('run', 4.5, 100)];
     expect(learnThreshold(fast)).toBe(3.0);
+  });
+});
+
+describe('learnThresholdFromRuns', () => {
+  const plan = (walkMps: number, runMps: number, startS: number): SegmentedFix[] => {
+    const fixes = track([
+      { seconds: startS, mps: 0 },
+      { seconds: 120, mps: walkMps },
+      { seconds: 120, mps: runMps },
+    ]);
+    return fixes.slice(startS).map((fix, i) => ({ ...fix, segmentSeq: i < 120 ? 0 : 1 }));
+  };
+  const kinds = new Map([
+    [0, 'walk' as const],
+    [1, 'run' as const],
+  ]);
+
+  test('learns from runs whose segments share numbers, trimming each run from its own start', () => {
+    // run B starts 1000 s later; pooled into one stream, its first 10 s would count as settled
+    const a = { fixes: plan(1.5, 2.8, 0), kindBySeq: kinds };
+    const b = { fixes: plan(1.5, 2.8, 1000), kindBySeq: kinds };
+    expect(learnThresholdFromRuns([a, b])).toBeCloseTo(learnThresholdFromRuns([a, a]), 6);
+  });
+
+  test('falls back to 2.1 m/s with no runs to learn from', () => {
+    expect(learnThresholdFromRuns([])).toBe(2.1);
   });
 });
 

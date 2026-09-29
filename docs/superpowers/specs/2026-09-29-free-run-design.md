@@ -129,20 +129,32 @@ The overlap between walking and running moves with the day. On `2d8d4091` (w4d1)
   speed exceeds 0.8. Otherwise the speed is run if at least `T`, else walk. Any kind can change
   directly into any other.
 - **Candidate.** A target that differs from the current kind starts a candidate. The candidate can
-  retarget (run, then walk, then stopped) without resetting its start. It is confirmed once 8 s of
-  fix time have passed and at least 70% of its samples agreed. It is dropped if agreement falls below
-  70%.
+  retarget (run, then walk, then stopped) without resetting its start. A sample "agrees" when it
+  differs from the current kind. The candidate is confirmed on a sample that still differs, once 8 s
+  of fix time have passed since it began and at least 70% of its samples agreed; the confirmed kind is
+  the one that sample implies. A change that has already reverted by the 8 s mark is not confirmed,
+  and a candidate is dropped when its agreement falls below 70%. (This is the rule §4.4 measured.)
 - **Boundary.** A confirmed boundary is backdated to the candidate's first sample.
 - **Null speed.** A null speed holds the current kind.
 - **Pauses.** A fix that falls after a pause boundary clears the candidate. In open mode the smoother
   also restarts on resume, both live and in the fold, so distance moved while paused is not counted.
-- **The fold.** `rollupOpenTrack(fixes, { T, paused, startAt, endAt })` returns `{ distanceM, points,
-  buckets }`:
-  - Buckets tile the run from `startAt` to `endAt`.
+- **The step and the fold.** `openTrackStep(state, fix, { T, paused })` is one fix through the
+  smoother and the reducer: the pause restart and the gap rule live here, and the live engine calls
+  it. `rollupOpenTrack(fixes, { T, paused, startMs, endMs })` folds the same step and returns
+  `{ distanceM, points, buckets }`:
+  - Fixes outside `startMs`…`endMs` are ignored, and buckets tile that span.
+  - A fix on a boundary closes the earlier bucket: a delta is the leg ending at its fix, so buckets
+    are `(start, end]`. Stage 3's `segment_seq` rewrite must use the same rule.
   - A GPS gap longer than `MAX_GAP_S` becomes stopped time.
   - Each committed delta goes to the bucket of the fix that ends it, so the buckets' distances sum to
     `distanceM`.
-  - Active seconds are rounded by largest remainder, so they sum to `activeDurationS`.
+  - Each bucket's `durationS` is its active seconds rounded by largest remainder, so they sum to the
+    run's rounded active time (`activeDurationS`).
+  - **Stage 3 must restart every other re-fold at resumes too.** `smoothTrackBySegment`,
+    `smoothTrackForRender` and `toRunProfile` do not restart at a pause, so over a free run with a
+    pause shorter than `MAX_GAP_S` they would count the chord this fold excludes. Finalize uses this
+    fold for a free run's distance; the summary's route and chart re-folds get the paused intervals
+    (`use-run-track.ts` already loads them) or the saved total and the chart's extent disagree.
 
 ### 4.4 The learned threshold
 

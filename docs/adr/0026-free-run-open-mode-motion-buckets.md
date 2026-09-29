@@ -4,7 +4,7 @@ Date: 2026-09-29
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge. Revision 2: revision 1 went
+Accepted (2026-09-29, on merge of #77). Stage 1 (the classifier) is in implementation. Revision 2: revision 1 went
 through four adversarial reviews on 2026-09-29 (evidence, engine, Health, and the spec's
 premises). This revision applies their findings and the owner's answers to what the
 findings reopened. The spec's §10 records both.
@@ -155,8 +155,10 @@ What constrains the design:
   - It is null on restarted or velocity-gate-rejected steps.
   - The change is additive.
 - **Where the code lives.** `src/domain/run-motion.ts` holds `motionStep`, a causal
-  reducer, and `rollupOpenTrack`, its batch fold. Both take the run's paused intervals
-  and its threshold, so the live fold and the batch fold see the same boundaries.
+  reducer; `openTrackStep`, one fix through the smoother and the reducer, which the live
+  engine calls; and `rollupOpenTrack`, which folds that same step. The step takes the run's
+  paused intervals and its threshold, so the live fold and the batch fold see the same
+  boundaries.
 - **The rules:**
   - **Start state.** No kind until the first non-null speed.
   - **Direct transitions.** Any kind can move to any other: run, walk or stopped.
@@ -165,7 +167,8 @@ What constrains the design:
   - **Run/walk split.** A single threshold `T` divides run from walk. It has no band:
     the data showed a band adds nothing once the dwell has a majority rule.
   - **Dwell with a majority rule.** A candidate is confirmed after **8 s** in which at
-    least **70%** of its samples agree.
+    least **70%** of its samples differ from the current kind, on a sample that still
+    differs. A change that has already reverted by then is not confirmed.
   - **Retargeting.** A candidate can change its target kind without resetting its start
     (for example run → walk → stopped).
   - **Backdating.** A confirmed boundary moves back to the candidate's first sample.

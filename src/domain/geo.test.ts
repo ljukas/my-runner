@@ -195,6 +195,42 @@ function rawPathMeters(fixes: LocationFix[]): number {
   return d;
 }
 
+/** `smoothedSpeedMps` of each step when `fixes` are folded from a fresh state. */
+function speedsOf(fixes: LocationFix[]): (number | null)[] {
+  let state = createSmootherState();
+  return fixes.map((fix) => {
+    const step = smoothFix(state, fix);
+    state = step.state;
+    return step.smoothedSpeedMps;
+  });
+}
+
+describe('smoothFix — smoothedSpeedMps', () => {
+  test('converges on the true speed of a steady straight run', () => {
+    const fixes = Array.from({ length: 20 }, (_, i) => fixAt(i, 2.5 * i));
+    expect(speedsOf(fixes)[19]).toBeCloseTo(2.5, 2);
+  });
+
+  test('is null on the seed fix, which has no velocity yet', () => {
+    expect(speedsOf([fixAt(0, 0)])[0]).toBeNull();
+  });
+
+  test('is null on the fix that restarts the filter after a GPS gap', () => {
+    const fixes = [fixAt(0, 0), fixAt(1, 2), fixAt(2 + MAX_GAP_S, 4)];
+    expect(speedsOf(fixes)[2]).toBeNull();
+  });
+
+  test('is null on a fix the velocity gate rejects', () => {
+    const fixes = [fixAt(0, 0), fixAt(1, 2), fixAt(2, 4), fixAt(3, 500)];
+    expect(speedsOf(fixes)[3]).toBeNull();
+  });
+
+  test('is null on a fix whose timestamp does not advance', () => {
+    const fixes = [fixAt(0, 0), fixAt(1, 2), { ...fixAt(1, 3) }];
+    expect(speedsOf(fixes)[2]).toBeNull();
+  });
+});
+
 describe('smoothTrack — distance fidelity', () => {
   test('a straight 1.4 m/s walker keeps its full distance (CV-exact, Q-independent)', () => {
     // 60 fixes, 1 Hz, exactly 1.4 m apart → 59 × 1.4 = 82.6 m of true travel.

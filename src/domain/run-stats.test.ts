@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { boundingBox, boundingBoxDiagonalM, MIN_ROUTE_EXTENT_M } from './geo';
 import {
   bestRunSegment,
+  bucketStats,
   hasMeasuredDistance,
   paceSecPerKm,
   runStats,
@@ -165,5 +166,49 @@ describe('hasMeasuredDistance', () => {
     ]);
     expect(boundingBoxDiagonalM(wander!)).toBeGreaterThan(MIN_ROUTE_EXTENT_M);
     expect(hasMeasuredDistance(240, 600)).toBe(false);
+  });
+});
+
+describe('bucketStats', () => {
+  test('run, walk and moving pace leave stopped time and its drift out', () => {
+    expect(
+      bucketStats([
+        { kind: 'run', actualDurationS: 300, distanceM: 1000 },
+        { kind: 'stopped', actualDurationS: 120, distanceM: 20 },
+        { kind: 'walk', actualDurationS: 600, distanceM: 1000 },
+        { kind: 'run', actualDurationS: 300, distanceM: 1000 },
+      ]),
+    ).toEqual({
+      runPaceSecPerKm: 300,
+      walkPaceSecPerKm: 600,
+      // (2000 + 1000 m) over (600 + 600 s)
+      movingPaceSecPerKm: 400,
+      movingTimeS: 1200,
+    });
+  });
+
+  test('a pace is total time over total distance, not the mean of bucket paces', () => {
+    // 200 s/km and 900 s/km average to 550; 1000 s over 1.5 km is 666.7
+    const { runPaceSecPerKm } = bucketStats([
+      { kind: 'run', actualDurationS: 100, distanceM: 500 },
+      { kind: 'run', actualDurationS: 900, distanceM: 1000 },
+    ]);
+    expect(runPaceSecPerKm).toBeCloseTo(666.667, 3);
+  });
+
+  test('a kind the run never had has no pace', () => {
+    expect(bucketStats([{ kind: 'run', actualDurationS: 300, distanceM: 1000 }])).toMatchObject({
+      walkPaceSecPerKm: null,
+      movingPaceSecPerKm: 300,
+    });
+  });
+
+  test('a run without buckets — no location — has no paces and no moving time', () => {
+    expect(bucketStats([])).toEqual({
+      runPaceSecPerKm: null,
+      walkPaceSecPerKm: null,
+      movingPaceSecPerKm: null,
+      movingTimeS: 0,
+    });
   });
 });

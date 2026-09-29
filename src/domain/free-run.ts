@@ -10,6 +10,12 @@ export const FREE_RUN_KEY = 'free-run';
 export type RunPlan =
   { mode: 'scripted'; session: PlanSession } | { mode: 'open'; key: typeof FREE_RUN_KEY };
 
+export const FREE_RUN_PLAN: RunPlan = { mode: 'open', key: FREE_RUN_KEY };
+
+export function scriptedPlan(session: PlanSession): RunPlan {
+  return { mode: 'scripted', session };
+}
+
 /** Owner decisions, 2026-09-29 (spec §2). */
 export const OPEN_LIMITS = {
   minActiveS: 60,

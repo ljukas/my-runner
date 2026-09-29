@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { CueId } from '@/domain/cues';
-import { FREE_RUN_KEY } from '@/domain/free-run';
+import { FREE_RUN_KEY, FREE_RUN_PLAN, scriptedPlan } from '@/domain/free-run';
 import { EARTH_RADIUS_M, type LocationFix } from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
@@ -175,7 +175,7 @@ const PLAN: PlanSession = {
 describe('a free run, start to finish', () => {
   test('starts open, under the free-run key, with the learned threshold on record', async () => {
     const h = makeFreeRunEngine({ thresholdMps: 2.05 });
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     await settled();
     expect(h.engine.getSnapshot()).toMatchObject({
       mode: 'open',
@@ -190,7 +190,7 @@ describe('a free run, start to finish', () => {
 
   test('ended by the runner, it is saved as completed with its threshold, and congratulated', async () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(track([[300, 2.6]]));
     h.engine.endEarly();
     await settled();
@@ -204,7 +204,7 @@ describe('a free run, start to finish', () => {
 
   test('under a minute, it is deleted — never saved, never congratulated', async () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(track([[40, 2.6]]));
     h.engine.endEarly();
     await settled();
@@ -216,7 +216,7 @@ describe('a free run, start to finish', () => {
 
   test('a discard marks the snapshot before the delete, then clears it', async () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(track([[300, 2.6]]));
     h.engine.endEarly('discard');
     await settled();
@@ -228,7 +228,7 @@ describe('a free run, start to finish', () => {
 
   test('a discard waits for a flush already in flight, so nothing is written back after the delete', async () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(track([[300, 2.6]]));
     await settled();
     h.deferFlush();
@@ -246,7 +246,7 @@ describe('a free run, start to finish', () => {
   test('a finalize that found the run too short leaves the engine idle, with no summary to open', async () => {
     const h = makeFreeRunEngine();
     h.setFinalizeOutcome('discarded');
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(track([[300, 2.6]]));
     h.engine.endEarly();
     await settled();
@@ -256,7 +256,7 @@ describe('a free run, start to finish', () => {
   test('with no in-flight row, a save that found it too short leaves the engine idle', async () => {
     const h = makeFreeRunEngine({ startRunFails: true });
     h.setSavedId(null);
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(track([[300, 2.6]]));
     h.engine.endEarly();
     await settled();
@@ -269,7 +269,7 @@ describe('a free run, start to finish', () => {
 describe('a free run ends itself at its limits', () => {
   test('at 4 hours of active time', async () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.at(START_MS + 4 * 3_600_000);
     await settled();
     expect(h.finalized).toHaveLength(1);
@@ -278,7 +278,7 @@ describe('a free run ends itself at its limits', () => {
 
   test('after 30 minutes stopped', async () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.feed(
       track([
         [120, 2.6],
@@ -295,7 +295,7 @@ describe('an interrupted free run', () => {
 
   test('resumes under its own threshold, with its distance', async () => {
     const before = makeFreeRunEngine({ thresholdMps: 2.3 });
-    before.engine.startFreeRun();
+    before.engine.start(FREE_RUN_PLAN);
     before.feed(track([[300, 2.6]]));
     before.fireFlush();
     await settled();
@@ -322,7 +322,7 @@ describe('an interrupted free run', () => {
 
   test('abandoned at launch, it is saved as completed, silently', async () => {
     const before = makeFreeRunEngine();
-    before.engine.startFreeRun();
+    before.engine.start(FREE_RUN_PLAN);
     before.feed(track([[300, 2.6]]));
     before.fireFlush();
     await settled();
@@ -342,7 +342,7 @@ describe('an interrupted free run', () => {
 describe('what a free run cannot do, and what a plan run cannot', () => {
   test('a free run has nothing to skip', () => {
     const h = makeFreeRunEngine();
-    h.engine.startFreeRun();
+    h.engine.start(FREE_RUN_PLAN);
     h.engine.skipSegment();
     h.fireFlush();
     expect(h.engine.getSnapshot().status).toBe('running');
@@ -350,7 +350,7 @@ describe('what a free run cannot do, and what a plan run cannot', () => {
 
   test('a plan run cannot be discarded', async () => {
     const h = makeFreeRunEngine();
-    h.engine.start(PLAN);
+    h.engine.start(scriptedPlan(PLAN));
     h.engine.endEarly('discard');
     await settled();
     expect(h.calls).not.toContain('discardRun');

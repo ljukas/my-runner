@@ -107,10 +107,10 @@ describe("parseSnapshotState — a free run's fields (ADR 0026)", () => {
     });
   });
 
-  test('a garbage threshold degrades to absent instead of orphaning the run', () => {
+  test("passes a mode's state through untouched: only the mode parses it", () => {
     const parsed = parseSnapshotState({ ...STATE, modeState: { thresholdMps: 'fast' } });
     expect(parsed).not.toBeNull();
-    expect(parsed?.modeState).toBeUndefined();
+    expect(parsed?.modeState).toEqual({ thresholdMps: 'fast' });
   });
 
   test('keeps the flag of a discard that has not finished', () => {

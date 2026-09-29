@@ -190,7 +190,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
     }
 
     const { plan, offerable } = disposition;
-    const mode = modeFor(plan, { thresholdMps: state.modeState?.thresholdMps });
+    const mode = modeFor(plan, { thresholdMps: loadLearnedThreshold }, state);
     const now = Date.now();
     const candidate: ResumableRun = {
       runId: active.id,

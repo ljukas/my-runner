@@ -43,7 +43,7 @@ function track(legs: readonly [number, number][], fromMs = 0): LocationFix[] {
 const START: RunEvent[] = [{ type: 'start', at: 0 }];
 
 function openMode(): RunMode {
-  return modeFor(OPEN, { thresholdMps: 2.1 });
+  return modeFor(OPEN, { thresholdMps: () => 2.1 });
 }
 
 function feed(mode: RunMode, fixes: readonly LocationFix[], events: readonly RunEvent[] = START) {
@@ -164,7 +164,15 @@ describe('OpenMode — how it ends', () => {
   test('is saved as completed however it ended, carrying its threshold', () => {
     const mode = openMode();
     for (const origin of ['runner', 'limit', 'abandon'] as const) {
-      expect(mode.finalize(START, 600_000, 'endedEarly', origin, 'save')).toMatchObject({
+      expect(
+        mode.finalize({
+          events: START,
+          endAt: 600_000,
+          requested: 'endedEarly',
+          origin: origin,
+          intent: 'save',
+        }),
+      ).toMatchObject({
         kind: 'completed',
         outcome: 'save',
         segments: [],
@@ -174,20 +182,46 @@ describe('OpenMode — how it ends', () => {
   });
 
   test('a discard the runner chose is a discard', () => {
-    expect(openMode().finalize(START, 600_000, 'endedEarly', 'runner', 'discard').outcome).toBe(
-      'discard',
-    );
+    expect(
+      openMode().finalize({
+        events: START,
+        endAt: 600_000,
+        requested: 'endedEarly',
+        origin: 'runner',
+        intent: 'discard',
+      }).outcome,
+    ).toBe('discard');
   });
 
   test('a run under a minute is a discard, so it is never congratulated', () => {
-    expect(openMode().finalize(START, 59_000, 'endedEarly', 'runner', 'save').outcome).toBe(
-      'discard',
-    );
-    expect(openMode().finalize(START, 60_000, 'endedEarly', 'runner', 'save').outcome).toBe('save');
+    expect(
+      openMode().finalize({
+        events: START,
+        endAt: 59_000,
+        requested: 'endedEarly',
+        origin: 'runner',
+        intent: 'save',
+      }).outcome,
+    ).toBe('discard');
+    expect(
+      openMode().finalize({
+        events: START,
+        endAt: 60_000,
+        requested: 'endedEarly',
+        origin: 'runner',
+        intent: 'save',
+      }).outcome,
+    ).toBe('save');
   });
 
   test('ends at the 4-hour instant, even when finalized later', () => {
-    const final = openMode().finalize(START, 5 * 3_600_000, 'endedEarly', 'abandon', 'save');
+    const final = openMode().finalize({
+      events: START,
+      endAt: 5 * 3_600_000,
+      requested: 'endedEarly',
+      origin: 'abandon',
+      intent: 'save',
+    });
     expect(final).toMatchObject({ endAt: 4 * 3_600_000, elapsedS: 4 * 3600 });
   });
 
@@ -196,6 +230,27 @@ describe('OpenMode — how it ends', () => {
       lastAnnouncedIndex: -1,
       halfwayFired: false,
       modeState: { thresholdMps: 2.1 },
+    });
+  });
+
+  test('resumes under the threshold its snapshot carried, never asking the learner again', () => {
+    let asked = 0;
+    const deps = { thresholdMps: () => (asked += 1) && 9 };
+    const saved = { lastAnnouncedIndex: -1, halfwayFired: false, modeState: { thresholdMps: 2.3 } };
+    expect(modeFor(OPEN, deps, saved).stateFields().modeState).toEqual({ thresholdMps: 2.3 });
+    expect(asked).toBe(0);
+  });
+
+  test('a garbage saved threshold falls back to the learner instead of orphaning the run', () => {
+    const saved = { lastAnnouncedIndex: -1, halfwayFired: false, modeState: { thresholdMps: 'x' } };
+    const mode = modeFor(OPEN, { thresholdMps: () => 2.3 }, saved);
+    expect(mode.stateFields().modeState).toEqual({ thresholdMps: 2.3 });
+  });
+
+  test('notes the threshold it starts with', () => {
+    expect(openMode().startNote()).toEqual({
+      kind: 'motion_threshold',
+      detail: { thresholdMps: 2.1 },
     });
   });
 

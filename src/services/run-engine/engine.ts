@@ -1,7 +1,6 @@
 import type { CueId } from '@/domain/cues';
 import { accuracyFilter, type LocationFix } from '@/domain/geo';
-import { FREE_RUN_KEY, keyOf, type RunPlan } from '@/domain/free-run';
-import type { PlanSession } from '@/domain/plan';
+import { keyOf, type RunPlan } from '@/domain/free-run';
 import { MOTION } from '@/domain/run-motion';
 import { paceSecPerKm } from '@/domain/run-stats';
 import type { CueService } from '@/services/cue-service/port';
@@ -14,7 +13,13 @@ import type { LocationTracker } from '@/services/location-tracker/port';
 import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
 import { activeElapsedMs } from '@/domain/active-time';
-import { modeFor, type FinalizeIntent, type FinalizeOrigin, type RunMode } from './mode';
+import {
+  modeFor,
+  type FinalizeIntent,
+  type FinalizeOrigin,
+  type ModeDeps,
+  type RunMode,
+} from './mode';
 import {
   createPointBatchScheduler,
   POINT_FLUSH_MS,
@@ -140,7 +145,7 @@ export class RunEngine {
   private readonly elevation: ElevationSource;
   private readonly stepCounter: StepCounterSource;
   private readonly nativeTimeoutMs: number;
-  private readonly thresholdMps: () => number;
+  private readonly modeDeps: ModeDeps;
   private readonly scheduler: PointBatchScheduler;
 
   private mode: RunMode | null = null;
@@ -205,7 +210,7 @@ export class RunEngine {
     this.elevation = deps.elevation;
     this.stepCounter = deps.stepCounter;
     this.nativeTimeoutMs = deps.nativeTimeoutMs ?? NATIVE_TIMEOUT_MS;
-    this.thresholdMps = deps.thresholdMps ?? (() => MOTION.fallbackThresholdMps);
+    this.modeDeps = { thresholdMps: deps.thresholdMps ?? (() => MOTION.fallbackThresholdMps) };
     this.clock = deps.clock ?? Date.now;
     const createScheduler =
       deps.createScheduler ??
@@ -220,19 +225,9 @@ export class RunEngine {
     }
   }
 
-  start(session: PlanSession): void {
-    this.begin({ mode: 'scripted', session });
-  }
-
-  /** A free run (ADR 0026): no plan, ended by hand or at a limit. */
-  startFreeRun(): void {
-    this.begin({ mode: 'open', key: FREE_RUN_KEY });
-  }
-
-  private begin(plan: RunPlan): void {
+  start(plan: RunPlan): void {
     if (this.status !== 'idle') return;
-    const thresholdMps = plan.mode === 'open' ? this.thresholdMps() : undefined;
-    this.mode = modeFor(plan, { thresholdMps });
+    this.mode = modeFor(plan, this.modeDeps);
     this.events = [{ type: 'start', at: this.clock() }];
     this.status = 'running';
     this.savedRunId = null;
@@ -240,7 +235,8 @@ export class RunEngine {
     this.runGeneration += 1;
     this.elevationEpochBase = 0;
     this.resetIngestState();
-    if (thresholdMps !== undefined) this.note('motion_threshold', { thresholdMps });
+    const startNote = this.mode.startNote();
+    if (startNote) this.note(startNote.kind, startNote.detail);
     this.openRunRow(keyOf(plan), this.events[0].at);
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
@@ -301,7 +297,7 @@ export class RunEngine {
    */
   restore(input: RunRestoreInput): boolean {
     if (this.status !== 'idle') return false;
-    const probe = modeFor(input.plan, { thresholdMps: input.state.modeState?.thresholdMps });
+    const probe = modeFor(input.plan, this.modeDeps, input.state);
     if (probe.exhausted(input.state.events, this.clock())) return false;
     if (!this.rebuild(input)) return false;
     this.cue.prepare();
@@ -521,10 +517,7 @@ export class RunEngine {
     if (state.events.length === 0 || state.events[0].type !== 'start') return false;
     if (state.sessionKey !== keyOf(plan)) return false;
 
-    this.mode = modeFor(plan, {
-      saved: { lastAnnouncedIndex: state.lastAnnouncedIndex, halfwayFired: state.halfwayFired },
-      thresholdMps: state.modeState?.thresholdMps,
-    });
+    this.mode = modeFor(plan, this.modeDeps, state);
     this.events = state.events.map((event) => ({ ...event }));
     this.status = isPausedInLog(state.events) ? 'paused' : 'running';
     this.savedRunId = null;
@@ -564,17 +557,18 @@ export class RunEngine {
     if (!this.mode || this.events.length === 0) return;
     // why the mode is asked before `end` is appended: it decides where the run ends.
     const requestedEnd = Math.max(at ?? this.clock(), this.events[this.events.length - 1].at);
-    const { kind, endAt, elapsedS, segments, outcome, derived } = this.mode.finalize(
-      this.events,
-      requestedEnd,
-      requestedKind,
+    const final = this.mode.finalize({
+      events: this.events,
+      endAt: requestedEnd,
+      requested: requestedKind,
       origin,
       intent,
-    );
-    if (outcome === 'discard') {
+    });
+    if (final.outcome === 'discard') {
       await this.discard(this.runGeneration);
       return;
     }
+    const { kind, endAt, elapsedS, segments, derived } = final;
     this.append('end', endAt);
 
     const record: CompletedRunRecord = {

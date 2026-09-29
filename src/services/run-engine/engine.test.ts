@@ -7,6 +7,7 @@ import {
   type LocationFix,
   type SegmentedFix,
 } from '@/domain/geo';
+import { scriptedPlan } from '@/domain/free-run';
 import type { PlanSession } from '@/domain/plan';
 import type { CueService } from '@/services/cue-service/port';
 import type {
@@ -317,7 +318,7 @@ const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 describe('lifecycle', () => {
   test('start enters the first segment', () => {
     const { engine } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     const s = scripted(engine);
     expect(s.status).toBe('running');
     expect(s.sessionKey).toBe('w1d1');
@@ -330,14 +331,14 @@ describe('lifecycle', () => {
 
   test('start is ignored unless idle', () => {
     const { engine } = makeEngine();
-    engine.start(SESSION);
-    engine.start({ ...SESSION, key: 'w9d3' });
+    engine.start(scriptedPlan(SESSION));
+    engine.start(scriptedPlan({ ...SESSION, key: 'w9d3' }));
     expect(scripted(engine).sessionKey).toBe('w1d1');
   });
 
   test('heartbeats derive the current segment from elapsed time', () => {
     const { engine, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(12); // 12s → 2s into the run segment
     const s = scripted(engine);
     expect(s.segmentIndex).toBe(1);
@@ -348,14 +349,14 @@ describe('lifecycle', () => {
 
   test('a single late heartbeat lands in the right segment (no per-tick accumulation)', () => {
     const { engine, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(46); // one heartbeat 46s later → segment 3
     expect(scripted(engine).segmentIndex).toBe(3);
   });
 
   test('reset returns to idle', () => {
     const { engine } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     engine.reset();
     expect(scripted(engine).status).toBe('idle');
   });
@@ -364,7 +365,7 @@ describe('lifecycle', () => {
 describe('pause/resume', () => {
   test('pause freezes active elapsed', () => {
     const { engine, tick, advance } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(30);
     engine.pause();
     advance(100);
@@ -376,7 +377,7 @@ describe('pause/resume', () => {
 
   test('resume continues from where it paused; pauses accumulate', () => {
     const { engine, tick, advance } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(30);
     engine.pause();
     advance(100);
@@ -394,7 +395,7 @@ describe('pause/resume', () => {
     const { engine } = makeEngine();
     engine.resume();
     expect(scripted(engine).status).toBe('idle');
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     engine.resume();
     expect(scripted(engine).status).toBe('running');
     engine.pause();
@@ -406,7 +407,7 @@ describe('pause/resume', () => {
 describe('skip', () => {
   test('skip truncates the current segment and moves to the next', () => {
     const { engine, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(15); // 5s into run
     engine.skipSegment();
     const s = scripted(engine);
@@ -418,7 +419,7 @@ describe('skip', () => {
 
   test('skipping the final segment completes the session', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(70); // into cooldown (65–75)
     engine.skipSegment();
     expect(scripted(engine).status).toBe('completed');
@@ -431,7 +432,7 @@ describe('skip', () => {
 describe('completion', () => {
   test('timeline exhaustion completes and persists a correct record', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(30);
     h.engine.pause();
     h.engine.resume();
@@ -455,7 +456,7 @@ describe('completion', () => {
 
   test('endEarly persists a partial run: reached segments only, last one truncated', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(12); // 2s into segment 1 (run)
     h.engine.endEarly();
     expect(scripted(h.engine).status).toBe('endedEarly');
@@ -478,7 +479,7 @@ describe('completion', () => {
 
   test('skipped segments are recorded with their truncated duration and flag', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(15);
     engine.skipSegment(); // run 20→5
     tick(60); // active 75 ≥ total 60 → completed
@@ -496,7 +497,7 @@ describe('completion', () => {
     const h = makeEngine();
     h.setFailSave(true);
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await flush();
     });
@@ -509,12 +510,12 @@ describe('completion', () => {
   test('a slow save from a superseded run never stamps a later run', async () => {
     const h = makeEngine();
     h.deferFinalize();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(80); // completes run A; its finalize stays pending
     expect(scripted(h.engine).status).toBe('completed');
     await flush();
     h.engine.reset();
-    h.engine.start({ ...SESSION, key: 'w1d2' });
+    h.engine.start(scriptedPlan({ ...SESSION, key: 'w1d2' }));
     h.releaseFinalize();
     await flush();
     const s = scripted(h.engine);
@@ -526,7 +527,7 @@ describe('completion', () => {
 
   test('controls are inert after completion', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(80);
     await flush();
     engine.pause();
@@ -541,7 +542,7 @@ describe('completion', () => {
 describe('end during the final cooldown (issue #40)', () => {
   test('endEarly during the final cooldown finalizes and persists as completed', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(66); // 1s into the cooldown (65–75)
     engine.endEarly();
     expect(scripted(engine).status).toBe('completed');
@@ -558,7 +559,7 @@ describe('end during the final cooldown (issue #40)', () => {
 
   test('endEarly while paused in the cooldown still completes', async () => {
     const { engine, tick, advance, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(70);
     engine.pause();
     advance(100); // paused wall time is not active time
@@ -571,7 +572,7 @@ describe('end during the final cooldown (issue #40)', () => {
 
   test('skipping into the cooldown then ending early completes', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(50); // 5s into the final run (45–65)
     engine.skipSegment(); // truncates it; the cooldown now starts at 50
     tick(2); // 2s into the cooldown
@@ -583,7 +584,7 @@ describe('end during the final cooldown (issue #40)', () => {
 
   test('endEarly after timeline exhaustion but before the next heartbeat completes', async () => {
     const { engine, advance, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     advance(80); // past the 75s total, with no heartbeat observing it
     engine.endEarly();
     expect(scripted(engine).status).toBe('completed');
@@ -594,7 +595,7 @@ describe('end during the final cooldown (issue #40)', () => {
 
   test('endEarly exactly at the cooldown boundary completes; the untouched cooldown row is dropped', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(65); // exactly at the cooldown's startsAt
     engine.endEarly();
     expect(scripted(engine).status).toBe('completed');
@@ -605,7 +606,7 @@ describe('end during the final cooldown (issue #40)', () => {
 
   test('endEarly just before the cooldown stays partial', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(64); // 19s into the final run (45–65)
     engine.endEarly();
     expect(scripted(engine).status).toBe('endedEarly');
@@ -615,7 +616,7 @@ describe('end during the final cooldown (issue #40)', () => {
 
   test('endCountsAsCompleted mirrors the engine rule on live snapshots (UI twin)', () => {
     const { engine, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(64); // final run segment
     expect(endCountsAsCompleted(scripted(engine))).toBe(false);
     tick(2); // 66 → in the cooldown
@@ -626,7 +627,7 @@ describe('end during the final cooldown (issue #40)', () => {
 describe('clock anomalies (ADR 0007 invariants)', () => {
   test('a backwards clock jump never produces negative elapsed', () => {
     const { engine, advance } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     advance(-500); // clock jumps back
     engine.heartbeat();
     expect(scripted(engine).activeElapsedSeconds).toBeGreaterThanOrEqual(0);
@@ -635,7 +636,7 @@ describe('clock anomalies (ADR 0007 invariants)', () => {
 
   test('a forward jump can only end the session as completed, capped at the timeline', async () => {
     const { engine, tick, saved } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(100_000);
     expect(scripted(engine).status).toBe('completed');
     await flush();
@@ -648,7 +649,7 @@ describe('subscription', () => {
     const { engine, tick } = makeEngine();
     let calls = 0;
     const unsubscribe = engine.subscribe(() => calls++);
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(1);
     expect(calls).toBeGreaterThanOrEqual(2);
     const before = calls;
@@ -659,7 +660,7 @@ describe('subscription', () => {
 
   test('getSnapshot is referentially stable between changes', () => {
     const { engine } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     expect(scripted(engine)).toBe(scripted(engine));
   });
 });
@@ -667,14 +668,14 @@ describe('subscription', () => {
 describe('cues (ADR 0007/0009)', () => {
   test('start prepares the session and announces the warm-up', () => {
     const { engine, cues, prepareCount } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     expect(prepareCount()).toBe(1);
     expect(cues).toEqual(['warmupStart']);
   });
 
   test('each segment transition announces the entered segment cue', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start(SESSION); // warmupStart @ index 0
+    engine.start(scriptedPlan(SESSION)); // warmupStart @ index 0
     tick(10); // → run   (index 1)
     tick(20); // → walk  (index 2, now 30)
     expect(cues).toEqual(['warmupStart', 'startRun', 'startWalk']);
@@ -682,7 +683,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('a transition is announced once, not on every heartbeat in the segment', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(12); // into run → startRun
     tick(1);
     tick(1);
@@ -691,7 +692,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('the final run is announced as lastRun, not a generic startRun', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(10); // run   (index 1) → startRun
     tick(20); // walk  (index 2)
     tick(15); // run   (index 3, the last run) → lastRun
@@ -701,7 +702,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('halfway fires exactly once when elapsed crosses 50% of planned total', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start(SESSION); // planned total 75 → halfway at 37.5s
+    engine.start(scriptedPlan(SESSION)); // planned total 75 → halfway at 37.5s
     tick(37);
     expect(cues).not.toContain('halfway');
     tick(1); // 38 ≥ 37.5
@@ -715,24 +716,26 @@ describe('cues (ADR 0007/0009)', () => {
   // the engine must never drop one of them.
   test('halfway landing exactly on a segment boundary announces both cues in one heartbeat', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start({
-      key: 'w3d1',
-      week: 3,
-      day: 1,
-      segments: [
-        { kind: 'warmup', seconds: 10 },
-        { kind: 'run', seconds: 10 },
-        { kind: 'walk', seconds: 10 },
-        { kind: 'run', seconds: 10 },
-      ], // total 40 → halfway at 20, exactly the run→walk boundary
-    });
+    engine.start(
+      scriptedPlan({
+        key: 'w3d1',
+        week: 3,
+        day: 1,
+        segments: [
+          { kind: 'warmup', seconds: 10 },
+          { kind: 'run', seconds: 10 },
+          { kind: 'walk', seconds: 10 },
+          { kind: 'run', seconds: 10 },
+        ], // total 40 → halfway at 20, exactly the run→walk boundary
+      }),
+    );
     tick(20); // one heartbeat onto the boundary
     expect(cues).toEqual(['warmupStart', 'startWalk', 'halfway']);
   });
 
   test('a skip into a new segment announces the entered segment', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(12); // 2s into run → startRun
     engine.skipSegment(); // truncates run → walk
     expect(cues).toContain('startWalk');
@@ -740,7 +743,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('pause and resume announce their cues', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(12);
     engine.pause();
     expect(cues).toContain('paused');
@@ -750,7 +753,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('completion announces complete and does not hard-release (lets it speak)', async () => {
     const { engine, cues, releaseCount, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(80); // timeline exhausted → completed
     await flush();
     expect(cues).toContain('complete');
@@ -759,7 +762,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('ending during the cooldown announces complete and does not hard-release', () => {
     const { engine, cues, releaseCount, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(66); // 1s into the cooldown → ending counts as completed (issue #40)
     engine.endEarly();
     expect(cues).toContain('complete');
@@ -768,7 +771,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('ending early releases the session and announces no completion cue', () => {
     const { engine, cues, releaseCount, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(12);
     engine.endEarly();
     expect(cues).not.toContain('complete');
@@ -777,7 +780,7 @@ describe('cues (ADR 0007/0009)', () => {
 
   test('reset releases the session', () => {
     const { engine, releaseCount } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     engine.reset();
     expect(releaseCount()).toBeGreaterThanOrEqual(1);
   });
@@ -786,20 +789,20 @@ describe('cues (ADR 0007/0009)', () => {
 describe('segmentEndsAt', () => {
   test('is the wall-clock end of the active segment at start', () => {
     const { engine } = makeEngine();
-    engine.start(SESSION); // now = 1_000_000, warmup 10s
+    engine.start(scriptedPlan(SESSION)); // now = 1_000_000, warmup 10s
     expect(scripted(engine).segmentEndsAt).toBe(1_000_000 + 10_000);
   });
 
   test('tracks elapsed within a segment', () => {
     const { engine, tick } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(12); // now = 1_012_000, 18s left in the run segment
     expect(scripted(engine).segmentEndsAt).toBe(1_012_000 + 18_000);
   });
 
   test('recomputes after a skip', () => {
     const { engine, advance } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     advance(5); // 5s into warmup, no heartbeat
     engine.skipSegment(); // truncates warmup, enters run at now = 1_005_000
     const s = scripted(engine);
@@ -810,7 +813,7 @@ describe('segmentEndsAt', () => {
   test('is null at idle and after completion', () => {
     const { engine, tick } = makeEngine();
     expect(scripted(engine).segmentEndsAt).toBeNull();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     tick(75); // exhausts the 75s timeline
     expect(scripted(engine).status).toBe('completed');
     expect(scripted(engine).segmentEndsAt).toBeNull();
@@ -820,7 +823,7 @@ describe('segmentEndsAt', () => {
 describe('GPS fix ingestion (T12, ADR 0021)', () => {
   test('live distanceM equals a fresh smoothed fold of the same fixes (live == fresh fold)', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     WALK_TRACK.forEach(feed);
     const expected = smoothTrack(WALK_TRACK).distanceM;
     expect(expected).toBeGreaterThan(0);
@@ -830,7 +833,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('a fresh fold of the buffered points, timestamps through the run_points ISO round-trip, matches live distance (live == re-derived, ADR 0021 §3)', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     // Fractional-ms fixes: live folds the rounded timestamps, so only the buffered (rounded) stream re-folds equal.
     const track: LocationFix[] = Array.from({ length: 6 }, (_, i) => ({
       timestamp: FIX_START + i * 1000 + 0.4,
@@ -859,7 +862,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('each buffered point is tagged with the current full-timeline segment index + a monotonic seq', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed(fixAt(5, 59, 18)); // warmup [0,10) → index 0
     feed(fixAt(12, 59.00004, 18)); // run [10,30) → index 1
     const points = engine.getBufferedPoints();
@@ -869,7 +872,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('the buffered timestamp is normalized to integer ms (survives the run_points ISO round-trip)', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed({ timestamp: FIX_START + 3500.7, lat: 59, lng: 18, altitude: 42, accuracy: 5, speed: 2 });
     const [point] = engine.getBufferedPoints();
     expect(Number.isInteger(point.timestamp)).toBe(true);
@@ -878,7 +881,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('a fix with accuracy > 50 m is rejected — not buffered, no distance', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed(fixAt(2, 59, 18, 60));
     expect(engine.getBufferedPoints()).toEqual([]);
     expect(scripted(engine).distanceM).toBe(0);
@@ -886,14 +889,14 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('a fix with null accuracy is rejected', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed({ timestamp: FIX_START + 2000, lat: 59, lng: 18, altitude: 42, accuracy: null, speed: 2 });
     expect(engine.getBufferedPoints()).toEqual([]);
   });
 
   test('no ingestion while paused', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed(fixAt(2, 59, 18));
     const countRunning = engine.getBufferedPoints().length;
     const distanceRunning = scripted(engine).distanceM;
@@ -906,7 +909,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('a duplicate-timestamp fix is buffered but adds no distance (smoother de-dupes on dt ≤ 0)', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed(fixAt(2, 59, 18));
     feed(fixAt(4, 59.00004, 18));
     const distanceBefore = scripted(engine).distanceM;
@@ -918,7 +921,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('a fix on the completing heartbeat is dropped: finalize precedes ingest, so live and the re-fold both exclude it', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     feed(fixAt(30, 59, 18)); // mid-run → buffered
     const beforeCount = engine.getBufferedPoints().length;
     expect(beforeCount).toBeGreaterThan(0);
@@ -933,7 +936,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     console.warn = (...args: unknown[]) => void warnings.push(args);
     try {
       const { engine, feed, cues } = makeEngine();
-      engine.start(SESSION);
+      engine.start(scriptedPlan(SESSION));
       feed(fixAt(2, 59, 18)); // one good fix
       const evil = {
         timestamp: FIX_START + 3000,
@@ -960,7 +963,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 
   test('start() and reset() clear the ingest accumulator', () => {
     const { engine, feed } = makeEngine();
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     WALK_TRACK.forEach(feed);
     expect(engine.getBufferedPoints().length).toBe(WALK_TRACK.length);
     expect(scripted(engine).distanceM).toBeGreaterThan(0);
@@ -970,7 +973,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     expect(scripted(engine).distanceM).toBe(0);
     expect(scripted(engine).paceSecPerKm).toBeNull();
 
-    engine.start(SESSION);
+    engine.start(scriptedPlan(SESSION));
     expect(engine.getBufferedPoints()).toEqual([]);
     expect(scripted(engine).distanceM).toBe(0);
   });
@@ -979,7 +982,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
 describe('point persistence & lifecycle (T13)', () => {
   test('startRun opens the active row before any flush — run_points cannot precede it', async () => {
     const h = makeEngine({ deferStartRun: true });
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     WALK_TRACK.forEach(h.feed);
     h.fireFlush();
     await flush();
@@ -994,7 +997,7 @@ describe('point persistence & lifecycle (T13)', () => {
 
   test('the flush persists ISO-stamped points, then drains the buffer', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     WALK_TRACK.forEach(h.feed);
     expect(h.armCount()).toBeGreaterThan(0);
     h.fireFlush();
@@ -1006,7 +1009,7 @@ describe('point persistence & lifecycle (T13)', () => {
 
   test('the flushed snapshot carries the log plus watermarks and no track', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     WALK_TRACK.forEach(h.feed);
     h.fireFlush();
     await flush();
@@ -1021,7 +1024,7 @@ describe('point persistence & lifecycle (T13)', () => {
 
   test('the cadence re-arms itself, so a paused run keeps re-stamping the snapshot', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(5);
     h.engine.pause();
     const armedAtPause = h.armCount();
@@ -1040,7 +1043,7 @@ describe('point persistence & lifecycle (T13)', () => {
     const h = makeEngine();
     h.setFailFlush(true);
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       WALK_TRACK.slice(0, 3).forEach(h.feed);
       h.fireFlush();
       await flush();
@@ -1061,12 +1064,12 @@ describe('point persistence & lifecycle (T13)', () => {
     h.deferFlush();
     h.setFailFlush(true);
     await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       WALK_TRACK.forEach(h.feed);
       h.fireFlush();
       await flush();
       h.engine.reset();
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.releaseFlush();
       await flush();
     });
@@ -1075,7 +1078,7 @@ describe('point persistence & lifecycle (T13)', () => {
 
   test('finalize flushes the tail, then finalizes, then clears the snapshot', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.feed(fixAt(30, 59, 18));
     h.tick(80);
     await flush();
@@ -1091,7 +1094,7 @@ describe('point persistence & lifecycle (T13)', () => {
   test('the snapshot is cleared only after finalizeRun resolves', async () => {
     const h = makeEngine();
     h.deferFinalize();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(80);
     await flush();
     expect(h.calls).toContain('finalizeRun');
@@ -1106,7 +1109,7 @@ describe('point persistence & lifecycle (T13)', () => {
   test('a transient startRun failure is retried at the next cadence and the whole track still lands', async () => {
     const h = makeEngine({ failStartRunTimes: 1 });
     await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       WALK_TRACK.forEach(h.feed);
       await flush();
       h.fireFlush();
@@ -1119,7 +1122,7 @@ describe('point persistence & lifecycle (T13)', () => {
   test('a permanently failing startRun still persists the run, carrying the live distance', async () => {
     const h = makeEngine({ failStartRunTimes: Number.POSITIVE_INFINITY });
     await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       WALK_TRACK.forEach(h.feed);
       h.fireFlush();
       await flush();
@@ -1136,14 +1139,14 @@ describe('point persistence & lifecycle (T13)', () => {
 
   test('location tracking follows the run, and reset+start leaves it on', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     expect(h.trackerCalls).toEqual(['start']);
     h.tick(80); // completes
     await flush();
     expect(h.trackerCalls).toEqual(['start', 'stop']);
     h.engine.reset();
-    h.engine.start(SESSION); // the session screen's own sequence
+    h.engine.start(scriptedPlan(SESSION)); // the session screen's own sequence
     await flush();
     expect(h.trackerCalls).toEqual(['start', 'stop', 'stop', 'start']);
   });
@@ -1153,7 +1156,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
   /** Run a live GPS-tracked session, flush it, and hand back exactly what the DB would return. */
   async function crashAfterFlush() {
     const live = makeEngine();
-    live.engine.start(SESSION);
+    live.engine.start(scriptedPlan(SESSION));
     WALK_TRACK.forEach(live.feed);
     const distanceM = scripted(live.engine).distanceM;
     live.fireFlush();
@@ -1330,7 +1333,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
 
   test('restore leaves a live run alone', () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(12);
     const restored = h.engine.restore({
       runId: 'run-9',
@@ -1426,7 +1429,7 @@ describe('abandon (unresumable in-flight run)', () => {
 
   test('abandon leaves a live run alone', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await h.engine.abandon({
       runId: 'run-9',
       plan: { mode: 'scripted', session: { ...SESSION, key: 'w1d2' } },
@@ -1442,7 +1445,7 @@ describe('abandon (unresumable in-flight run)', () => {
 describe('barometer capture (spec §6)', () => {
   test('a reading delivered during a run reaches the flush', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.emitReading(readingAt(1, 1013.25));
     h.fireFlush();
     await flush();
@@ -1461,7 +1464,7 @@ describe('barometer capture (spec §6)', () => {
       elevation: { ...broken.source, start: () => Promise.reject(new Error('altimeter down')) },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       WALK_TRACK.forEach(h.feed);
       h.fireFlush();
       await flush();
@@ -1482,7 +1485,7 @@ describe('barometer capture (spec §6)', () => {
           },
         },
       });
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await flush();
       expect(scripted(h.engine).status).toBe('completed');
@@ -1506,10 +1509,10 @@ describe('barometer capture (spec §6)', () => {
         },
       },
     });
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     h.engine.reset();
-    h.engine.start(SESSION); // the session screen's own back-to-back sequence
+    h.engine.start(scriptedPlan(SESSION)); // the session screen's own back-to-back sequence
     await flush();
     expect(calls).toEqual(['start', 'stop', 'start']);
   });
@@ -1531,7 +1534,7 @@ describe('barometer capture (spec §6)', () => {
 
   test('the source is stopped on reset() as well as finalize()', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     expect(h.elevationCalls).toEqual(['start']);
     h.tick(80); // timeline exhausted → finalize
@@ -1545,7 +1548,7 @@ describe('barometer capture (spec §6)', () => {
   test('a reading that throws on access cannot fail the run', async () => {
     const h = makeEngine();
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.emitReading({
         get pressureHpa(): number {
           throw new Error('hostile reading');
@@ -1572,7 +1575,7 @@ describe('barometer capture (spec §6)', () => {
       },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await settle(80);
     });
@@ -1582,7 +1585,7 @@ describe('barometer capture (spec §6)', () => {
 
   test('the step counter is armed and released alongside the barometer', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     expect(h.stepCounterLifecycle).toEqual(['start']);
     h.tick(80);
@@ -1613,7 +1616,7 @@ describe('barometer capture (spec §6)', () => {
       stepCounter: { start: () => new Promise<void>(() => {}) },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await settle(80);
     });
@@ -1627,10 +1630,10 @@ describe('barometer capture (spec §6)', () => {
       nativeTimeoutMs: 60_000,
       stepCounter: { start: () => new Promise<void>(() => {}) },
     });
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     h.engine.reset();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     expect(h.elevationCalls).toEqual(['start', 'stop', 'start']);
   });
@@ -1638,7 +1641,7 @@ describe('barometer capture (spec §6)', () => {
   test('a failed flush returns its rows with their original seq, never renumbered', async () => {
     const h = makeEngine();
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       await flush(); // let the flush that follows startRun settle, so the buffers are clean
       h.emitReading(readingAt(1, 1013)); // seq 0
       h.emitReading(readingAt(2, Number.NaN)); // consumes seq 1 and is dropped: the gap is real
@@ -1659,7 +1662,7 @@ describe('barometer capture (spec §6)', () => {
 
   test('a resumed run continues its log seq instead of restarting it', async () => {
     const live = makeEngine();
-    live.engine.start(SESSION);
+    live.engine.start(scriptedPlan(SESSION));
     live.emitReading(readingAt(1, 1013));
     live.emitReading(readingAt(2, 1012));
     live.fireFlush();
@@ -1707,7 +1710,7 @@ describe('barometer capture (spec §6)', () => {
 
   test('an entry noted at finalize reaches the store even with no points pending', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush(); // the cadence flush drains first, so only the finalize drain is left to carry it
     h.tick(80); // completes with no GPS fix ever ingested
     await flush();
@@ -1720,7 +1723,7 @@ describe('barometer capture (spec §6)', () => {
 
   test("a reading taken in a run's last seconds is drained at finalize", async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush(); // drains the log, so the reading below is the only thing pending
     h.emitReading(readingAt(11, 1013));
     h.engine.endEarly(); // no completion cue, so this sample is pending with no entry beside it
@@ -1730,7 +1733,7 @@ describe('barometer capture (spec §6)', () => {
 
   test('an accuracy-rejected fix is logged; a velocity-gated one is not, since it is persisted', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.feed(fixAt(2, 59, 18, 60)); // accuracy 60 m → rejected outright
     h.feed(fixAt(3, 61, 18)); // implausible jump: gated by the smoother, but still buffered
     h.fireFlush();
@@ -1745,7 +1748,7 @@ describe('barometer capture (spec §6)', () => {
 
   test('every flush attempt leaves an aliveness tick, with no GPS fix at all', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     h.fireFlush();
     await flush();
@@ -1757,10 +1760,10 @@ describe('barometer capture (spec §6)', () => {
 
   test('start() and reset() clear the log, so no row crosses into another run', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.emitReading(readingAt(1, 1013));
     h.engine.reset();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.emitReading(readingAt(2, 1012));
     h.fireFlush();
     await flush();
@@ -1776,7 +1779,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
 
   test('the event log — including pause/resume timestamps — survives into the finalizeRun path', async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(30);
     h.engine.pause();
     h.advance(10); // paused; wall clock moves, active elapsed does not
@@ -1795,7 +1798,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
   test('the event log survives finalize through the saveRun fallback path too — same shape, no active row', async () => {
     const h = makeEngine({ failStartRunTimes: Number.POSITIVE_INFINITY });
     await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(30);
       h.engine.pause();
       h.engine.resume();
@@ -1813,7 +1816,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
   test('the step count is queried with Date objects spanning the run, and noted into the log', async () => {
     const h = makeEngine();
     h.setStepCounterReturn(123);
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(80); // completes; the wall clock ran the full 80s even though elapsed caps at 75
     await flush();
     expect(h.stepCounterCalls).toHaveLength(1);
@@ -1834,7 +1837,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       stepCounter: { read: () => Promise.reject(new Error('motion denied')) },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await flush();
     });
@@ -1845,7 +1848,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
 
   test("the finalized record carries this run's motion permission", async () => {
     const h = makeEngine();
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     h.tick(80);
     await flush();
     expect(h.finalized[0].record.motionPermission).toBe('granted');
@@ -1857,7 +1860,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       elevation: { ...broken.source, getPermissionStatus: () => Promise.reject(new Error('nope')) },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await flush();
     });
@@ -1872,7 +1875,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       stepCounter: { read: () => new Promise<number | null>(() => {}) },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await settle(80);
     });
@@ -1900,7 +1903,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       },
     });
     const warnings = await withoutWarnings(async () => {
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       h.tick(80);
       await settle(80);
     });
@@ -1924,7 +1927,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
         },
       },
     });
-    h.engine.start(SESSION);
+    h.engine.start(scriptedPlan(SESSION));
     await flush();
     h.tick(80);
     await settle(20);
@@ -1937,7 +1940,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
     const h = makeEngine();
     const warnings = await withoutWarnings(async () => {
       h.setFailFlush(true);
-      h.engine.start(SESSION);
+      h.engine.start(scriptedPlan(SESSION));
       await flush();
       h.tick(80);
       await flush();
@@ -1953,19 +1956,21 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
 describe('field-test cue suppression (spec §8.0)', () => {
   test('start() suppresses every cue for a field-test session', () => {
     const { engine, cues, tick } = makeEngine();
-    engine.start({
-      key: FIELD_TEST_SESSION_KEY,
-      week: 0,
-      day: 0,
-      segments: [{ kind: 'walk', seconds: 3600 }],
-    });
+    engine.start(
+      scriptedPlan({
+        key: FIELD_TEST_SESSION_KEY,
+        week: 0,
+        day: 0,
+        segments: [{ kind: 'walk', seconds: 3600 }],
+      }),
+    );
     tick(10);
     expect(cues).toEqual([]);
   });
 
   test('start() still announces cues for an ordinary plan session', () => {
     const { engine, cues } = makeEngine();
-    engine.start(SESSION); // w1d1 — not a field-test key
+    engine.start(scriptedPlan(SESSION)); // w1d1 — not a field-test key
     expect(cues).toEqual(['warmupStart']);
   });
 

@@ -1,4 +1,4 @@
-import { FREE_RUN_KEY, isFreeRun, type RunPlan } from '@/domain/free-run';
+import { FREE_RUN_PLAN, isFreeRun, scriptedPlan, type RunPlan } from '@/domain/free-run';
 import type { PlanSession } from '@/domain/plan';
 
 /**
@@ -42,12 +42,12 @@ export function planOf(
   sessionKey: string,
   planSession: (key: string) => PlanSession | undefined,
 ): { plan: RunPlan; offerable: boolean } | null {
-  if (isFreeRun(sessionKey)) return { plan: { mode: 'open', key: FREE_RUN_KEY }, offerable: true };
+  if (isFreeRun(sessionKey)) return { plan: FREE_RUN_PLAN, offerable: true };
   if (isFieldTestRun(sessionKey)) {
-    return { plan: { mode: 'scripted', session: fieldTestSession() }, offerable: false };
+    return { plan: scriptedPlan(fieldTestSession()), offerable: false };
   }
   const session = planSession(sessionKey);
-  return session ? { plan: { mode: 'scripted', session }, offerable: true } : null;
+  return session ? { plan: scriptedPlan(session), offerable: true } : null;
 }
 
 /**

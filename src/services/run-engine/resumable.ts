@@ -52,14 +52,6 @@ function parseLogSeq(value: unknown): RunSnapshotState['logSeq'] {
   return { sampleSeq, entrySeq };
 }
 
-function parseModeState(value: unknown): RunSnapshotState['modeState'] {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const { thresholdMps } = value as { thresholdMps?: unknown };
-  return typeof thresholdMps === 'number' && Number.isFinite(thresholdMps) && thresholdMps > 0
-    ? { thresholdMps }
-    : undefined;
-}
-
 /**
  * Narrows an untrusted `state_json` payload; null for anything the engine could not replay. An
  * `end` event is such a case: the run it belongs to already finished, so there is nothing to recover.
@@ -83,7 +75,7 @@ export function parseSnapshotState(value: unknown): RunSnapshotState | null {
     halfwayFired: state.halfwayFired,
     lastAcceptedFix: parseFix(state.lastAcceptedFix),
     logSeq: parseLogSeq(state.logSeq),
-    ...(parseModeState(state.modeState) && { modeState: parseModeState(state.modeState) }),
+    ...(state.modeState !== undefined && { modeState: state.modeState }),
     ...(state.discarding === true && { discarding: true }),
   };
 }

@@ -11,15 +11,11 @@ import {
   type SmootherState,
 } from '@/domain/geo';
 import { pausedIntervals, type PausedInterval } from '@/domain/run-altitude';
-import {
-  createOpenTrackState,
-  MOTION,
-  openTrackStep,
-  type OpenTrackState,
-} from '@/domain/run-motion';
+import { createOpenTrackState, openTrackStep, type OpenTrackState } from '@/domain/run-motion';
 import { paceSecPerKm } from '@/domain/run-stats';
 import { isFieldTestRun } from '@/services/field-test';
 import { RESUME_GRACE_MS } from './resumable';
+import type { RunLogKind } from './run-log';
 import type {
   CompletedSegmentRecord,
   OpenRunSnapshot,
@@ -114,26 +110,39 @@ export type FinalizeOrigin = 'runner' | 'limit' | 'abandon';
 /** What the runner asked for; only a mode that `canDiscard` honours a discard. */
 export type FinalizeIntent = 'save' | 'discard';
 
-export interface ModeFinal {
-  kind: 'completed' | 'endedEarly';
-  /** Where the run's `end` event goes. */
+export interface FinalizeRequest {
+  /** The log before its `end` event. */
+  events: readonly RunEvent[];
+  /** Where the engine would put `end`; the mode may move it (a free run's cap). */
   endAt: number;
-  elapsedS: number;
-  segments: CompletedSegmentRecord[];
-  outcome: FinalizeIntent;
-  /** A free run's buckets are derived from its points at finalize (ADR 0026 §4). */
-  derived?: { thresholdMps: number };
+  requested: 'completed' | 'endedEarly';
+  origin: FinalizeOrigin;
+  intent: FinalizeIntent;
 }
 
-/** A scripted run's cue watermarks, which a crash-resume carries across processes. */
-export interface ModeCueState {
+export type ModeFinal =
+  | { outcome: 'discard' }
+  | {
+      outcome: 'save';
+      kind: 'completed' | 'endedEarly';
+      endAt: number;
+      elapsedS: number;
+      segments: CompletedSegmentRecord[];
+      /** A free run's buckets are derived from its points at finalize (ADR 0026 §4). */
+      derived?: { thresholdMps: number };
+    };
+
+/** What a mode persists in the snapshot state, and is rebuilt from on resume. */
+export interface ModeStateFields {
   lastAnnouncedIndex: number;
   halfwayFired: boolean;
+  /** Owned by the mode: persisted as given, parsed only by the mode that wrote it. */
+  modeState?: unknown;
 }
 
-/** What a mode persists in the snapshot state; an open run adds its threshold. */
-export interface ModeStateFields extends ModeCueState {
-  modeState?: { thresholdMps: number };
+export interface ModeDeps {
+  /** A free run's starting threshold; asked only when no saved one survives (ADR 0026 §3). */
+  thresholdMps: () => number;
 }
 
 /**
@@ -157,25 +166,17 @@ export interface RunMode {
   exhausted(events: readonly RunEvent[], now: number): boolean;
   /** How long after its last flush an interrupted run is still offered for resume. */
   resumeWindowMs(): number;
-  /** Over the log before its `end` event; `endAt` is where the engine would put it. */
-  finalize(
-    events: readonly RunEvent[],
-    endAt: number,
-    requested: 'completed' | 'endedEarly',
-    origin: FinalizeOrigin,
-    intent: FinalizeIntent,
-  ): ModeFinal;
+  finalize(request: FinalizeRequest): ModeFinal;
   stateFields(): ModeStateFields;
+  /** Logged once when a new run starts (spec §6). */
+  startNote(): { kind: RunLogKind; detail: unknown } | null;
 }
 
-/** The one place a run's mode is made — for a new run, a resume, or an abandon. */
-export function modeFor(
-  plan: RunPlan,
-  { saved, thresholdMps }: { saved?: ModeCueState; thresholdMps?: number } = {},
-): RunMode {
+/** The one place a run's mode is made — a new run with no `saved`, or a resume or abandon from it. */
+export function modeFor(plan: RunPlan, deps: ModeDeps, saved?: ModeStateFields): RunMode {
   return plan.mode === 'scripted'
     ? new ScriptedMode(plan.session, saved)
-    : new OpenMode(thresholdMps ?? MOTION.fallbackThresholdMps);
+    : new OpenMode(OpenMode.savedThreshold(saved?.modeState) ?? deps.thresholdMps());
 }
 
 /** A plan session's run: the scripted timeline (ADR 0007). */
@@ -197,7 +198,7 @@ export class ScriptedMode implements RunMode {
 
   constructor(
     session: PlanSession,
-    cueState: ModeCueState = { lastAnnouncedIndex: -1, halfwayFired: false },
+    cueState: ModeStateFields = { lastAnnouncedIndex: -1, halfwayFired: false },
   ) {
     this.session = session;
     this.key = session.key;
@@ -283,12 +284,7 @@ export class ScriptedMode implements RunMode {
     return {};
   }
 
-  finalize(
-    events: readonly RunEvent[],
-    endAt: number,
-    requested: 'completed' | 'endedEarly',
-    origin: FinalizeOrigin,
-  ): ModeFinal {
+  finalize({ events, endAt, requested, origin }: FinalizeRequest): ModeFinal {
     const timeline = this.timeline(events);
     // Completion is capped at timeline exhaustion (ADR 0007).
     const elapsedS = Math.min(activeElapsedMs(events, endAt) / 1000, totalSeconds(timeline));
@@ -319,8 +315,12 @@ export class ScriptedMode implements RunMode {
     };
   }
 
-  stateFields(): ModeCueState {
+  stateFields(): ModeStateFields {
     return { lastAnnouncedIndex: this.lastAnnouncedIndex, halfwayFired: this.halfwayFired };
+  }
+
+  startNote(): null {
+    return null;
   }
 
   ingest(fix: LocationFix): number {
@@ -348,6 +348,15 @@ export class OpenMode implements RunMode {
 
   constructor(thresholdMps: number) {
     this.thresholdMps = thresholdMps;
+  }
+
+  /** The threshold a snapshot's `modeState` carries; undefined for anything else. */
+  static savedThreshold(modeState: unknown): number | undefined {
+    if (typeof modeState !== 'object' || modeState === null) return undefined;
+    const { thresholdMps } = modeState as { thresholdMps?: unknown };
+    return typeof thresholdMps === 'number' && Number.isFinite(thresholdMps) && thresholdMps > 0
+      ? thresholdMps
+      : undefined;
   }
 
   private paused(events: readonly RunEvent[]): PausedInterval[] {
@@ -433,24 +442,20 @@ export class OpenMode implements RunMode {
     return OPEN_LIMITS.resumeWindowMs;
   }
 
-  finalize(
-    events: readonly RunEvent[],
-    endAt: number,
-    _requested: 'completed' | 'endedEarly',
-    _origin: FinalizeOrigin,
-    intent: FinalizeIntent,
-  ): ModeFinal {
+  finalize({ events, endAt, intent }: FinalizeRequest): ModeFinal {
+    if (intent === 'discard') return { outcome: 'discard' };
     const pastCap = activeElapsedMs(events, endAt) > OPEN_LIMITS.capActiveS * 1000;
     const end = pastCap ? (wallClockAtActive(events, OPEN_LIMITS.capActiveS) ?? endAt) : endAt;
     const elapsedS = Math.min(activeElapsedMs(events, end) / 1000, OPEN_LIMITS.capActiveS);
+    // why the minimum here too, beside deriveOpenRun's: a run that short is deleted without the
+    // finalize work. The derivation still decides after trimming a trailing stop.
+    if (elapsedS < OPEN_LIMITS.minActiveS) return { outcome: 'discard' };
     return {
+      outcome: 'save',
       kind: 'completed',
       endAt: end,
       elapsedS,
       segments: [],
-      // why the minimum here too, beside deriveOpenRun's: the engine must not congratulate a run
-      // it is about to delete. The derivation still decides after trimming a trailing stop.
-      outcome: intent === 'discard' || elapsedS < OPEN_LIMITS.minActiveS ? 'discard' : 'save',
       derived: { thresholdMps: this.thresholdMps },
     };
   }
@@ -461,5 +466,9 @@ export class OpenMode implements RunMode {
       halfwayFired: false,
       modeState: { thresholdMps: this.thresholdMps },
     };
+  }
+
+  startNote() {
+    return { kind: 'motion_threshold' as const, detail: { thresholdMps: this.thresholdMps } };
   }
 }

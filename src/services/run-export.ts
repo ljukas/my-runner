@@ -54,6 +54,7 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
     const text = toRunExport({
       exportedAt: new Date().toISOString(),
       device: {
+        platform: Platform.OS === 'android' ? 'android' : 'ios',
         // expo-device is deliberately not installed for one header field (Task 5 brief).
         deviceName: Constants.deviceName ?? 'unknown',
         osVersion: String(Platform.Version),

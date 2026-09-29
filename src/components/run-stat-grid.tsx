@@ -1,6 +1,6 @@
 import { StatGrid } from '@/components/stat-grid';
 import type { Run, RunSegment } from '@/db/schema';
-import { clockParts, distanceParts, paceParts } from '@/domain/format';
+import { clockParts, distanceParts, elevationParts, paceParts } from '@/domain/format';
 import { hasMeasuredDistance, paceSecPerKm, runStats } from '@/domain/run-stats';
 import { useStatColors } from '@/hooks/use-theme';
 
@@ -9,9 +9,18 @@ import { useStatColors } from '@/hooks/use-theme';
  * owns which stats appear and their symbols, tints, and units, deriving
  * them from the run and its segments. Distance and pace are derived here, never
  * stored (ADR 0021), and drop out entirely for a run that recorded no measured
- * movement — GPS off, or drift too slow to be a measurement (spec §8).
+ * movement — GPS off, or drift too slow to be a measurement (spec §8). `elevationGainM` is null
+ * whenever `deriveRunSummary` withholds the Run elevation.
  */
-export function RunStatGrid({ run, segments }: { run: Run; segments: RunSegment[] }) {
+export function RunStatGrid({
+  run,
+  segments,
+  elevationGainM,
+}: {
+  run: Run;
+  segments: RunSegment[];
+  elevationGainM: number | null;
+}) {
   const stats = runStats(segments);
   const stat = useStatColors();
   const distanceM = hasMeasuredDistance(run.distanceM, run.activeDurationS) ? run.distanceM : null;
@@ -43,6 +52,14 @@ export function RunStatGrid({ run, segments }: { run: Run; segments: RunSegment[
             label="Avg Pace"
             {...paceParts(paceSecPerKm(distanceM, run.activeDurationS))}
           />
+          {elevationGainM !== null ? (
+            <StatGrid.Tile
+              icon={{ ios: 'mountain.2.fill', android: 'terrain' }}
+              color={stat.elevation}
+              label="Elevation Gain"
+              {...elevationParts(elevationGainM)}
+            />
+          ) : null}
         </>
       ) : null}
     </StatGrid>

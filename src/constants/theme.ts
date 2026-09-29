@@ -82,6 +82,7 @@ export const StatColors: Record<
     activeTime: string;
     distance: string;
     pace: string;
+    elevation: string;
   }
 > = {
   light: {
@@ -89,12 +90,15 @@ export const StatColors: Record<
     activeTime: '#007AFF', // systemBlue
     distance: '#5856D6', // systemIndigo
     pace: '#AF52DE', // systemPurple
+    // why not systemGreen #34C759: ~2.2:1 on white is too faint for a 2 pt chart line.
+    elevation: '#248A3D', // accessible systemGreen
   },
   dark: {
     running: '#FF453A',
     activeTime: '#0A84FF',
     distance: '#5E5CE6',
     pace: '#BF5AF2',
+    elevation: '#30D158',
   },
 };
 

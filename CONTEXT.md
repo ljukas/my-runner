@@ -28,6 +28,22 @@ lazily — add a term when a module gets named after it.
   `completedSessionKeys`. The collapse/expand ("group closing") state persists
   across sessions as a **plan-view** kv-store preference (ADR 0023).
 
+## Run summary
+
+- **Run summary derivation** — the pure projection from a finished **Run**'s
+  stored fixes and altitude samples to what its summary may show: the route, the
+  profile, and the elevation, each independently gated and failure-isolated
+  (`deriveRunSummary`; the route viewer's `deriveRunRoute`). The one place that
+  decides whether a card has enough data to appear.
+- **Profile grid** — the uniform distance grid the summary's chart plots on.
+  Every series (pace, elevation) is bucketed onto the same grid from one fold of
+  the fixes, so they share an x axis by construction (`toRunProfile`).
+- **Run elevation** — a Run's gain, loss and relative-altitude series, derived
+  from barometer pressure (`runElevation`, ADR 0015). The seam where drift
+  correction or a GPS-altitude fallback would change the derivation. Shown to the
+  runner as an **estimate**; a Run with barometer samples but too little data
+  says so instead of showing a number.
+
 ## View layer
 
 - **Primitive** — a style component in `src/components/ui/`: carries cva

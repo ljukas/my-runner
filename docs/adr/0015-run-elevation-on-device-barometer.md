@@ -1,13 +1,17 @@
 # 15. Run elevation: on-device barometer-first behind an Elevation port, network DEM excluded from the default
 
 > **Android: stage 6 (elevation) is built** ([ADR 0025](0025-android-staged-migration.md)) — the Android barometer capture and what became of the GPS fallback are in [Amendment (2026-09-27)](#amendment-2026-09-27-android-capture).
+>
+> **Elevation is shown on both platforms since 2026-09-29**, as an estimate with weather drift accepted — see [Amendment (2026-09-29)](#amendment-2026-09-29-elevation-shown-as-an-estimate).
 
 Date: 2026-07-13
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on approval. Numbered 0015 because
-0014 is taken by the in-flight text-first-Maestro-selectors ADR on another branch.
+Accepted (2026-09-29), with elevation shown on the run summary as an estimate — see
+[Amendment (2026-09-29)](#amendment-2026-09-29-elevation-shown-as-an-estimate).
+Proposed 2026-07-13; numbered 0015 because 0014 was taken by the then in-flight
+text-first-Maestro-selectors ADR.
 **Amended 2026-08-03** with measurements from the run-elevation-and-pace-chart
 slice — see [Amendment (2026-08-03)](#amendment-2026-08-03). **Amended 2026-08-04**
 with what the run-barometer-field-logging slice settled — see
@@ -683,3 +687,78 @@ nowhere, on either platform.** What the stage settled:
    has no altitude. Gain and loss are unaffected (the geoid offset is locally
    constant); absolute values are ~20–30 m high in Sweden.
 
+## Amendment (2026-09-29): elevation shown as an estimate
+
+The render slice, on both platforms. It settles the question the 2026-08-06
+amendment left open — how the reducer should handle drift — by **accepting drift for
+now** rather than correcting it, on the owner's call: real runs will be compared
+against real-world height maps later, and that comparison is what drift correction
+should be tuned against. Until then the number is shown, and labelled an estimate.
+
+1. **Configuration: `BAROMETER_ELEVATION_CONFIG = { medianWindow: 5, hysteresisM: 1 }`**
+   (`domain/elevation.ts`), chosen over the eight captures with the shipped reducer:
+
+   | config | same route, three days apart (`w4d1` · `w4d1`) | stationary hour | stairwell (barometric 33.6 m) |
+   |---|---|---|---|
+   | **w5 h1** | **47.1 · 46.8 m** gain | 0 gain / 5.1 m loss | 18.7 m |
+   | w9 h2 | 41.2 · 35.2 m | 0 / 4.0 m | 0.0 m |
+   | w31 h10 (GPS pair) | 20.0 · 20.2 m | 0 / 0 m | 0.0 m |
+
+   It is repeatable to 0.3 m on the same route, keeps half of a fast stairwell's climb
+   where every window of 15+ erases it (capture 2), and a 5-sample median still rejects
+   single-sample steps like the heat pump's 0.46 m ones. **The cost is the accepted
+   one:** drift banks at roughly 5 m per stationary hour — 0.3–2.5 m over a 30-minute
+   run. The 2026-08-06 amendment's finding stands (no `(window, hysteresis)` pair
+   rejects drift and sees terrain); this pair chooses terrain.
+2. **The input is pressure, not `relativeAltitudeM`.** `runElevation`
+   (`domain/run-altitude.ts`) converts every stored `pressureHpa` with the
+   standard-atmosphere formula, now in `domain/elevation.ts` and reused by the
+   Android adapter. Pressure is the one quantity continuous across an `epoch` rebase
+   and measured the same way on both platforms, so `epoch` and `relativeAltitudeM`
+   are ignored and a resumed run folds as one series.
+3. **Suspension gaps are folded across, not declined.** This supersedes the
+   2026-08-03 amendment's rule that a total spanning a gap "must be declined". That
+   rule assumed a relative-altitude input that restarts after the gap; with pressure
+   the gap banks its net change and loses only the terrain inside it — an under-count,
+   never fabricated gain.
+4. **Item 5 (storage) resolves as re-derived, not stored.** Like the pace chart,
+   elevation is folded from `run_altitude_samples` on every open of the summary; no
+   `runs` column, no migration. A stored total would freeze whichever drift model
+   was current when the run was saved.
+5. **Item 2's GPS fallback is not built.** A run without barometer samples shows no
+   elevation. The spec's own measurements (2026-08-03) show GPS altitude banks ~92 m
+   of phantom gain in poor sky, and Android's ellipsoidal/zero-for-missing altitude
+   (2026-09-27, item 6) would need normalising first. `runElevation` is the seam a
+   fallback would join.
+6. **What the runner sees, gated in one place.** `deriveRunSummary`
+   (`domain/run-summary.ts`) decides it, pure and under `bun test`:
+   - **An Elevation Gain tile**, a relative-elevation line on the pace chart (its own
+     left axis, heading "Pace & Elevation"), and the note *"Elevation is estimated from
+     air pressure and can drift with the weather."* — when the run has a route, a
+     measured distance and enough samples to fill the window.
+   - **"Elevation requires more data."** when the run recorded barometer samples but
+     one of those is missing. One route gate covers the map, the chart and the
+     elevation, so a treadmill session never shows drift as climb.
+   - **Nothing** when there are no samples at all (no barometer, or motion access
+     denied) — "more data" would be untrue there.
+7. **Not written to health stores.** Apple Health's elevation metadata remains
+   unwritable through the library (the HealthKit capability ledger, §2.2), and Health
+   Connect's `ElevationGainedRecord` would need a new permission; neither is worth it
+   for a figure the app itself calls an estimate.
+8. **Height-map comparison is recorded, not built.** No offline height model is
+   available yet. When it is, the comparison runs **offline, in the analyzer, never
+   in the app** — item 6's network-DEM exclusion stands, and every export begins and
+   ends at the runner's front door, so a per-route lookup against an online API would
+   publish their address. Its target is the drift term, and its landing place is
+   `runElevation`.
+9. **Exports name their platform.** `device.platform` (`Platform.OS`) joins the
+   export header, so a reader never infers it from `osVersion`; exports written
+   before this amendment lack it and were all iOS. The analyzer
+   (`scripts/analyze-field-capture.ts`) now folds the same pressure input as the app,
+   prints what the app shows (`runElevation`), and reports Android's rebase check as
+   not applicable (its `relativeAltitudeM` is derived from pressure). The eight
+   committed summaries were regenerated under summary `schema: 2`; every figure this
+   ADR cites held to within rounding.
+10. **Open:** no Android hardware capture exists yet — the Android path is verified
+    on the emulator's scripted barometer only, which proves the plumbing, not the
+    sensor. Comparing matching iOS and Android runs is the next measurement.

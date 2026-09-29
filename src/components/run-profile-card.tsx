@@ -4,30 +4,25 @@ import { RunProfileChart } from '@/components/run-profile-chart';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
-import { formatDistanceKm, formatPace, paceParts } from '@/domain/format';
-import { paceRange } from '@/domain/run-profile';
-import { hasMeasuredDistance } from '@/domain/run-stats';
+import { formatDistanceKm, formatElevation, formatPace, paceParts } from '@/domain/format';
+import { isDrawableElevation, paceRange } from '@/domain/run-profile';
 import type { RunTrack } from '@/hooks/use-run-track';
+import { useStatColors } from '@/hooks/use-theme';
 
 /**
- * A finished run's pace profile (ADR 0013 domain component). Renders nothing without a usable
- * route — it shares `useRunTrack`'s readiness with the route card, which already explains why
- * such a run has no GPS data, and a second explanatory card would be noise.
- *
- * Pace only: elevation is deferred whole (spec §3.6) because the smoothed series fabricates
- * terrain on flat ground, so both the line and its totals wait for the barometer slice.
+ * A finished run's pace profile, with its elevation when the run carries one (ADR 0013 domain
+ * component). Renders nothing when `deriveRunSummary` withholds the profile — the route card
+ * already explains why such a run has no GPS data, and a second explanatory card would be noise.
  */
 export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
-  // why a second gate: `track.ready` is spatial — a 100 m bbox diagonal — while `RunStatGrid` and
-  // `SegmentSplits` gate on a 0.5 m/s speed floor. A slow shuffle clears the first and fails the
-  // second, and charting a min/km line on a summary that withholds pace everywhere else is the
-  // divergence this closes; it also stopped the label announcing a distance the chart contradicts.
-  if (!track.ready || !track.profile) return null;
-  if (!hasMeasuredDistance(run.distanceM, run.activeDurationS)) return null;
+  const stat = useStatColors();
+  if (!track.ready || !track.profile || run.distanceM === null) return null;
 
+  const withElevation = isDrawableElevation(track.profile);
+  const elevation = track.elevation?.status === 'estimated' ? track.elevation : null;
   const range = paceRange(track.profile);
   const label = [
-    `Pace profile over ${formatDistanceKm(run.distanceM)}.`,
+    `${withElevation ? 'Pace and elevation' : 'Pace'} profile over ${formatDistanceKm(run.distanceM)}.`,
     range &&
       `The chart spans ${paceParts(range.fastestSecPerKm).value} to ${formatPace(range.slowestSecPerKm)}.`,
     // why only when clipped: the line visibly exits the plot, and the label is a VoiceOver user's
@@ -37,29 +32,51 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
       `${range.clippedCount} slower ${range.clippedCount === 1 ? 'point' : 'points'} ` +
         `${range.clippedCount === 1 ? 'reaches' : 'reach'} ` +
         `${formatPace(range.clippedSlowestSecPerKm)}, above the chart.`,
+    withElevation &&
+      elevation &&
+      `Estimated elevation gain ${formatElevation(elevation.gainM)}, ` +
+        `loss ${formatElevation(elevation.lossM)}.`,
   ]
     .filter(Boolean)
     .join(' ');
 
+  const title = (
+    <Text variant="footnote" tone="secondary" className="font-semibold" accessibilityRole="header">
+      {withElevation ? 'Pace & Elevation' : 'Pace'}
+    </Text>
+  );
+  const paceUnit = (
+    <Text
+      variant="caption"
+      tone="secondary"
+      style={withElevation ? { color: stat.pace } : undefined}
+    >
+      min/km
+    </Text>
+  );
+
   return (
     <Card surface="card" className="gap-3">
-      {/* why the pace unit rides the heading: HIG "Charts" tells a compact chart to describe units
-          "in other areas of the chart, such as in a title", and the unit sits at the row's right
-          end because that's where the y ticks it names now render (`axisSide: 'right'`). `Pace`
-          stays the card title at the left; the x unit is on the x axis. */}
-      <View className="flex-row items-baseline justify-between">
-        <Text
-          variant="footnote"
-          tone="secondary"
-          className="font-semibold"
-          accessibilityRole="header"
-        >
-          Pace
-        </Text>
-        <Text variant="caption" tone="secondary">
-          min/km
-        </Text>
-      </View>
+      {/* why each unit rides the heading at its axis's side: HIG "Charts" tells a compact chart to
+          describe units "in other areas of the chart, such as in a title", and the ticks each unit
+          names render at that edge (pace `axisSide: 'right'`, elevation `'left'`). With both, the
+          units take their lines' tints because colour is what tells the two series apart. */}
+      {withElevation ? (
+        <View className="gap-1">
+          {title}
+          <View className="flex-row items-baseline justify-between">
+            <Text variant="caption" style={{ color: stat.elevation }}>
+              m
+            </Text>
+            {paceUnit}
+          </View>
+        </View>
+      ) : (
+        <View className="flex-row items-baseline justify-between">
+          {title}
+          {paceUnit}
+        </View>
+      )}
 
       {/* why the label lives here: the chart is a Skia canvas and carries no accessible
           content of its own, so the card is the only thing VoiceOver can read. */}

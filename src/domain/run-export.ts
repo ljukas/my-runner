@@ -4,6 +4,8 @@ export const RUN_EXPORT_MAGIC = 'runbro-export/1';
 export const RUN_EXPORT_SCHEMA = 1;
 
 export interface RunExportDevice {
+  /** `Platform.OS`. Absent from exports written before 2026-09-29, which were all iOS. */
+  platform: 'ios' | 'android';
   deviceName: string;
   osVersion: string;
   appVersion: string;

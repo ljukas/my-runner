@@ -72,7 +72,7 @@ export const runPoints = sqliteTable(
 
 /**
  * Raw barometer readings at the sensor's own cadence — product data, not diagnostics:
- * the render slice folds these through `domain/elevation.ts` (ADR 0015 item 5).
+ * the run summary folds them through `runElevation` on every open (ADR 0015, 2026-09-29).
  *
  * why no primary key, unlike `run_points`: `restore()` rebuilds the point `seq` counter and
  * nothing rebuilds this one, so a `(run_id, seq)` PK made a resumed run's first flush throw

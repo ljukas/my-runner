@@ -10,7 +10,8 @@ import { loadAltitudeSamples, loadRunLog } from '@/db/run-log';
 import { loadBufferedRunPoints } from '@/db/run-points';
 import { runIsResult } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
-import { toExportPoints, toRunExport, type ExportEvent } from '@/domain/run-export';
+import { parseEventLog } from '@/domain/run-altitude';
+import { toExportPoints, toRunExport } from '@/domain/run-export';
 
 function fileName(runId: string, startedAt: string): string {
   const stamp = startedAt.replace(/[-:]/g, '').replace('T', '-').slice(0, 13);
@@ -41,15 +42,6 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
 
     const points = toExportPoints(loadBufferedRunPoints(runId));
     const samples = loadAltitudeSamples(runId);
-
-    let events: ExportEvent[] = [];
-    if (run.eventLogJson) {
-      try {
-        events = JSON.parse(run.eventLogJson) as ExportEvent[];
-      } catch {
-        events = [];
-      }
-    }
 
     const text = toRunExport({
       exportedAt: new Date().toISOString(),
@@ -84,7 +76,7 @@ export async function exportRun(runId: string): Promise<'shared' | 'unavailable'
       points,
       samples,
       log: loadRunLog(runId),
-      events,
+      events: parseEventLog(run.eventLogJson),
     });
 
     const file = new File(Paths.cache, fileName(runId, run.startedAt));

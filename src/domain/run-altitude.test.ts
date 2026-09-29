@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import { altitudePressureHpa, BAROMETER_ELEVATION_CONFIG, pressureAltitudeM } from './elevation';
-import { pausedIntervals, runElevation, type StoredAltitudeSample } from './run-altitude';
+import {
+  parseEventLog,
+  pausedIntervals,
+  runElevation,
+  type StoredAltitudeSample,
+} from './run-altitude';
 
 const START_MS = Date.parse('2026-08-05T18:32:10.000Z');
 const BASE_ALTITUDE_M = 70;
@@ -141,6 +146,26 @@ describe('pausedIntervals', () => {
       { fromMs: 10, toMs: 20 },
       { fromMs: 30, toMs: Infinity },
     ]);
+  });
+});
+
+describe('parseEventLog', () => {
+  test('keeps well-formed events and drops the rest', () => {
+    const json = JSON.stringify([
+      { type: 'pause', at: 1 },
+      { type: 'resume' },
+      { type: 'end', at: 'late' },
+      null,
+      { type: 'resume', at: 2 },
+    ]);
+    expect(parseEventLog(json)).toEqual([
+      { type: 'pause', at: 1 },
+      { type: 'resume', at: 2 },
+    ]);
+  });
+
+  test('a missing, non-array or unparseable log reads as no events', () => {
+    for (const json of [null, '', '{}', 'not json']) expect(parseEventLog(json)).toEqual([]);
   });
 });
 

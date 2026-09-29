@@ -1,16 +1,19 @@
 import { DashPathEffect, matchFont } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
-import { PixelRatio, Platform, View } from 'react-native';
+import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
+import { SKIA_FONT_FAMILY } from '@/constants/skia-font';
 import { distanceParts, paceParts } from '@/domain/format';
-import { elevationChartDomain, paceChartDomain, type ProfilePoint } from '@/domain/run-profile';
+import {
+  elevationChartDomain,
+  paceChartDomain,
+  type ProfilePoint,
+  type ProfileSeriesKey,
+} from '@/domain/run-profile';
 import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
-// why named per platform: Skia's default family is iOS's, and Android's font manager matches
-// nothing for it, so every axis label painted blank there (skia-countdown's same fix).
-const AXIS_FONT_FAMILY = Platform.select({ android: 'sans-serif', default: 'System' });
 // why 160 and not the former 200: the x axis spends ~30 pt on its tick row and unit, leaving a
 // ~130 pt plot — the "not full-height" band HIG "Charts" asks of a card-sized chart, and still
 // tall enough to keep a W1D1's eight run/walk swings distinct (verified on device).
@@ -19,13 +22,11 @@ const CHART_HEIGHT = 160;
 // ~1.6× the axis labels claim more of the card than the line does.
 const MAX_FONT_SCALE = 1.6;
 
-type SeriesKey = 'paceSecPerKm' | 'elevationM';
-
 // why module scope: a fresh identity misses victory's axis and transform memos on every parent
 // render, re-measuring each label through Skia font metrics and re-parsing the path.
-const PACE_KEYS: SeriesKey[] = ['paceSecPerKm'];
-const ELEVATION_KEYS: SeriesKey[] = ['elevationM'];
-const ALL_KEYS: SeriesKey[] = ['paceSecPerKm', 'elevationM'];
+const PACE_KEYS: ProfileSeriesKey[] = ['paceSecPerKm'];
+const ELEVATION_KEYS: ProfileSeriesKey[] = ['elevationM'];
+const ALL_KEYS: ProfileSeriesKey[] = ['paceSecPerKm', 'elevationM'];
 
 // Ticks stay bare numbers; each axis names its own unit once (spec §7.2).
 
@@ -80,7 +81,7 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   const fontScale = Math.min(PixelRatio.getFontScale(), MAX_FONT_SCALE);
   const font = useMemo(
     () =>
-      matchFont({ fontFamily: AXIS_FONT_FAMILY, fontSize: Math.round(AXIS_FONT_SIZE * fontScale) }),
+      matchFont({ fontFamily: SKIA_FONT_FAMILY, fontSize: Math.round(AXIS_FONT_SIZE * fontScale) }),
     [fontScale],
   );
 

@@ -10,6 +10,8 @@ export type ProfilePoint = {
   elevationM: number | null;
 };
 
+export type ProfileSeriesKey = Exclude<keyof ProfilePoint, 'distanceM'>;
+
 /** Upper bound on the resampled point count; shorter runs get proportionally fewer. */
 export const PROFILE_SAMPLE_COUNT = 120;
 
@@ -74,8 +76,10 @@ function elevationBuckets(
  */
 export function toRunProfile(
   fixes: readonly LocationFix[],
-  bucketCount = bucketCountFor(fixes.length),
-  altitude: readonly TimedAltitude[] = [],
+  {
+    bucketCount = bucketCountFor(fixes.length),
+    altitude = [],
+  }: { bucketCount?: number; altitude?: readonly TimedAltitude[] } = {},
 ): ProfilePoint[] {
   if (fixes.length === 0) return [];
   if (!Number.isInteger(bucketCount) || bucketCount < 1) return [];
@@ -147,7 +151,7 @@ export function toRunProfile(
 
 // why: `Line` splits at nulls and a one-point group emits a move with no lineto, so a chart can
 // otherwise paint its axes around an empty canvas (spec §8).
-function hasAdjacentPair(points: readonly ProfilePoint[], key: 'paceSecPerKm' | 'elevationM') {
+function hasAdjacentPair(points: readonly ProfilePoint[], key: ProfileSeriesKey) {
   return points.some(
     (point, index) => index > 0 && point[key] !== null && points[index - 1][key] !== null,
   );

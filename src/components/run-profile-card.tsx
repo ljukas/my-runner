@@ -19,7 +19,8 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
   if (!track.ready || !track.profile || run.distanceM === null) return null;
 
   const withElevation = isDrawableElevation(track.profile);
-  const elevation = track.elevation?.status === 'estimated' ? track.elevation : null;
+  const elevation =
+    withElevation && track.elevation?.status === 'estimated' ? track.elevation : null;
   const range = paceRange(track.profile);
   const label = [
     `${withElevation ? 'Pace and elevation' : 'Pace'} profile over ${formatDistanceKm(run.distanceM)}.`,
@@ -32,8 +33,7 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
       `${range.clippedCount} slower ${range.clippedCount === 1 ? 'point' : 'points'} ` +
         `${range.clippedCount === 1 ? 'reaches' : 'reach'} ` +
         `${formatPace(range.clippedSlowestSecPerKm)}, above the chart.`,
-    withElevation &&
-      elevation &&
+    elevation &&
       `Estimated elevation gain ${formatElevation(elevation.gainM)}, ` +
         `loss ${formatElevation(elevation.lossM)}.`,
   ]
@@ -45,15 +45,6 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
       {withElevation ? 'Pace & Elevation' : 'Pace'}
     </Text>
   );
-  const paceUnit = (
-    <Text
-      variant="caption"
-      tone="secondary"
-      style={withElevation ? { color: stat.pace } : undefined}
-    >
-      min/km
-    </Text>
-  );
 
   return (
     <Card surface="card" className="gap-3">
@@ -61,22 +52,25 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
           describe units "in other areas of the chart, such as in a title", and the ticks each unit
           names render at that edge (pace `axisSide: 'right'`, elevation `'left'`). With both, the
           units take their lines' tints because colour is what tells the two series apart. */}
-      {withElevation ? (
-        <View className="gap-1">
-          {title}
-          <View className="flex-row items-baseline justify-between">
+      <View className="gap-1">
+        {withElevation ? title : null}
+        <View className="flex-row items-baseline justify-between">
+          {withElevation ? (
             <Text variant="caption" style={{ color: stat.elevation }}>
               m
             </Text>
-            {paceUnit}
-          </View>
+          ) : (
+            title
+          )}
+          <Text
+            variant="caption"
+            tone="secondary"
+            style={withElevation ? { color: stat.pace } : undefined}
+          >
+            min/km
+          </Text>
         </View>
-      ) : (
-        <View className="flex-row items-baseline justify-between">
-          {title}
-          {paceUnit}
-        </View>
-      )}
+      </View>
 
       {/* why the label lives here: the chart is a Skia canvas and carries no accessible
           content of its own, so the card is the only thing VoiceOver can read. */}

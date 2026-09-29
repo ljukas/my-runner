@@ -43,7 +43,6 @@ function summaryOf({ altitudeSamples = climbing(600, 20), ...overrides }: Summar
     pauses: [],
     distanceM: 1800,
     activeDurationS: 600,
-    epsilon: DP_EPSILON_M,
     ...overrides,
   });
 }
@@ -132,7 +131,6 @@ describe('deriveRunSummary', () => {
       pauses: [],
       distanceM: 0,
       activeDurationS: 60,
-      epsilon: DP_EPSILON_M,
     });
     expect(reads).toBe(0);
     expect(summary.elevation).toEqual({ status: 'insufficient' });

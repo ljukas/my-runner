@@ -5,7 +5,7 @@ import { hasAltitudeSamples, loadSummaryAltitudeSamples } from '@/db/run-log';
 import { loadRunFixes } from '@/db/run-points';
 import type { Run, RunSegment } from '@/db/schema';
 import { DP_EPSILON_M, type BoundingBox, type LatLng } from '@/domain/geo';
-import { pausedIntervals, type LoggedRunEvent } from '@/domain/run-altitude';
+import { parseEventLog, pausedIntervals } from '@/domain/run-altitude';
 import { toRouteLines } from '@/domain/route-render';
 import type { ProfilePoint } from '@/domain/run-profile';
 import {
@@ -36,22 +36,6 @@ export type RunTrack = (
   /** Independent of `ready`: a run can carry samples that are too few to place. */
   elevation: SummaryElevation | null;
 };
-
-// why lenient: a run saved before the event log was persisted carries none, and pauses are an
-// adjustment to elevation, never a reason to lose the rest of the summary.
-function parseEventLog(json: string | null): LoggedRunEvent[] {
-  if (!json) return [];
-  try {
-    const events: unknown = JSON.parse(json);
-    if (!Array.isArray(events)) return [];
-    return events.filter(
-      (event): event is LoggedRunEvent =>
-        typeof event?.type === 'string' && typeof event?.at === 'number',
-    );
-  } catch {
-    return [];
-  }
-}
 
 type RunTotals = Pick<Run, 'distanceM' | 'activeDurationS' | 'eventLogJson'>;
 
@@ -98,7 +82,6 @@ export function useRunTrack(
         pauses: pausedIntervals(parseEventLog(eventLogJson)),
         distanceM,
         activeDurationS,
-        epsilon: DP_EPSILON_M,
       });
     } catch (error) {
       // why: no ErrorBoundary wraps this route; a SQLite read failure must degrade to the

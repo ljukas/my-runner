@@ -1,10 +1,10 @@
-import { cva, type VariantProps } from 'class-variance-authority';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { ReactNode } from 'react';
 import { PixelRatio, useWindowDimensions, View } from 'react-native';
 
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
+import { cn } from '@/lib/cn';
 
 /**
  * The run summary's two-column stat tiles, all RN: the SF Rounded value face the
@@ -15,22 +15,16 @@ function StatGridRoot({ children }: { children: ReactNode }) {
   return <View className="flex-row flex-wrap justify-between gap-y-3">{children}</View>;
 }
 
-const tileVariants = cva('gap-5', {
-  variants: {
-    /** `full` for a tile that would otherwise sit alone in the grid's last row. */
-    width: { half: 'w-[48%]', full: 'w-full' },
-  },
-  defaultVariants: { width: 'half' },
-});
-
 function StatGridTile({
   icon,
   color,
   label,
   value,
   unit,
-  width,
-}: VariantProps<typeof tileVariants> & {
+  width = 'half',
+}: {
+  /** `full` for a tile that would otherwise sit alone in the grid's last row. */
+  width?: 'half' | 'full';
   icon: SymbolViewProps['name'];
   color: string;
   label: string;
@@ -40,7 +34,10 @@ function StatGridTile({
   const { fontScale } = useWindowDimensions();
   const stacked = fontScale >= 1.6;
   return (
-    <Card surface="card" className={tileVariants({ width: stacked ? 'full' : width })}>
+    <Card
+      surface="card"
+      className={cn(stacked || width === 'full' ? 'w-full' : 'w-[48%]', 'gap-5')}
+    >
       <View className="flex-row items-center gap-1.5">
         <SymbolView name={icon} size={16 * PixelRatio.getFontScale()} tintColor={color} />
         <Text

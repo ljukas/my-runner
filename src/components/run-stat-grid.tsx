@@ -10,8 +10,7 @@ import { useStatColors } from '@/hooks/use-theme';
  * owns which stats appear and their symbols, tints, and units, deriving
  * them from the run and its segments. Distance and pace are derived here, never
  * stored (ADR 0021), and drop out entirely for a run that recorded no measured
- * movement — GPS off, or drift too slow to be a measurement (spec §8). Elevation Gain shows only
- * for an estimated Run elevation.
+ * movement — GPS off, or drift too slow to be a measurement (spec §8).
  */
 export function RunStatGrid({
   run,

@@ -15,6 +15,22 @@ export interface LoggedRunEvent {
   at: number;
 }
 
+// why lenient: a run saved before the event log was persisted carries none, and a malformed log
+// must cost the pause adjustment, never the rest of the summary or the export.
+export function parseEventLog(json: string | null): LoggedRunEvent[] {
+  if (!json) return [];
+  try {
+    const events: unknown = JSON.parse(json);
+    if (!Array.isArray(events)) return [];
+    return events.filter(
+      (event): event is LoggedRunEvent =>
+        typeof event?.type === 'string' && Number.isFinite(event?.at),
+    );
+  } catch {
+    return [];
+  }
+}
+
 /** Epoch ms; `toMs` is Infinity for a pause the run ended in. */
 export interface PausedInterval {
   fromMs: number;

@@ -1,14 +1,13 @@
 import { Canvas, matchFont } from '@shopify/react-native-skia';
 import { SkiaTimeFlow } from 'number-flow-react-native/skia';
 import { useMemo, useState } from 'react';
-import { Platform, View } from 'react-native';
+import { View } from 'react-native';
 import { useAnimatedReaction, type SharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { SKIA_FONT_FAMILY } from '@/constants/skia-font';
+
 const FONT_SIZE = 80;
-// Skia's default family name is iOS's; Android's font manager matches nothing for it and the
-// clock paints blank, so the platform's own default family is named explicitly there.
-const FONT_FAMILY = Platform.select({ android: 'sans-serif', default: 'System' });
 // Tall/wide enough for the vertical digit roll plus SkiaTimeFlow's top/bottom
 // gradient fade; the clock is centred within the available width.
 const CANVAS_HEIGHT = 132;
@@ -36,7 +35,7 @@ export function SkiaCountdown({
   // it rather than the screen's padding being restated here.
   const [width, setWidth] = useState(0);
   const font = useMemo(
-    () => matchFont({ fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, fontWeight: 'bold' }),
+    () => matchFont({ fontFamily: SKIA_FONT_FAMILY, fontSize: FONT_SIZE, fontWeight: 'bold' }),
     [],
   );
   // Ceil so a fresh segment shows its full length and the clock only reads 0:00

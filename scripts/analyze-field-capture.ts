@@ -22,6 +22,8 @@ import {
   type AltitudeSample,
   type ElevationConfig,
 } from '@/domain/elevation';
+import { haversineMeters, type LatLng } from '@/domain/geo';
+import { median } from '@/domain/math';
 import { runElevation } from '@/domain/run-altitude';
 
 // why 2: the grid now folds pressure through the app's own conversion rather than
@@ -125,15 +127,22 @@ function quantile(sorted: number[], p: number): number {
   return lo === hi ? sorted[lo]! : sorted[lo]! * (hi - k) + sorted[hi]! * (k - lo);
 }
 
+const mean = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+function bracketClosure(rels: readonly number[]) {
+  const samples = Math.min(60, Math.floor(rels.length / 10) || 1);
+  return { samples, closureM: mean(rels.slice(-samples)) - mean(rels.slice(0, samples)) };
+}
+
 function stats(xs: number[]) {
   const s = [...xs].sort((a, b) => a - b);
-  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
-  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - mean) ** 2, 0) / xs.length);
+  const avg = mean(xs);
+  const sd = Math.sqrt(xs.reduce((a, b) => a + (b - avg) ** 2, 0) / xs.length);
   return {
     n: xs.length,
     min: s[0]!,
     max: s[s.length - 1]!,
-    mean,
+    mean: avg,
     sd,
     p05: quantile(s, 0.05),
     median: quantile(s, 0.5),
@@ -143,16 +152,6 @@ function stats(xs: number[]) {
 
 const diffs = (xs: number[]) => xs.slice(1).map((x, i) => x - xs[i]!);
 
-function haversineM(a: [number, number], b: [number, number]): number {
-  const R = 6371000;
-  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
-  const dLng = ((b[1] - a[1]) * Math.PI) / 180;
-  const la1 = (a[0] * Math.PI) / 180;
-  const la2 = (b[0] * Math.PI) / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
 function parseDetail(raw: string): Record<string, unknown> | null {
   try {
     return JSON.parse(raw) as Record<string, unknown>;
@@ -161,7 +160,7 @@ function parseDetail(raw: string): Record<string, unknown> | null {
   }
 }
 
-function analyze(path: string, text: string, declaredZeroTruth = false) {
+function analyze(path: string, text: string, isZeroTruth = false) {
   const { header, sections, trailerTotal } = parseExport(text, path);
   const runStart = ms(String(header.run.startedAt));
   const runEnd = ms(String(header.run.endedAt));
@@ -244,19 +243,18 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   const nominal = cadence ? bgS / cadence.median : 0;
 
   // --- GPS-derived: closure, accuracy regime, stationary windows ---
-  const coords = pts.map((r) => [Number(r.lat), Number(r.lng)] as [number, number]);
+  const coords: LatLng[] = pts.map((r) => ({ lat: Number(r.lat), lng: Number(r.lng) }));
   const pAt = pts.map((r) => ms(r.at!));
   const altAcc = finite(pts.map((r) => numOrNull(r.altitudeAccuracyM!)));
   const speeds = finite(pts.map((r) => numOrNull(r.speedMps!)));
-  const bracket = Math.min(60, Math.floor(relOk.length / 10) || 1);
-  const meanOf = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const bracket = bracketClosure(relOk);
 
   // why displacement and not speedMps: CoreLocation reports a negative speed for "unknown", so a
   // still sample reading -1 would be classified as moving and the bracket lost (protocol, §Reading).
   const stationary: { fromS: number; toS: number; durationS: number }[] = [];
   for (let i = 0; i < coords.length;) {
     let j = i;
-    while (j + 1 < coords.length && haversineM(coords[i]!, coords[j + 1]!) < 8) j += 1;
+    while (j + 1 < coords.length && haversineMeters(coords[i]!, coords[j + 1]!) < 8) j += 1;
     const durationS = (pAt[j]! - pAt[i]!) / 1000;
     if (durationS >= 60)
       stationary.push({
@@ -269,20 +267,14 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
 
   // Capture 1 is a *certain* zero — the phone does not move at all — so every metre the reducer
   // banks on it is phantom, the one term that punishes under-smoothing (spec §8.5).
-  //
-  // why `--zero-truth` must be declarable, with detection only as a fallback: capture 1 of
-  // 2026-08-07 sat on a desk for 54 minutes and still recorded 858 m of distance and 11.1 m of
-  // displacement, because indoor GPS wanders (its altitudeAccuracy median was 18.9 m against 3.0 m
-  // outdoors). GPS cannot testify that a phone was stationary; only the operator can.
   const maxDisplacementM = coords.length
-    ? Math.max(...coords.map((c) => haversineM(coords[0]!, c)))
+    ? Math.max(...coords.map((c) => haversineMeters(coords[0]!, c)))
     : null;
   // why declared and NEVER inferred: auto-detection was tried and failed in both directions on the
   // first two real captures. Capture 1 sat on a desk yet accumulated 858 m of indoor GPS jitter, so
   // distance said "moving"; capture 2 was a stairwell, which is horizontally stationary inside a
   // 10.4 m radius, so displacement said "still" about the most vertically active capture taken.
   // GPS geometry cannot see the vertical axis this whole exercise is about. Only the operator knows.
-  const isZeroTruth = declaredZeroTruth;
 
   // Drift only means anything against a known-flat truth; on a moving capture a "linear trend" is
   // just terrain, so this block is gated on the zero-truth claim.
@@ -293,17 +285,16 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   let drift = null;
   if (isZeroTruth && relOk.length > 10) {
     const secs = relOk.map((_, i) => (at[i]! - runStart) / 1000);
-    const mx = secs.reduce((a, b) => a + b, 0) / secs.length;
-    const my = relOk.reduce((a, b) => a + b, 0) / relOk.length;
+    const mx = mean(secs);
+    const my = mean(relOk);
     const slope =
       secs.reduce((acc, x, i) => acc + (x - mx) * (relOk[i]! - my), 0) /
       secs.reduce((acc, x) => acc + (x - mx) ** 2, 0);
     const residual = relOk.map((y, i) => y - (my + slope * (secs[i]! - mx)));
-    const medianOf = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
     const bins: number[] = [];
     for (let m = 0; (m + 5) * 60 <= secs[secs.length - 1]!; m += 5) {
       const seg = relOk.filter((_, i) => secs[i]! >= m * 60 && secs[i]! < (m + 5) * 60);
-      if (seg.length) bins.push(seg.reduce((a, b) => a + b, 0) / seg.length);
+      if (seg.length) bins.push(mean(seg));
     }
     const steps = bins.slice(1).map((v, i) => v - bins[i]!);
     drift = {
@@ -316,7 +307,7 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
       medianFilterGain: [1, 5, 15, 31, 61, 121].map((w) => {
         const sm: number[] = [];
         for (let i = w - 1; i < residual.length; i += 1) {
-          sm.push(medianOf(residual.slice(i + 1 - w, i + 1)));
+          sm.push(median(residual.slice(i + 1 - w, i + 1)));
         }
         return { window: w, residualSdM: sm.length ? stats(sm).sd : null };
       }),
@@ -347,6 +338,7 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   const sensorRow = parseDetail(log.find((r) => r.kind === 'sensor')?.detailJson ?? '');
   const pedometer = parseDetail(log.find((r) => r.kind === 'pedometer')?.detailJson ?? '');
   const ticks = log.filter((r) => r.kind === 'tick').map((r) => ms(r.at!) / 1000);
+  const tickStats = ticks.length > 1 ? stats(diffs(ticks)) : null;
 
   const shipped = runElevation(alt.map((r) => ({ at: r.at!, pressureHpa: Number(r.pressureHpa) })));
 
@@ -406,12 +398,10 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
     },
     closure: {
       startEndDisplacementM:
-        coords.length > 1 ? haversineM(coords[0]!, coords[coords.length - 1]!) : null,
+        coords.length > 1 ? haversineMeters(coords[0]!, coords[coords.length - 1]!) : null,
       firstToLastM: relOk.length ? relOk[relOk.length - 1]! - relOk[0]! : null,
-      bracketMeanM: relOk.length
-        ? meanOf(relOk.slice(-bracket)) - meanOf(relOk.slice(0, bracket))
-        : null,
-      bracketSamples: bracket,
+      bracketMeanM: relOk.length ? bracket.closureM : null,
+      bracketSamples: bracket.samples,
       maxDisplacementM,
       drift,
       /** True when ground truth is a certain 0 m gain / 0 m loss — capture 1. */
@@ -428,8 +418,8 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
       kinds,
       sensor: sensorRow,
       steps: pedometer?.steps ?? null,
-      tickMedianS: ticks.length > 1 ? stats(diffs(ticks)).median : null,
-      tickMaxS: ticks.length > 1 ? stats(diffs(ticks)).max : null,
+      tickMedianS: tickStats?.median ?? null,
+      tickMaxS: tickStats?.max ?? null,
     },
     reducerGrid: grid,
     runElevation: shipped ? { gainM: shipped.gainM, lossM: shipped.lossM } : null,
@@ -604,14 +594,11 @@ function compare(aPath: string, aText: string, bPath: string, bText: string): vo
       cells.set(key, bucket);
     }
     const rels = alt.map((s) => s.rel).filter((r): r is number => r !== null);
-    const n = Math.min(60, Math.floor(rels.length / 10) || 1);
-    const mean = (xs: number[]) => xs.reduce((x, y) => x + y, 0) / xs.length;
-    return { cells, drift: mean(rels.slice(-n)) - mean(rels.slice(0, n)) };
+    return { cells, drift: bracketClosure(rels).closureM };
   };
 
   const A = load(aText, aPath);
   const B = load(bText, bPath);
-  const mean = (xs: number[]) => xs.reduce((x, y) => x + y, 0) / xs.length;
 
   const raw: number[] = [];
   const corrected: number[] = [];

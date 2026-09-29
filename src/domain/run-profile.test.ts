@@ -150,14 +150,14 @@ describe('toRunProfile', () => {
   test('a degenerate bucket count yields no points rather than nonsense distances', () => {
     // why: 0 produced a -Infinity first distance and negatives placed points beyond the run.
     for (const bucketCount of [0, -5, 2.5, NaN]) {
-      expect(toRunProfile(straightRun(600, 3), bucketCount)).toEqual([]);
+      expect(toRunProfile(straightRun(600, 3), { bucketCount })).toEqual([]);
     }
   });
 });
 
 describe('toRunProfile pace', () => {
   test('a steady 3 m/s run reports ~333 s/km in every bucket', () => {
-    const profile = toRunProfile(straightRun(600, 3), PROFILE_SAMPLE_COUNT);
+    const profile = toRunProfile(straightRun(600, 3), { bucketCount: PROFILE_SAMPLE_COUNT });
     for (const point of profile) {
       expect(point.paceSecPerKm).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
     }
@@ -167,7 +167,9 @@ describe('toRunProfile pace', () => {
     // The bug this pins (spec §5.2; mechanism at Bucket.entryTimestamp): 267.52 / 300.89 / 323.14
     // s/km for 120 / 60 / 20 buckets against a true 333.33.
     const fixes = straightRun(600, 3);
-    const means = [120, 60, 20].map((count) => meanPace(toRunProfile(fixes, count)));
+    const means = [120, 60, 20].map((count) =>
+      meanPace(toRunProfile(fixes, { bucketCount: count })),
+    );
     for (const mean of means) {
       expect(mean).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
     }
@@ -215,7 +217,7 @@ describe('toRunProfile resampling', () => {
   test('the x extent equals the smoothed track distance the summary reports', () => {
     // ADR 0021 §3: the chart's x extent must agree with the summary's headline distance.
     const fixes = straightRun(600, 3);
-    const profile = toRunProfile(fixes, PROFILE_SAMPLE_COUNT);
+    const profile = toRunProfile(fixes, { bucketCount: PROFILE_SAMPLE_COUNT });
     const width = smoothTrack(fixes).distanceM / PROFILE_SAMPLE_COUNT;
     expect(profile.at(-1)!.distanceM + width / 2).toBeCloseTo(smoothTrack(fixes).distanceM, 9);
   });
@@ -289,7 +291,7 @@ describe('toRunProfile gaps', () => {
         { seconds: 25, mps: 0 },
         { seconds: 300, mps: 3 },
       ]),
-      20,
+      { bucketCount: 20 },
     );
     const paces = stalled
       .map((point) => point.paceSecPerKm)
@@ -477,7 +479,7 @@ describe('toRunProfile elevation series', () => {
     const fixes = straightRun(600, 3);
     const plain = toRunProfile(fixes);
     expect(plain.every((point) => point.elevationM === null)).toBe(true);
-    const withAltitude = toRunProfile(fixes, undefined, climbAlong(fixes, 20));
+    const withAltitude = toRunProfile(fixes, { altitude: climbAlong(fixes, 20) });
     expect(withAltitude.map((point) => point.paceSecPerKm)).toEqual(
       plain.map((point) => point.paceSecPerKm),
     );
@@ -485,7 +487,7 @@ describe('toRunProfile elevation series', () => {
 
   test('a steady climb lands on the same grid, rising bucket by bucket', () => {
     const fixes = straightRun(600, 3);
-    const profile = toRunProfile(fixes, undefined, climbAlong(fixes, 20));
+    const profile = toRunProfile(fixes, { altitude: climbAlong(fixes, 20) });
     const elevations = profile.map((point) => point.elevationM!);
     expect(elevations.every((value) => value !== null)).toBe(true);
     for (let i = 1; i < elevations.length; i += 1) {
@@ -499,10 +501,13 @@ describe('toRunProfile elevation series', () => {
     const fixes = straightRun(100, 3);
     const first = fixes[0].timestamp;
     const last = fixes.at(-1)!.timestamp;
-    const profile = toRunProfile(fixes, 10, [
-      { timestamp: first - 60_000, relativeM: 1 },
-      { timestamp: last + 60_000, relativeM: 9 },
-    ]);
+    const profile = toRunProfile(fixes, {
+      bucketCount: 10,
+      altitude: [
+        { timestamp: first - 60_000, relativeM: 1 },
+        { timestamp: last + 60_000, relativeM: 9 },
+      ],
+    });
     expect(profile[0].elevationM).toBe(1);
     expect(profile.at(-1)!.elevationM).toBe(9);
     expect(profile.slice(1, -1).every((point) => point.elevationM === null)).toBe(true);
@@ -518,7 +523,7 @@ describe('toRunProfile elevation series', () => {
       timestamp: pauseStart + (i + 1) * 1000,
       relativeM: 5,
     }));
-    const profile = toRunProfile(fixes, 20, paused);
+    const profile = toRunProfile(fixes, { bucketCount: 20, altitude: paused });
     const carrying = profile.filter((point) => point.elevationM !== null);
     expect(carrying).toHaveLength(1);
     expect(carrying[0].distanceM).toBeCloseTo(300 * RUN_MPS, -2);

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 import { EARTH_RADIUS_M } from '@/domain/geo';
 import type { CompletedRunRecord } from '@/services/run-engine/types';
-import { deleteRunTree, writeDerivedFinalize } from './derived-finalize';
+import { deleteRunTree, saveDerivedRun, writeDerivedFinalize } from './derived-finalize';
 import { runAltitudeSamples, runLog, runPoints, runSegments, runs } from './schema';
 
 const MIGRATIONS = join(import.meta.dir, 'migrations');
@@ -188,6 +188,52 @@ describe('writeDerivedFinalize', () => {
     finalize(db, end);
     expect(strip(db.select().from(runSegments).all())).toEqual(first.segs);
     expect(db.select().from(runPoints).all()).toEqual(first.pts);
+  });
+});
+
+describe('writeDerivedFinalize — a log with no end event', () => {
+  test('keeps its pauses, and ends where the record does', () => {
+    const db = makeDb();
+    seed(db, [[200, 2.6]]);
+    const paused: CompletedRunRecord = {
+      ...record(200_000),
+      eventLogJson: JSON.stringify([
+        { type: 'start', at: 0 },
+        { type: 'pause', at: 60_000 },
+        { type: 'resume', at: 120_000 },
+      ]),
+    };
+    db.transaction((tx) => writeDerivedFinalize(tx, 'r', paused, ctx()));
+    const run = db.select().from(runs).get()!;
+    expect(run.activeDurationS).toBe(140);
+    expect(JSON.parse(run.eventLogJson!).map((e: { type: string }) => e.type)).toEqual([
+      'start',
+      'pause',
+      'resume',
+      'end',
+    ]);
+  });
+});
+
+describe('saveDerivedRun — a free run with no in-flight row', () => {
+  test('writes the run, derived from its log alone', () => {
+    const db = makeDb();
+    const outcome = db.transaction((tx) => saveDerivedRun(tx, 'new', record(300_000), ctx()));
+    expect(outcome).toBe('saved');
+    expect(db.select().from(runs).get()).toMatchObject({
+      id: 'new',
+      sessionKey: 'free-run',
+      status: 'completed',
+      activeDurationS: 300,
+      distanceM: null,
+    });
+  });
+
+  test('writes nothing for a run under a minute', () => {
+    const db = makeDb();
+    const outcome = db.transaction((tx) => saveDerivedRun(tx, 'new', record(40_000), ctx()));
+    expect(outcome).toBe('discarded');
+    expect(db.select().from(runs).all()).toEqual([]);
   });
 });
 

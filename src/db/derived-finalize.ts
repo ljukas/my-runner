@@ -53,13 +53,17 @@ export function writeDerivedFinalize(
   { nowIso, newId }: { nowIso: string; newId: () => string },
 ): FinalizeOutcome {
   const logged = parseEventLog(record.eventLogJson ?? null);
+  const endedAt = Date.parse(record.endedAt);
+  const last = logged.at(-1);
   const events =
-    logged.at(-1)?.type === 'end'
-      ? logged
-      : [
+    last === undefined
+      ? [
           { type: 'start', at: Date.parse(record.startedAt) },
-          { type: 'end', at: Date.parse(record.endedAt) },
-        ];
+          { type: 'end', at: endedAt },
+        ]
+      : last.type === 'end'
+        ? logged
+        : [...logged, { type: 'end', at: Math.max(endedAt, last.at) }];
   const fixes = loadFixes(tx, runId);
   const derived = deriveOpenRun({
     events,
@@ -130,4 +134,26 @@ export function writeDerivedFinalize(
     .where(eq(runs.id, runId))
     .run();
   return 'saved';
+}
+
+/** A free run whose `startRun` never landed: its row is written here, then derived as any other. */
+export function saveDerivedRun(
+  tx: Tx,
+  runId: string,
+  record: CompletedRunRecord,
+  context: { nowIso: string; newId: () => string },
+): FinalizeOutcome {
+  tx.insert(runs)
+    .values({
+      id: runId,
+      sessionKey: record.sessionKey,
+      status: 'active',
+      startedAt: record.startedAt,
+      endedAt: record.endedAt,
+      activeDurationS: 0,
+      createdAt: context.nowIso,
+      updatedAt: context.nowIso,
+    })
+    .run();
+  return writeDerivedFinalize(tx, runId, record, context);
 }

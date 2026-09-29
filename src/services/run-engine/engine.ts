@@ -735,6 +735,7 @@ export class RunEngine {
         // only distance this run will ever have.
         const id = await this.persistence.saveRun({ ...record, distanceM: this.distanceM });
         if (generation !== this.runGeneration) return;
+        if (id === null) return this.forgetDiscarded();
         this.markSaved(id);
         return;
       }
@@ -747,12 +748,7 @@ export class RunEngine {
       }
       const outcome = await this.persistence.finalizeRun(runId, record);
       if (generation !== this.runGeneration) return;
-      if (outcome === 'discarded') {
-        // A free run its finalize found too short: it is gone, so there is no summary to show.
-        await this.clearSnapshotQuietly();
-        this.reset();
-        return;
-      }
+      if (outcome === 'discarded') return this.forgetDiscarded();
       this.markSaved(runId);
     } catch (error) {
       if (generation !== this.runGeneration) return;
@@ -763,6 +759,12 @@ export class RunEngine {
     }
     // Only now: until finalizeRun commits, the snapshot is the run's only recovery path.
     await this.clearSnapshotQuietly();
+  }
+
+  /** A free run its save found too short: it is gone, so there is no summary to show. */
+  private async forgetDiscarded(): Promise<void> {
+    await this.clearSnapshotQuietly();
+    this.reset();
   }
 
   private async clearSnapshotQuietly(): Promise<void> {

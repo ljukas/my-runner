@@ -50,7 +50,10 @@ function track(legs: readonly [number, number][]): LocationFix[] {
 }
 
 /** A free-run engine over recording fakes; the same shape as engine.test.ts's harness, pared down. */
-function makeFreeRunEngine({ thresholdMps = 2.05 }: { thresholdMps?: number } = {}) {
+function makeFreeRunEngine({
+  thresholdMps = 2.05,
+  startRunFails = false,
+}: { thresholdMps?: number; startRunFails?: boolean } = {}) {
   let now = START_MS;
   const calls: string[] = [];
   const finalized: CompletedRunRecord[] = [];
@@ -58,13 +61,19 @@ function makeFreeRunEngine({ thresholdMps = 2.05 }: { thresholdMps?: number } = 
   const flushes: { points: RunPoint[]; state: RunSnapshotState }[] = [];
   const cues: CueId[] = [];
   let finalizeOutcome: FinalizeOutcome = 'saved';
+  let savedId: string | null = 'run-1';
   let gateFlush: (() => void) | undefined;
   let deferFlush = false;
 
   const persistence: RunLifecyclePersistence = {
-    saveRun: async () => 'run-1',
+    saveRun: async (record) => {
+      calls.push('saveRun');
+      finalized.push(record);
+      return savedId;
+    },
     startRun: async (sessionKey) => {
       opened.push(sessionKey);
+      if (startRunFails) throw new Error('no row');
       return 'run-1';
     },
     finalizeRun: async (_runId, record) => {
@@ -137,6 +146,7 @@ function makeFreeRunEngine({ thresholdMps = 2.05 }: { thresholdMps?: number } = 
     flushes,
     cues,
     setFinalizeOutcome: (o: FinalizeOutcome) => (finalizeOutcome = o),
+    setSavedId: (id: string | null) => (savedId = id),
     deferFlush: () => (deferFlush = true),
     releaseFlush: () => gateFlush?.(),
     fireFlush: () => fireFlush(),
@@ -240,6 +250,18 @@ describe('a free run, start to finish', () => {
     h.feed(track([[300, 2.6]]));
     h.engine.endEarly();
     await settled();
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', savedRunId: null });
+  });
+
+  test('with no in-flight row, a save that found it too short leaves the engine idle', async () => {
+    const h = makeFreeRunEngine({ startRunFails: true });
+    h.setSavedId(null);
+    h.engine.startFreeRun();
+    h.feed(track([[300, 2.6]]));
+    h.engine.endEarly();
+    await settled();
+    await settled();
+    expect(h.calls).toContain('saveRun');
     expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', savedRunId: null });
   });
 });

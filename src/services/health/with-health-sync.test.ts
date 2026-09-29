@@ -65,6 +65,16 @@ describe('withHealthSync', () => {
     expect(synced).toEqual([]);
   });
 
+  test('never syncs a run saveRun found too short to keep', async () => {
+    const synced: string[] = [];
+    const id = await withHealthSync(fakeBase({ saveRun: async () => null }), (runId) => {
+      synced.push(runId);
+    }).saveRun(record);
+    await flushMacrotasks();
+    expect(id).toBeNull();
+    expect(synced).toEqual([]);
+  });
+
   test('never syncs a discard', async () => {
     const synced: string[] = [];
     await withHealthSync(fakeBase(), (runId) => {

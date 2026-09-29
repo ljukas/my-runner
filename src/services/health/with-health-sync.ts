@@ -40,9 +40,9 @@ export function withHealthSync(
 
   return {
     ...base,
-    async saveRun(record: CompletedRunRecord): Promise<string> {
+    async saveRun(record: CompletedRunRecord): Promise<string | null> {
       const runId = await base.saveRun(record);
-      fireSync(runId);
+      if (runId !== null) fireSync(runId);
       return runId;
     },
 

@@ -8,7 +8,7 @@ import type {
   RunLifecyclePersistence,
 } from '@/services/run-engine/types';
 import { db } from './client';
-import { deleteRunTree, writeDerivedFinalize } from './derived-finalize';
+import { deleteRunTree, saveDerivedRun, writeDerivedFinalize } from './derived-finalize';
 import { loadRunFixes } from './run-points';
 import { runSegments, runs } from './schema';
 
@@ -20,9 +20,15 @@ function rollupFromPoints(runId: string) {
 }
 
 export const dbRunPersistence: RunLifecyclePersistence = {
-  async saveRun(record: CompletedRunRecord): Promise<string> {
+  async saveRun(record: CompletedRunRecord): Promise<string | null> {
     const runId = Crypto.randomUUID();
     const nowIso = new Date().toISOString();
+    if (record.derived) {
+      const outcome = db.transaction((tx) =>
+        saveDerivedRun(tx, runId, record, { nowIso, newId: Crypto.randomUUID }),
+      );
+      return outcome === 'saved' ? runId : null;
+    }
 
     await db.insert(runs).values({
       id: runId,

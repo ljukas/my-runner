@@ -97,7 +97,8 @@ export type FinalizeOutcome = 'saved' | 'discarded';
 
 /** Persistence port (ADR 0003) — the engine never touches the DB directly. */
 export interface RunPersistence {
-  saveRun(record: CompletedRunRecord): Promise<string>;
+  /** The saved run's id; null when a free run was too short to keep, so nothing was written. */
+  saveRun(record: CompletedRunRecord): Promise<string | null>;
 }
 
 /**

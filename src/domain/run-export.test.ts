@@ -12,6 +12,7 @@ function input(overrides: Partial<RunExportInput> = {}): RunExportInput {
   return {
     exportedAt: '2026-08-04T10:00:00.000Z',
     device: {
+      platform: 'ios',
       deviceName: "Lukas's iPhone",
       osVersion: '26.5',
       appVersion: '0.1.0',
@@ -115,6 +116,11 @@ describe('toRunExport', () => {
     const header = JSON.parse(lines[1]) as { device: Record<string, unknown> };
     expect(header.device.deviceName).toBe("Lukas's iPhone");
     expect(header.device).not.toHaveProperty('model');
+  });
+
+  test('the device header names its platform, so a reader never infers it from osVersion', () => {
+    const lines = toRunExport(input()).split('\n');
+    expect((JSON.parse(lines[1]) as { device: { platform: string } }).device.platform).toBe('ios');
   });
 
   test('emits every section header even when a section is empty, with no row leaked into its body', () => {

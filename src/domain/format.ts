@@ -109,6 +109,21 @@ export function formatDistanceKm(meters: number): string {
 }
 
 /**
+ * Whole metres as a value/unit pair for the stat tiles (`46.8 → { value: '47', unit: 'm' }`).
+ * Negative clamps to 0 and non-finite renders `'0'`, never `'NaN'`.
+ */
+export function elevationParts(meters: number): { value: string; unit: 'm' } {
+  const safe = Number.isFinite(meters) ? Math.max(0, meters) : 0;
+  return { value: String(Math.round(safe)), unit: 'm' };
+}
+
+/** Whole metres (`46.8 → "47 m"`). */
+export function formatElevation(meters: number): string {
+  const { value, unit } = elevationParts(meters);
+  return `${value} ${unit}`;
+}
+
+/**
  * Average pace as a value/unit pair (`389 → { value: '6:29', unit: '/km' }`). Nullish, 0, negative
  * and non-finite render the `--:--` placeholder value; seconds round to nearest.
  */

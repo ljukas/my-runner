@@ -3,8 +3,14 @@ import { useMemo } from 'react';
 import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
+import { SKIA_FONT_FAMILY } from '@/constants/skia-font';
 import { distanceParts, paceParts } from '@/domain/format';
-import { paceChartDomain, type ProfilePoint } from '@/domain/run-profile';
+import {
+  elevationChartDomain,
+  paceChartDomain,
+  type ProfilePoint,
+  type ProfileSeriesKey,
+} from '@/domain/run-profile';
 import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
@@ -18,7 +24,9 @@ const MAX_FONT_SCALE = 1.6;
 
 // why module scope: a fresh identity misses victory's axis and transform memos on every parent
 // render, re-measuring each label through Skia font metrics and re-parsing the path.
-const Y_KEYS: 'paceSecPerKm'[] = ['paceSecPerKm'];
+const PACE_KEYS: ProfileSeriesKey[] = ['paceSecPerKm'];
+const ELEVATION_KEYS: ProfileSeriesKey[] = ['elevationM'];
+const ALL_KEYS: ProfileSeriesKey[] = ['paceSecPerKm', 'elevationM'];
 
 // Ticks stay bare numbers; each axis names its own unit once (spec §7.2).
 
@@ -31,6 +39,9 @@ const PACE_TICK_WIDTH = 5; // "MM:SS"
 
 const formatPaceTick = (secondsPerKm: number | null) =>
   paceParts(secondsPerKm).value.padStart(PACE_TICK_WIDTH, FIGURE_SPACE);
+
+const formatElevationTick = (meters: number | null) =>
+  meters === null ? '' : String(Math.round(meters));
 
 // why trimmed here rather than in `distanceParts`: that helper feeds the stat tiles, where a run
 // reads "2.31 km" and the two decimals are the point. On an axis they are noise — the owner wants
@@ -58,7 +69,7 @@ const Y_AXIS_TICK_COUNT = 3;
 const Y_GRID_DASH_INTERVALS = [1, 3];
 
 /**
- * Pace against distance (spec §7.2). The only file importing victory-native — if it is ever
+ * Pace, and relative elevation when the run carries it, against distance (spec §7.2). The only file importing victory-native — if it is ever
  * swapped for hand-drawn Skia, nothing outside this file changes.
  */
 export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
@@ -69,7 +80,8 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   const grid = useChartGridColor();
   const fontScale = Math.min(PixelRatio.getFontScale(), MAX_FONT_SCALE);
   const font = useMemo(
-    () => matchFont({ fontSize: Math.round(AXIS_FONT_SIZE * fontScale) }),
+    () =>
+      matchFont({ fontFamily: SKIA_FONT_FAMILY, fontSize: Math.round(AXIS_FONT_SIZE * fontScale) }),
     [fontScale],
   );
 
@@ -86,23 +98,37 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
   );
 
   const paceDomain = useMemo(() => paceChartDomain(points), [points]);
+  const elevationDomain = useMemo(() => elevationChartDomain(points), [points]);
 
-  const yAxis = useMemo(
-    () => [
+  const yAxis = useMemo(() => {
+    const tickCount = Math.max(2, Math.round(Y_AXIS_TICK_COUNT / fontScale));
+    const pace = {
+      yKeys: PACE_KEYS,
+      axisSide: 'right' as const,
+      font,
+      domain: paceDomain,
+      labelColor: colors.textSecondary,
+      lineColor: grid,
+      formatYLabel: formatPaceTick,
+      tickCount,
+      linePathEffect: <DashPathEffect intervals={Y_GRID_DASH_INTERVALS} />,
+    };
+    if (!elevationDomain) return [pace];
+    return [
+      pace,
       {
-        yKeys: Y_KEYS,
-        axisSide: 'right' as const,
+        yKeys: ELEVATION_KEYS,
+        axisSide: 'left' as const,
         font,
-        domain: paceDomain,
-        labelColor: colors.textSecondary,
-        lineColor: grid,
-        formatYLabel: formatPaceTick,
-        tickCount: Math.max(2, Math.round(Y_AXIS_TICK_COUNT / fontScale)),
-        linePathEffect: <DashPathEffect intervals={Y_GRID_DASH_INTERVALS} />,
+        domain: elevationDomain,
+        labelColor: stat.elevation,
+        // why no gridlines: the pace axis already draws them, and two unaligned sets read as noise.
+        lineWidth: 0,
+        formatYLabel: formatElevationTick,
+        tickCount,
       },
-    ],
-    [font, paceDomain, colors.textSecondary, grid, fontScale],
-  );
+    ];
+  }, [font, paceDomain, elevationDomain, colors.textSecondary, stat.elevation, grid, fontScale]);
 
   return (
     <View
@@ -110,18 +136,35 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <CartesianChart data={points} xKey="distanceM" yKeys={Y_KEYS} xAxis={xAxis} yAxis={yAxis}>
+      <CartesianChart
+        data={points}
+        xKey="distanceM"
+        yKeys={elevationDomain ? ALL_KEYS : PACE_KEYS}
+        xAxis={xAxis}
+        yAxis={yAxis}
+      >
         {({ points: rendered }) => (
-          <Line
-            points={rendered.paceSecPerKm}
-            color={stat.pace}
-            strokeWidth={2}
-            // why monotoneX and no other curve: it's shape-preserving — the drawn line never goes
-            // beyond the data's own min/max. natural/cardinal/catmullRom/basis all overshoot,
-            // which here means drawing a pace faster than the runner ever ran. Don't swap this for
-            // a smoother-looking curve; that trade would draw fabricated paces.
-            curveType="monotoneX"
-          />
+          <>
+            {/* Drawn first so pace, the run's primary measure, stays on top. */}
+            {elevationDomain ? (
+              <Line
+                points={rendered.elevationM}
+                color={stat.elevation}
+                strokeWidth={2}
+                curveType="monotoneX"
+              />
+            ) : null}
+            <Line
+              points={rendered.paceSecPerKm}
+              color={stat.pace}
+              strokeWidth={2}
+              // why monotoneX and no other curve: it's shape-preserving — the drawn line never goes
+              // beyond the data's own min/max. natural/cardinal/catmullRom/basis all overshoot,
+              // which here means drawing a pace faster than the runner ever ran. Don't swap this for
+              // a smoother-looking curve; that trade would draw fabricated paces.
+              curveType="monotoneX"
+            />
+          </>
         )}
       </CartesianChart>
     </View>

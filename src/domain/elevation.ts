@@ -25,9 +25,27 @@ export interface ElevationConfig {
  *  fixed: window 25 still admits a 10 m worst case and 21 a 21 m one. */
 export const GPS_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 31, hysteresisM: 10 };
 
-/** Derived filter state, never snapshotted (ADR 0007 §5). Nor can a resume rebuild it: the
- *  barometer this is for has no backfill API, so altitude gained while suspended is gone for good
- *  and a total spanning that gap must be declined rather than re-folded (ADR 0015, 2026-08-03). */
+/** Per ADR 0015, 2026-09-29 item 1: chooses terrain over drift rejection, so ~5 m/hour of weather
+ *  drift still banks. */
+export const BAROMETER_ELEVATION_CONFIG: ElevationConfig = { medianWindow: 5, hysteresisM: 1 };
+
+const ISA_SEA_LEVEL_HPA = 1013.25;
+const ISA_SCALE_M = 44330;
+const ISA_EXPONENT = 5.255;
+
+/** Standard-atmosphere altitude (Android's SensorManager.getAltitude). Only differences are ever taken,
+ *  and the real day's sea-level pressure moves a climb by well under 1 %, so the standard one stands in. */
+export function pressureAltitudeM(pressureHpa: number): number {
+  return ISA_SCALE_M * (1 - (pressureHpa / ISA_SEA_LEVEL_HPA) ** (1 / ISA_EXPONENT));
+}
+
+/** The inverse of `pressureAltitudeM`, so fixtures can be written in metres. */
+export function altitudePressureHpa(altitudeM: number): number {
+  return ISA_SEA_LEVEL_HPA * (1 - altitudeM / ISA_SCALE_M) ** ISA_EXPONENT;
+}
+
+/** Derived filter state, never snapshotted (ADR 0007 §5); suspension gaps fold across per ADR 0015,
+ *  2026-09-29 item 3. */
 export interface ElevationState {
   config: ElevationConfig;
   window: number[];

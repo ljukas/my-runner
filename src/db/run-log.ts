@@ -1,6 +1,7 @@
-import { asc, count, eq, max } from 'drizzle-orm';
+import { asc, count, eq, max, sql } from 'drizzle-orm';
 
 import type { ExportAltitudeSample, ExportLogEntry } from '@/domain/run-export';
+import type { StoredAltitudeSample } from '@/domain/run-altitude';
 import { db } from './client';
 import { runAltitudeSamples, runLog, runPoints } from './schema';
 
@@ -12,6 +13,27 @@ export function loadAltitudeSamples(runId: string): ExportAltitudeSample[] {
     .where(eq(runAltitudeSamples.runId, runId))
     .orderBy(asc(runAltitudeSamples.seq))
     .all();
+}
+
+/** The two columns the summary folds, read on every open — the export's nine-column read is not. */
+export function loadSummaryAltitudeSamples(runId: string): StoredAltitudeSample[] {
+  return db
+    .select({ at: runAltitudeSamples.at, pressureHpa: runAltitudeSamples.pressureHpa })
+    .from(runAltitudeSamples)
+    .where(eq(runAltitudeSamples.runId, runId))
+    .orderBy(asc(runAltitudeSamples.seq))
+    .all();
+}
+
+export function hasAltitudeSamples(runId: string): boolean {
+  return (
+    db
+      .select({ one: sql<number>`1` })
+      .from(runAltitudeSamples)
+      .where(eq(runAltitudeSamples.runId, runId))
+      .limit(1)
+      .get() !== undefined
+  );
 }
 
 export function loadRunLog(runId: string): ExportLogEntry[] {

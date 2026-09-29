@@ -28,7 +28,10 @@ function StatGridTile({
   label,
   value,
   unit,
+  width = 'half',
 }: {
+  /** `full` for a tile that would otherwise sit alone in the grid's last row. */
+  width?: 'half' | 'full';
   icon: SymbolViewProps['name'];
   color: string;
   label: string;
@@ -40,7 +43,10 @@ function StatGridTile({
   const { fontScale } = useWindowDimensions();
   const stacked = fontScale >= 1.6;
   return (
-    <Card surface="card" className={cn(stacked ? 'w-full' : 'w-[48%]', 'gap-5')}>
+    <Card
+      surface="card"
+      className={cn(stacked || width === 'full' ? 'w-full' : 'w-[48%]', 'gap-5')}
+    >
       <View className="flex-row items-center gap-1.5">
         {/* B: glyph scales with the OS font-size setting instead of a frozen 16 pt. */}
         <SymbolView name={icon} size={16 * PixelRatio.getFontScale()} tintColor={color} />

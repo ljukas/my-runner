@@ -5,6 +5,7 @@ import { ScrollView, View } from 'react-native';
 
 import { HealthStatusRow } from '@/components/health-status-row';
 import { RouteMapCard } from '@/components/route-map-card';
+import { RunElevationNote } from '@/components/run-elevation-note';
 import { RunExportRow } from '@/components/run-export-row';
 import { RunProfileCard } from '@/components/run-profile-card';
 import { RunStatGrid } from '@/components/run-stat-grid';
@@ -56,10 +57,10 @@ export default function RunSummaryScreen() {
   const loaded = runLoaded !== undefined && segmentsLoaded !== undefined;
   const failed = runError !== undefined || segmentsError !== undefined;
 
-  // why the screen owns this: the route and the pace cards derive from the same `run_points` read,
-  // and hoisting it is what keeps the modal's first frame to one such read (and the two cards to
+  // why the screen owns this: the route, stat, elevation-note and profile cards all derive from one
+  // summary read, and hoisting it keeps the modal's first frame to that one read (and the cards to
   // one readiness answer).
-  const track = useRunTrack(runId, segments, loaded);
+  const track = useRunTrack(runId, run, segments, loaded);
 
   if (runId === UNSAVED_RUN_ID || failed || (loaded && !run)) {
     return (
@@ -82,7 +83,8 @@ export default function RunSummaryScreen() {
           <>
             <RunSummaryHeadline run={run} celebrate={celebrating} />
             <RouteMapCard run={run} track={track} />
-            <RunStatGrid run={run} segments={segments} />
+            <RunStatGrid run={run} segments={segments} elevation={track.elevation} />
+            <RunElevationNote elevation={track.elevation} />
             <RunProfileCard run={run} track={track} />
             <SegmentBreakdown segments={segments} />
             <SegmentSplits segments={segments} />

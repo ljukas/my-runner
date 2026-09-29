@@ -1,11 +1,16 @@
 import { createSmootherState, MAX_GAP_S, smoothFix, type LocationFix } from './geo';
+import type { TimedAltitude } from './run-altitude';
 
 /** One resampled point of the summary chart. `distanceM` is the bucket's centre. */
 export type ProfilePoint = {
   distanceM: number;
   /** Seconds per km over the bucket; null when the bucket carried no usable time or distance. */
   paceSecPerKm: number | null;
+  /** Mean relative altitude of the samples taken over the bucket; null when none were. */
+  elevationM: number | null;
 };
+
+export type ProfileSeriesKey = Exclude<keyof ProfilePoint, 'distanceM'>;
 
 /** Upper bound on the resampled point count; shorter runs get proportionally fewer. */
 export const PROFILE_SAMPLE_COUNT = 120;
@@ -22,22 +27,66 @@ function bucketAt(distanceM: number, width: number, bucketCount: number): number
   return Math.min(bucketCount - 1, Math.max(0, Math.floor(distanceM / width)));
 }
 
+interface Walked {
+  distanceM: number;
+  timestamp: number;
+}
+
+// why interpolated between fixes and clamped at the ends: samples arrive ~1 Hz on their own clock,
+// and one taken before the first or after the last fix still belongs to where the runner stood.
+function distanceAt(walked: readonly Walked[], timestamp: number, from: number): [number, number] {
+  let j = from;
+  while (j < walked.length && walked[j].timestamp < timestamp) j += 1;
+  if (j === 0) return [walked[0].distanceM, 0];
+  if (j === walked.length) return [walked[j - 1].distanceM, j];
+  const a = walked[j - 1];
+  const b = walked[j];
+  const span = b.timestamp - a.timestamp;
+  const t = span > 0 ? (timestamp - a.timestamp) / span : 1;
+  return [a.distanceM + (b.distanceM - a.distanceM) * t, j];
+}
+
+// why a mean and not one interpolated value per bucket: every sample counts, and the samples of a
+// stretch spent standing still pile into the bucket where the runner stood.
+function elevationBuckets(
+  walked: readonly Walked[],
+  altitude: readonly TimedAltitude[],
+  width: number,
+  bucketCount: number,
+): (number | null)[] {
+  const sums = new Array<number>(bucketCount).fill(0);
+  const counts = new Array<number>(bucketCount).fill(0);
+  let cursor = 0;
+  for (const sample of altitude) {
+    const [distanceM, next] = distanceAt(walked, sample.timestamp, cursor);
+    cursor = next;
+    const bucket = bucketAt(distanceM, width, bucketCount);
+    sums[bucket] += sample.relativeM;
+    counts[bucket] += 1;
+  }
+  return sums.map((sum, index) => (counts[index] > 0 ? sum / counts[index] : null));
+}
+
 /**
- * Fixes → the chart's pace series, resampled onto a uniform distance grid. Distance is folded with
- * the SAME smoother the stored distance used (ADR 0021 §3), so the chart's x extent agrees with the
- * summary's headline figure. Inputs must already pass `accuracyFilter`. Returns [] for a run that
- * covered no ground, or a `bucketCount` that is not a positive integer.
+ * Fixes (and optionally a Run elevation series, time-aligned) → the chart's series on one uniform
+ * distance grid. Distance is folded with the SAME smoother the stored distance used (ADR 0021 §3), so
+ * the chart's x extent agrees with the summary's headline figure. Inputs must already pass
+ * `accuracyFilter`. Returns [] for a run that covered no ground, or a `bucketCount` that is not a
+ * positive integer.
  */
 export function toRunProfile(
   fixes: readonly LocationFix[],
-  bucketCount = bucketCountFor(fixes.length),
+  {
+    bucketCount = bucketCountFor(fixes.length),
+    altitude = [],
+  }: { bucketCount?: number; altitude?: readonly TimedAltitude[] } = {},
 ): ProfilePoint[] {
   if (fixes.length === 0) return [];
   if (!Number.isInteger(bucketCount) || bucketCount < 1) return [];
 
   let state = createSmootherState();
   let cumulative = 0;
-  const walked = fixes.map((fix) => {
+  const walked: Walked[] = fixes.map((fix) => {
     const step = smoothFix(state, fix);
     state = step.state;
     cumulative += step.acceptedDeltaMeters;
@@ -90,22 +139,52 @@ export function toRunProfile(
     }
   }
 
+  const elevation = elevationBuckets(walked, altitude, width, bucketCount);
+
   return meters.map((bucketMeters, index) => ({
     distanceM: (index + 0.5) * width,
     paceSecPerKm:
       bucketMeters > 0 && seconds[index] > 0 ? (seconds[index] / bucketMeters) * 1000 : null,
+    elevationM: elevation[index],
   }));
 }
 
-/**
- * Whether the series can actually be stroked: `Line` splits at nulls and a one-point group emits a
- * move with no lineto, so a chart can otherwise paint its axes around an empty canvas (spec §8).
- */
-export function isDrawableProfile(points: readonly ProfilePoint[]): boolean {
+// why: `Line` splits at nulls and a one-point group emits a move with no lineto, so a chart can
+// otherwise paint its axes around an empty canvas (spec §8).
+function hasAdjacentPair(points: readonly ProfilePoint[], key: ProfileSeriesKey) {
   return points.some(
-    (point, index) =>
-      index > 0 && point.paceSecPerKm !== null && points[index - 1].paceSecPerKm !== null,
+    (point, index) => index > 0 && point[key] !== null && points[index - 1][key] !== null,
   );
+}
+
+/** Whether the pace series can actually be stroked. */
+export function isDrawableProfile(points: readonly ProfilePoint[]): boolean {
+  return hasAdjacentPair(points, 'paceSecPerKm');
+}
+
+/** Whether the elevation series can actually be stroked. */
+export function isDrawableElevation(points: readonly ProfilePoint[]): boolean {
+  return hasAdjacentPair(points, 'elevationM');
+}
+
+// why a floor: a flat run's ~1 m barometer wobble would otherwise fill the plot and read as hills.
+const MIN_ELEVATION_DOMAIN_SPAN_M = 10;
+
+/** `[low, high]` for the elevation axis: the series' own extent, widened upward to at least
+ *  `MIN_ELEVATION_DOMAIN_SPAN_M`. Undefined unless `isDrawableElevation`. */
+export function elevationChartDomain(
+  points: readonly ProfilePoint[],
+): [number, number] | undefined {
+  if (!isDrawableElevation(points)) return undefined;
+  const values = points
+    .map((point) => point.elevationM)
+    .filter((value): value is number => value !== null);
+
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  // why upward only: centring put a tick below the lowest point the runner ever reached, which
+  // reads as a fault in a series relative to where the run began.
+  return [low, Math.max(high, low + MIN_ELEVATION_DOMAIN_SPAN_M)];
 }
 
 function percentile(sortedAscending: readonly number[], p: number): number {

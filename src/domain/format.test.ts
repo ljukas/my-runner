@@ -3,6 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import {
   clockParts,
   distanceParts,
+  elevationParts,
+  formatElevation,
   durationWords,
   formatClock,
   formatCountdown,
@@ -200,5 +202,17 @@ describe('paceParts', () => {
       const { value, unit } = paceParts(pace);
       expect(`${value} ${unit}`).toBe(formatPace(pace));
     }
+  });
+});
+
+describe('elevationParts', () => {
+  test('rounds to whole metres', () => {
+    expect(elevationParts(46.8)).toEqual({ value: '47', unit: 'm' });
+    expect(formatElevation(12.4)).toBe('12 m');
+  });
+
+  test('clamps negative and non-finite to 0, never NaN', () => {
+    expect(elevationParts(-3).value).toBe('0');
+    expect(elevationParts(Number.NaN).value).toBe('0');
   });
 });

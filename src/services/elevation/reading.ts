@@ -1,3 +1,5 @@
+import { pressureAltitudeM } from '@/domain/elevation';
+
 import type { AltitudeReading, MotionPermissionStatus } from './port';
 
 // Pure and Expo-free by design (ADR 0003 item 7: adapters get device verification, not
@@ -34,14 +36,6 @@ export function toMotionPermissionStatus(
 ): MotionPermissionStatus {
   if (granted) return 'granted';
   return canAskAgain ? 'undetermined' : 'denied';
-}
-
-const ISA_SEA_LEVEL_HPA = 1013.25;
-
-// SensorManager.getAltitude's standard-atmosphere formula. Only differences are ever taken, and the
-// real day's sea-level pressure would move a climb by well under 1 %, so the standard one stands in.
-function pressureAltitudeM(pressureHpa: number): number {
-  return 44330 * (1 - (pressureHpa / ISA_SEA_LEVEL_HPA) ** (1 / 5.255));
 }
 
 /**

@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
 import { smoothTrack, type LocationFix } from './geo';
+import type { TimedAltitude } from './run-altitude';
 import {
+  elevationChartDomain,
+  isDrawableElevation,
   isDrawableProfile,
   paceChartDomain,
   paceRange,
@@ -11,6 +14,17 @@ import {
 } from './run-profile';
 
 const DEG_PER_METRE = 1 / 111_320;
+
+const point = (paceSecPerKm: number | null): ProfilePoint => ({
+  distanceM: 0,
+  paceSecPerKm,
+  elevationM: null,
+});
+const elevationPoint = (elevationM: number | null): ProfilePoint => ({
+  distanceM: 0,
+  paceSecPerKm: 360,
+  elevationM,
+});
 
 function makeSeededRandom(seed: number): () => number {
   let state = seed;
@@ -136,14 +150,14 @@ describe('toRunProfile', () => {
   test('a degenerate bucket count yields no points rather than nonsense distances', () => {
     // why: 0 produced a -Infinity first distance and negatives placed points beyond the run.
     for (const bucketCount of [0, -5, 2.5, NaN]) {
-      expect(toRunProfile(straightRun(600, 3), bucketCount)).toEqual([]);
+      expect(toRunProfile(straightRun(600, 3), { bucketCount })).toEqual([]);
     }
   });
 });
 
 describe('toRunProfile pace', () => {
   test('a steady 3 m/s run reports ~333 s/km in every bucket', () => {
-    const profile = toRunProfile(straightRun(600, 3), PROFILE_SAMPLE_COUNT);
+    const profile = toRunProfile(straightRun(600, 3), { bucketCount: PROFILE_SAMPLE_COUNT });
     for (const point of profile) {
       expect(point.paceSecPerKm).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
     }
@@ -153,7 +167,9 @@ describe('toRunProfile pace', () => {
     // The bug this pins (spec §5.2; mechanism at Bucket.entryTimestamp): 267.52 / 300.89 / 323.14
     // s/km for 120 / 60 / 20 buckets against a true 333.33.
     const fixes = straightRun(600, 3);
-    const means = [120, 60, 20].map((count) => meanPace(toRunProfile(fixes, count)));
+    const means = [120, 60, 20].map((count) =>
+      meanPace(toRunProfile(fixes, { bucketCount: count })),
+    );
     for (const mean of means) {
       expect(mean).toBeCloseTo(STEADY_PACE_SEC_PER_KM, -1);
     }
@@ -201,7 +217,7 @@ describe('toRunProfile resampling', () => {
   test('the x extent equals the smoothed track distance the summary reports', () => {
     // ADR 0021 §3: the chart's x extent must agree with the summary's headline distance.
     const fixes = straightRun(600, 3);
-    const profile = toRunProfile(fixes, PROFILE_SAMPLE_COUNT);
+    const profile = toRunProfile(fixes, { bucketCount: PROFILE_SAMPLE_COUNT });
     const width = smoothTrack(fixes).distanceM / PROFILE_SAMPLE_COUNT;
     expect(profile.at(-1)!.distanceM + width / 2).toBeCloseTo(smoothTrack(fixes).distanceM, 9);
   });
@@ -275,7 +291,7 @@ describe('toRunProfile gaps', () => {
         { seconds: 25, mps: 0 },
         { seconds: 300, mps: 3 },
       ]),
-      20,
+      { bucketCount: 20 },
     );
     const paces = stalled
       .map((point) => point.paceSecPerKm)
@@ -339,8 +355,6 @@ describe('toRunProfile carry-forward', () => {
 });
 
 describe('isDrawableProfile', () => {
-  const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
-
   test('needs two ADJACENT measured buckets, which is the least a stroke needs', () => {
     expect(isDrawableProfile([])).toBe(false);
     expect(isDrawableProfile([point(300)])).toBe(false);
@@ -358,8 +372,6 @@ describe('isDrawableProfile', () => {
 });
 
 describe('paceRange', () => {
-  const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
-
   test('a series with nothing measured describes nothing', () => {
     expect(paceRange([])).toBeNull();
     expect(paceRange([point(null), point(null)])).toBeNull();
@@ -431,8 +443,6 @@ describe('paceRange', () => {
 });
 
 describe('paceChartDomain', () => {
-  const point = (paceSecPerKm: number | null): ProfilePoint => ({ distanceM: 0, paceSecPerKm });
-
   test('a series with nothing measured has no domain', () => {
     expect(paceChartDomain([])).toBeUndefined();
     expect(paceChartDomain([point(null), point(null)])).toBeUndefined();
@@ -453,5 +463,97 @@ describe('paceChartDomain', () => {
 
   test('a single measured point still gets a non-zero-width domain', () => {
     expect(paceChartDomain([point(360)])).toEqual([396, 360]);
+  });
+});
+
+/** One altitude sample per fix, climbing `climbM` linearly over the run. */
+function climbAlong(fixes: readonly LocationFix[], climbM: number): TimedAltitude[] {
+  return fixes.map((fix, i) => ({
+    timestamp: fix.timestamp,
+    relativeM: (climbM * i) / (fixes.length - 1),
+  }));
+}
+
+describe('toRunProfile elevation series', () => {
+  test('without altitude every bucket reads null and pace is unchanged', () => {
+    const fixes = straightRun(600, 3);
+    const plain = toRunProfile(fixes);
+    expect(plain.every((point) => point.elevationM === null)).toBe(true);
+    const withAltitude = toRunProfile(fixes, { altitude: climbAlong(fixes, 20) });
+    expect(withAltitude.map((point) => point.paceSecPerKm)).toEqual(
+      plain.map((point) => point.paceSecPerKm),
+    );
+  });
+
+  test('a steady climb lands on the same grid, rising bucket by bucket', () => {
+    const fixes = straightRun(600, 3);
+    const profile = toRunProfile(fixes, { altitude: climbAlong(fixes, 20) });
+    const elevations = profile.map((point) => point.elevationM!);
+    expect(elevations.every((value) => value !== null)).toBe(true);
+    for (let i = 1; i < elevations.length; i += 1) {
+      expect(elevations[i]).toBeGreaterThan(elevations[i - 1]);
+    }
+    expect(elevations[0]).toBeLessThan(1);
+    expect(elevations.at(-1)).toBeGreaterThan(19);
+  });
+
+  test('samples before the first fix or after the last clamp to the end buckets', () => {
+    const fixes = straightRun(100, 3);
+    const first = fixes[0].timestamp;
+    const last = fixes.at(-1)!.timestamp;
+    const profile = toRunProfile(fixes, {
+      bucketCount: 10,
+      altitude: [
+        { timestamp: first - 60_000, relativeM: 1 },
+        { timestamp: last + 60_000, relativeM: 9 },
+      ],
+    });
+    expect(profile[0].elevationM).toBe(1);
+    expect(profile.at(-1)!.elevationM).toBe(9);
+    expect(profile.slice(1, -1).every((point) => point.elevationM === null)).toBe(true);
+  });
+
+  test("a pause's samples pile into the bucket where the runner stood", () => {
+    const fixes = phasedRun([
+      { seconds: 300, mps: RUN_MPS, gapAfterS: 120 },
+      { seconds: 300, mps: RUN_MPS },
+    ]);
+    const pauseStart = fixes[299].timestamp;
+    const paused = Array.from({ length: 120 }, (_, i) => ({
+      timestamp: pauseStart + (i + 1) * 1000,
+      relativeM: 5,
+    }));
+    const profile = toRunProfile(fixes, { bucketCount: 20, altitude: paused });
+    const carrying = profile.filter((point) => point.elevationM !== null);
+    expect(carrying).toHaveLength(1);
+    expect(carrying[0].distanceM).toBeCloseTo(300 * RUN_MPS, -2);
+  });
+});
+
+describe('isDrawableElevation', () => {
+  test('needs two adjacent buckets that carry elevation', () => {
+    expect(isDrawableElevation([elevationPoint(1)])).toBe(false);
+    expect(isDrawableElevation([elevationPoint(1), elevationPoint(null), elevationPoint(2)])).toBe(
+      false,
+    );
+    expect(isDrawableElevation([elevationPoint(null), elevationPoint(1), elevationPoint(2)])).toBe(
+      true,
+    );
+  });
+});
+
+describe('elevationChartDomain', () => {
+  test('widens a flat series upward so wobble cannot fill the plot', () => {
+    expect(elevationChartDomain([elevationPoint(2), elevationPoint(3)])).toEqual([2, 12]);
+  });
+
+  test('keeps a real climb at its own extent', () => {
+    expect(
+      elevationChartDomain([elevationPoint(0), elevationPoint(15), elevationPoint(30)]),
+    ).toEqual([0, 30]);
+  });
+
+  test('is undefined with no elevation', () => {
+    expect(elevationChartDomain([elevationPoint(null)])).toBeUndefined();
   });
 });

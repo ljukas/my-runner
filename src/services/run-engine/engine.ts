@@ -1,4 +1,4 @@
-import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
+import type { CueId } from '@/domain/cues';
 import {
   accuracyFilter,
   createSmootherState,
@@ -6,14 +6,8 @@ import {
   type LocationFix,
   type SmootherState,
 } from '@/domain/geo';
-import {
-  sessionTotalSeconds,
-  type PlannedSegment,
-  type PlanSession,
-  type SegmentKind,
-} from '@/domain/plan';
+import type { PlanSession } from '@/domain/plan';
 import { paceSecPerKm } from '@/domain/run-stats';
-import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import type { CueService } from '@/services/cue-service/port';
 import type {
   AltitudeReading,
@@ -24,6 +18,7 @@ import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
+import { activeElapsedMs, ScriptedMode, type RunMode } from './mode';
 import {
   createPointBatchScheduler,
   POINT_FLUSH_MS,
@@ -41,6 +36,7 @@ import type {
 } from './types';
 
 const IDLE_SNAPSHOT: RunSnapshot = {
+  mode: 'scripted',
   status: 'idle',
   sessionKey: null,
   segmentIndex: -1,
@@ -92,38 +88,6 @@ function withTimeout<T>(promise: Promise<T>, fallback: T, ms: number, label: str
   });
 }
 
-/**
- * Active time is derived from the timestamped event log, never accumulated
- * (ADR 0007). If currently paused, elapsed is frozen at the pause timestamp.
- */
-function activeElapsedMs(events: readonly RunEvent[], now: number): number {
-  if (events.length === 0) return 0;
-  const startAt = events[0].at;
-  let pausedTotal = 0;
-  let pausedAt: number | null = null;
-  for (const event of events) {
-    if (event.type === 'pause' && pausedAt === null) pausedAt = event.at;
-    if (event.type === 'resume' && pausedAt !== null) {
-      pausedTotal += event.at - pausedAt;
-      pausedAt = null;
-    }
-  }
-  const end = pausedAt ?? Math.max(now, events[events.length - 1].at);
-  return Math.max(0, end - startAt - pausedTotal);
-}
-
-/** Active-elapsed seconds at each skip event, measured against the events before it. */
-function skipAtsOf(events: readonly RunEvent[]): number[] {
-  return events
-    .map((event, index) => ({ event, index }))
-    .filter(({ event }) => event.type === 'skip')
-    .map(({ event, index }) => activeElapsedMs(events.slice(0, index), event.at) / 1000);
-}
-
-function timelineOf(segments: PlannedSegment[], events: readonly RunEvent[]): TimelineSegment[] {
-  return buildTimeline(segments, skipAtsOf(events));
-}
-
 /** Paused-ness is the last unmatched pause, not the last event: `skip` is legal while paused. */
 function isPausedInLog(events: readonly RunEvent[]): boolean {
   let paused = false;
@@ -135,19 +99,6 @@ function isPausedInLog(events: readonly RunEvent[]): boolean {
 }
 
 /**
- * Whether ending at `elapsed` counts as completing the session (issue #40):
- * inside the final segment when it is a cool-down, or past timeline
- * exhaustion. Every work segment is behind the runner, so the cool-down acts
- * as a flex period for ending early — consistent with skipSegment(), which
- * already completes when the final segment is skipped.
- */
-function endsInFinalCooldown(timeline: TimelineSegment[], elapsed: number): boolean {
-  const pos = positionAt(timeline, elapsed);
-  if (pos.done) return true;
-  return pos.index === timeline.length - 1 && timeline[pos.index].kind === 'cooldown';
-}
-
-/**
  * Snapshot twin of `endsInFinalCooldown` for the UI — the run screen's End
  * dialog derives its copy from this. Keep the two rules in sync.
  */
@@ -155,20 +106,7 @@ export function endCountsAsCompleted(snapshot: RunSnapshot): boolean {
   return snapshot.segmentKind === 'cooldown' && snapshot.nextSegment === null;
 }
 
-/**
- * Whether the log has already run past its timeline at `now`.
- * why: wall-clock time that passed while the app was dead is not evidence the session was run, so
- * such a log must be finalized as `partial`, never resumed into a completion (ADR 0007).
- */
-export function isTimelineExhausted(
-  session: PlanSession,
-  events: readonly RunEvent[],
-  now: number,
-): boolean {
-  if (events.length === 0) return false;
-  const elapsed = activeElapsedMs(events, now) / 1000;
-  return positionAt(timelineOf(session.segments, events), elapsed).done;
-}
+export { isTimelineExhausted } from './mode';
 
 export interface RunRestoreInput {
   runId: string;
@@ -216,7 +154,7 @@ export class RunEngine {
   private readonly nativeTimeoutMs: number;
   private readonly scheduler: PointBatchScheduler;
 
-  private session: PlanSession | null = null;
+  private mode: RunMode | null = null;
   private events: RunEvent[] = [];
   private status: EngineStatus = 'idle';
   private savedRunId: string | null = null;
@@ -224,17 +162,7 @@ export class RunEngine {
   /** Bumped by start()/reset() so a slow save from a superseded run can never stamp a later one. */
   private runGeneration = 0;
   private snapshot: RunSnapshot = IDLE_SNAPSHOT;
-  /** The timeline only changes on start/reset/skip, not per heartbeat — cache it between those. */
-  private cachedTimeline: TimelineSegment[] | null = null;
   private readonly listeners = new Set<() => void>();
-
-  // Cue firing (ADR 0007 §4 / ADR 0009): a transition cue fires only when the
-  // derived segment changes; milestones fire once each. All are computed at
-  // start() and reset on start()/reset().
-  private lastAnnouncedIndex = -1;
-  private halfwayFired = false;
-  private plannedTotalS = 0;
-  private lastRunIndex = -1;
 
   // GPS ingest state (ADR 0021 §3): folded live so the snapshot distance equals the finalize re-fold; cleared per run.
   private smootherState: SmootherState = createSmootherState();
@@ -302,18 +230,12 @@ export class RunEngine {
 
   start(session: PlanSession): void {
     if (this.status !== 'idle') return;
-    this.session = session;
+    this.mode = new ScriptedMode(session);
     this.events = [{ type: 'start', at: this.clock() }];
-    this.cachedTimeline = null;
     this.status = 'running';
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
-    this.lastAnnouncedIndex = -1;
-    this.halfwayFired = false;
-    this.plannedTotalS = sessionTotalSeconds(session);
-    // The final run is announced as "last run", not a generic "start running".
-    this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
     this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = 0;
     this.resetIngestState();
@@ -355,16 +277,15 @@ export class RunEngine {
   }
 
   heartbeat(now: number = this.clock(), fix?: LocationFix): void {
-    if (this.status !== 'running' && this.status !== 'paused') return;
-    const elapsed = activeElapsedMs(this.events, now) / 1000;
-    const pos = positionAt(this.timeline(), elapsed);
+    if (!this.mode || (this.status !== 'running' && this.status !== 'paused')) return;
+    const pos = this.mode.position(this.events, activeElapsedMs(this.events, now) / 1000);
     if (pos.done) {
       void this.finalize('completed');
       return;
     }
     // Timing/cues derive first; GPS ingestion can neither stall nor throw out of them.
     this.refresh(now);
-    if (this.status === 'running' && fix) this.ingestFix(fix, pos.index);
+    if (this.status === 'running' && fix) this.ingestFix(fix, pos.segmentSeq);
     this.armFlush();
   }
 
@@ -375,7 +296,7 @@ export class RunEngine {
    */
   restore(input: RunRestoreInput): boolean {
     if (this.status !== 'idle') return false;
-    if (isTimelineExhausted(input.session, input.state.events, this.clock())) return false;
+    if (new ScriptedMode(input.session).exhausted(input.state.events, this.clock())) return false;
     if (!this.rebuild(input)) return false;
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
@@ -403,15 +324,12 @@ export class RunEngine {
   }
 
   reset(): void {
-    this.session = null;
+    this.mode = null;
     this.events = [];
-    this.cachedTimeline = null;
     this.status = 'idle';
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
-    this.lastAnnouncedIndex = -1;
-    this.halfwayFired = false;
     this.runId = null;
     this.startRunPromise = null;
     this.scheduler.stop();
@@ -454,71 +372,29 @@ export class RunEngine {
   private append(type: RunEvent['type'], at?: number): void {
     const last = this.events[this.events.length - 1];
     this.events.push({ type, at: Math.max(at ?? this.clock(), last?.at ?? 0) });
-    if (type === 'skip') this.cachedTimeline = null;
-  }
-
-  private timeline(): TimelineSegment[] {
-    this.cachedTimeline ??= timelineOf(this.session?.segments ?? [], this.events);
-    return this.cachedTimeline;
   }
 
   private refresh(now: number = this.clock()): void {
-    if (!this.session) return;
-    const timeline = this.timeline();
-    const total = totalSeconds(timeline);
-    const elapsed = Math.min(activeElapsedMs(this.events, now) / 1000, total);
-    const pos = positionAt(timeline, elapsed);
-
-    const base = {
+    if (!this.mode) return;
+    const view = this.mode.view(this.events, activeElapsedMs(this.events, now) / 1000, now);
+    this.snapshot = {
+      ...view,
+      mode: 'scripted',
       status: this.status,
-      sessionKey: this.session.key,
-      activeElapsedSeconds: elapsed,
-      totalSeconds: total,
+      sessionKey: this.mode.key,
       savedRunId: this.savedRunId,
       saveFailed: this.saveFailed,
       distanceM: this.distanceM,
-      paceSecPerKm: paceSecPerKm(this.distanceM, elapsed),
+      paceSecPerKm: paceSecPerKm(this.distanceM, view.activeElapsedSeconds),
     };
-    if (pos.done) {
-      this.snapshot = {
-        ...base,
-        segmentIndex: timeline.length - 1,
-        segmentKind: timeline[timeline.length - 1]?.kind ?? null,
-        segmentSecondsRemaining: 0,
-        segmentSecondsTotal: timeline[timeline.length - 1]?.effectiveSeconds ?? 0,
-        segmentEndsAt: null,
-        nextSegment: null,
-      };
-    } else {
-      const segment = timeline[pos.index];
-      const next = timeline[pos.index + 1];
-      this.snapshot = {
-        ...base,
-        segmentIndex: pos.index,
-        segmentKind: segment.kind,
-        segmentSecondsRemaining: pos.secondsRemaining,
-        segmentSecondsTotal: segment.effectiveSeconds,
-        segmentEndsAt: now + pos.secondsRemaining * 1000,
-        nextSegment: next ? { kind: next.kind, seconds: next.effectiveSeconds } : null,
-      };
-      // Cues fire on live running refreshes only — never on pause/resume/finalize
-      // (whose status is already non-running here).
-      if (this.status === 'running') this.announceProgress(pos.index, segment.kind, elapsed);
+    // Cues fire on live running refreshes only — never on pause/resume/finalize
+    // (whose status is already non-running here).
+    if (this.status === 'running') {
+      for (const cue of this.mode.takeCues(this.events, view.activeElapsedSeconds)) {
+        this.announce(cue);
+      }
     }
     this.emit();
-  }
-
-  /** Fires the transition cue on a derived-segment change and the halfway
-   * milestone once (ADR 0007 §4). The final run announces `lastRun`. */
-  private announceProgress(index: number, kind: SegmentKind, elapsed: number): void {
-    if (index !== this.lastAnnouncedIndex) {
-      this.lastAnnouncedIndex = index;
-      this.announce(index === this.lastRunIndex ? 'lastRun' : SEGMENT_ENTRY_CUE[kind]);
-    }
-    if (!this.halfwayFired && this.plannedTotalS > 0 && elapsed >= this.plannedTotalS / 2) {
-      this.halfwayFired = true;
-      this.announce('halfway');
-    }
   }
 
   // why a seam: one flag can silence a whole run, and the log records what it would have said
@@ -633,17 +509,15 @@ export class RunEngine {
     if (state.events.length === 0 || state.events[0].type !== 'start') return false;
     if (state.sessionKey !== session.key) return false;
 
-    this.session = session;
+    this.mode = new ScriptedMode(session, {
+      lastAnnouncedIndex: state.lastAnnouncedIndex,
+      halfwayFired: state.halfwayFired,
+    });
     this.events = state.events.map((event) => ({ ...event }));
-    this.cachedTimeline = null;
     this.status = isPausedInLog(state.events) ? 'paused' : 'running';
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
-    this.lastAnnouncedIndex = state.lastAnnouncedIndex;
-    this.halfwayFired = state.halfwayFired;
-    this.plannedTotalS = sessionTotalSeconds(session);
-    this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
     this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = logResume?.epochBase ?? 0;
     this.resetIngestState();
@@ -676,41 +550,23 @@ export class RunEngine {
     promoteInCooldown = true,
     at?: number,
   ): Promise<void> {
-    if (!this.session || this.events.length === 0) return;
+    if (!this.mode || this.events.length === 0) return;
     this.append('end', at);
     const endAt = this.events[this.events.length - 1].at;
-    const timeline = this.timeline();
-    const total = totalSeconds(timeline);
-    // Completion is capped at timeline exhaustion (ADR 0007).
-    const finalElapsed = Math.min(activeElapsedMs(this.events, endAt) / 1000, total);
-    // Ending early during the final cool-down — or past exhaustion, before the
-    // next heartbeat notices — completes the session (issue #40). Resolved from
-    // the recorded end event so the outcome stays derivable from the event log
-    // alone (ADR 0007).
-    const kind =
-      requestedKind === 'endedEarly' &&
-      promoteInCooldown &&
-      endsInFinalCooldown(timeline, finalElapsed)
-        ? 'completed'
-        : requestedKind;
+    const { kind, elapsedS, segments } = this.mode.finalize(
+      this.events,
+      endAt,
+      requestedKind,
+      promoteInCooldown,
+    );
 
     const record: CompletedRunRecord = {
-      sessionKey: this.session.key,
+      sessionKey: this.mode.key,
       status: kind === 'completed' ? 'completed' : 'partial',
       startedAt: new Date(this.events[0].at).toISOString(),
       endedAt: new Date(endAt).toISOString(),
-      activeDurationS: Math.round(finalElapsed),
-      segments: timeline
-        .filter((segment) => segment.wasSkipped || segment.startsAt < finalElapsed)
-        .map((segment, seq) => ({
-          seq,
-          kind: segment.kind,
-          plannedDurationS: segment.plannedSeconds,
-          actualDurationS: Math.round(
-            Math.min(segment.effectiveSeconds, Math.max(0, finalElapsed - segment.startsAt)),
-          ),
-          wasSkipped: segment.wasSkipped,
-        })),
+      activeDurationS: Math.round(elapsedS),
+      segments,
       // active_run_snapshot (the only other home for this) is cleared once finalize succeeds, and
       // snapshotState strips `end` — so this is the run's last chance to keep it (spec §5.2).
       eventLogJson: JSON.stringify(this.events),
@@ -769,9 +625,8 @@ export class RunEngine {
       if (this.startRunPromise !== pending) return this.runId; // another attempt already replaced it
     }
     // why: one retry per cadence — otherwise a single transient failure at start() costs the whole run's track.
-    if (this.session === null || (this.status !== 'running' && this.status !== 'paused'))
-      return null;
-    this.openRunRow(this.session.key, this.events[0].at);
+    if (this.mode === null || (this.status !== 'running' && this.status !== 'paused')) return null;
+    this.openRunRow(this.mode.key, this.events[0].at);
     return await this.startRunPromise;
   }
 
@@ -795,8 +650,8 @@ export class RunEngine {
       // own tick rides it and a stalled flush cannot silently stop the trace.
       this.note('tick', null);
       const runId = await this.awaitRunId();
-      const session = this.session;
-      if (runId === null || session === null) return false;
+      const mode = this.mode;
+      if (runId === null || mode === null) return false;
       if (generation !== this.runGeneration) return true; // superseded: this run has nothing left to persist
       // why: the buffer is claimed only after the runId await resolves, so fixes arriving during it
       // are not handed to the DB under a stale runId.
@@ -809,7 +664,7 @@ export class RunEngine {
         batch.map(toRunPoint),
         samples,
         entries,
-        this.snapshotState(session),
+        this.snapshotState(mode),
       );
       return true;
     } catch (error) {
@@ -829,13 +684,12 @@ export class RunEngine {
     }
   }
 
-  private snapshotState(session: PlanSession): RunSnapshotState {
+  private snapshotState(mode: RunMode): RunSnapshotState {
     return {
-      sessionKey: session.key,
+      sessionKey: mode.key,
       // why: an `end`-terminated log is not resumable, so a finalize that fails must not leave one behind.
       events: this.events.filter((event) => event.type !== 'end').map((event) => ({ ...event })),
-      lastAnnouncedIndex: this.lastAnnouncedIndex,
-      halfwayFired: this.halfwayFired,
+      ...mode.cueState(),
       lastAcceptedFix: this.lastAcceptedFix,
       logSeq: this.log.watermarks,
     };

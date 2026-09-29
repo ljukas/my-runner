@@ -11,6 +11,8 @@ export interface RunEvent {
 export type EngineStatus = 'idle' | 'running' | 'paused' | 'completed' | 'endedEarly';
 
 export interface RunSnapshot {
+  /** Only scripted runs exist until the open mode lands (ADR 0026 §1, stage 3). */
+  mode: 'scripted';
   status: EngineStatus;
   sessionKey: string | null;
   segmentIndex: number;

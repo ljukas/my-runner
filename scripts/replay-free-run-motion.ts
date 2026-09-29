@@ -111,6 +111,11 @@ const captures = [
       .map((c) => [c.id, c]),
   ).values(),
 ].sort((a, b) => a.startMs - b.startMs);
+for (const capture of captures) {
+  if (capture.events.length === 0) {
+    console.warn(`${capture.id}: no event log in the export, so its pauses are invisible here`);
+  }
+}
 const plan = captures.filter((c) => /^w\d+d\d+$/.test(c.sessionKey));
 const standing = captures.filter((c) => c.sessionKey === 'field-test');
 

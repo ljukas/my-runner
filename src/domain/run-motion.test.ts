@@ -74,12 +74,22 @@ describe('motionStep', () => {
     ]);
   });
 
-  test('a retargeted candidate is confirmed as the kind its confirming sample implies', () => {
-    // walk from 20 s, then one very slow sample at 28 s: stopped, backdated to 20 s
+  test('a candidate is confirmed as the kind most of its samples implied, not its last sample', () => {
+    // walking from 20 s with one very slow sample at 28 s: walk (8 samples) beats stopped (1)
     const t = transitionsOf(
       samplesAt([...repeat(2.5, 20), ...repeat(1.5, 8), 0.3, ...repeat(1.5, 5)]),
     );
-    expect(t[1]?.transition).toEqual({ kind: 'stopped', atMs: 20_000 });
+    expect(t[1]?.transition).toEqual({ kind: 'walk', atMs: 20_000 });
+  });
+
+  test('one noisy slow sample does not turn a walk after a run into a stop', () => {
+    const t = transitionsOf(
+      samplesAt([...repeat(2.5, 10), ...repeat(1.2, 8), 0.4, ...repeat(1.2, 20)]),
+    );
+    expect(t.map((x) => x.transition)).toEqual([
+      { kind: 'run', atMs: 0 },
+      { kind: 'walk', atMs: 10_000 },
+    ]);
   });
 
   test('a jogger hovering near the threshold is confirmed when most samples agree', () => {
@@ -387,6 +397,65 @@ function noisyTrack(legs: readonly Leg[], seed = 7): LocationFix[] {
 const secondsOf = (buckets: readonly { kind: string; activeS: number }[], kind: string) =>
   buckets.filter((b) => b.kind === kind).reduce((sum, b) => sum + b.activeS, 0);
 
+describe('rollupOpenTrack — hostile fix streams (stage-1 review)', () => {
+  const options = (
+    fixes: readonly LocationFix[],
+    paused: { fromMs: number; toMs: number }[] = [],
+  ) => ({
+    thresholdMps: T,
+    paused,
+    startMs: 0,
+    endMs: endOf(fixes),
+  });
+
+  test('a late fix stamped in the past is ignored, not read as a gap', () => {
+    const fixes = track([{ seconds: 120, mps: 3 }]);
+    const late = { ...fixes[9] }; // t = 10 s, delivered after t = 100 s
+    const shuffled = [...fixes.slice(0, 100), late, ...fixes.slice(100)];
+    const rollup = rollupOpenTrack(shuffled, options(fixes));
+    expect(rollup.buckets.map((b) => b.kind)).toEqual(['run']);
+    expect(rollup.distanceM).toBe(rollupOpenTrack(fixes, options(fixes)).distanceM);
+  });
+
+  test('a fix the velocity gate rejected does not move the time later fixes are measured from', () => {
+    const fixes = track([{ seconds: 60, mps: 2.5 }]);
+    const spike = { ...fixes[30], timestamp: 31_500, lat: fixes[30].lat + 0.01 }; // ~1 km off
+    const between = { ...fixes[30], timestamp: 31_200 }; // after the last accepted fix, before the spike
+    const stream = [...fixes.slice(0, 31), spike, between, ...fixes.slice(31)];
+    expect(rollupOpenTrack(stream, options(fixes)).distanceM).toBe(smoothTrack(stream).distanceM);
+  });
+
+  test('fixes stamped inside a pause are not counted', () => {
+    const fixes = track([{ seconds: 180, mps: 1.5 }]); // the runner keeps walking while paused
+    const paused = [{ fromMs: 60_500, toMs: 120_500 }];
+    const outside = fixes.filter((f) => f.timestamp < 60_500 || f.timestamp >= 120_500);
+    expect(rollupOpenTrack(fixes, options(fixes, paused)).distanceM).toBe(
+      rollupOpenTrack(outside, options(fixes, paused)).distanceM,
+    );
+  });
+
+  test('fixes after a pause that never ended are not counted', () => {
+    const fixes = track([{ seconds: 100, mps: 3 }]);
+    const paused = [{ fromMs: 50_500, toMs: Infinity }];
+    const before = fixes.filter((f) => f.timestamp < 50_500);
+    expect(rollupOpenTrack(fixes, options(fixes, paused)).distanceM).toBe(
+      rollupOpenTrack(before, options(fixes, paused)).distanceM,
+    );
+  });
+
+  test('fixes stamped just before the start still count, as the live engine ingests them', () => {
+    const fixes = track([{ seconds: 120, mps: 2.6 }]);
+    const rollup = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 10_000,
+      endMs: endOf(fixes),
+    });
+    expect(rollup.distanceM).toBe(smoothTrack(fixes).distanceM);
+    expect(rollup.buckets[0].startMs).toBe(10_000);
+  });
+});
+
 describe('rollupOpenTrack — noisy tracks (spec §8)', () => {
   for (const stopS of [10, 20, 45]) {
     test(`a ${stopS} s stop at a crossing mid-run is stopped, not walked`, () => {
@@ -466,6 +535,20 @@ describe('learnThreshold', () => {
   test('falls back as well when it is the walking that is short', () => {
     const fewWalks = [...labelled('walk', 1.5, 59), ...labelled('run', 2.8, 100)];
     expect(learnThreshold(fewWalks)).toBe(2.1);
+  });
+
+  test('ignores standing inside a scripted run, which would drag the run p10 down', () => {
+    expect(learnThreshold([...plan, ...labelled('run', 0.2, 30)])).toBeCloseTo(2.14, 9);
+  });
+
+  test('never learns a threshold below 1.5 m/s, where ordinary walking would read as running', () => {
+    const slow = [...labelled('walk', 1.1, 100), ...labelled('run', 1.4, 100)];
+    expect(learnThreshold(slow)).toBe(1.5);
+  });
+
+  test('never learns a threshold above 3.0 m/s', () => {
+    const fast = [...labelled('walk', 3.2, 100), ...labelled('run', 4.5, 100)];
+    expect(learnThreshold(fast)).toBe(3.0);
   });
 });
 

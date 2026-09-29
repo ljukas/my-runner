@@ -44,8 +44,9 @@ Also: flip ADR 0026's status to `Accepted` (it merged as `Proposed`).
 ## Verification
 
 - `bun test`, `bun run typecheck`, `bun run typecheck:android`, `bun run lint`.
-- The harness over the 12 captures reproduces §4.4 (mean held-out agreement 97.5 %, run pace within
-  2 % on 7 of 8). A divergence is a finding to explain, not to tune away.
+- The harness over the 12 captures reproduces §4.4, which is regenerated from it (mean held-out
+  agreement 97.3 %, run pace within 2 % on 7 of 8). A divergence is a finding to explain, not to tune
+  away.
 - `bunx expo-updates fingerprint:generate --platform ios | jq -r .hash` equal before and after.
 
 ## Review

@@ -1,4 +1,5 @@
 import type { SegmentKind } from '@/domain/plan';
+import type { MotionKind } from '@/domain/run-motion';
 
 /** Wall-clock time source, epoch milliseconds (ADR 0007: wall clock only). */
 export type Clock = () => number;
@@ -10,19 +11,10 @@ export interface RunEvent {
 
 export type EngineStatus = 'idle' | 'running' | 'paused' | 'completed' | 'endedEarly';
 
-export interface RunSnapshot {
-  mode: 'scripted';
+interface RunSnapshotBase {
   status: EngineStatus;
   sessionKey: string | null;
-  segmentIndex: number;
-  segmentKind: SegmentKind | null;
-  segmentSecondsRemaining: number;
-  segmentSecondsTotal: number;
-  /** Epoch-ms the current segment ends while running; null when idle/done. */
-  segmentEndsAt: number | null;
-  nextSegment: { kind: SegmentKind; seconds: number } | null;
   activeElapsedSeconds: number;
-  totalSeconds: number;
   /** Live smoothed distance in metres (ADR 0021 §3); 0 before the first committed fix / when GPS is off. */
   distanceM: number;
   /** Overall pace in seconds per km; null until distance exceeds 0. */
@@ -31,6 +23,31 @@ export interface RunSnapshot {
   savedRunId: string | null;
   saveFailed: boolean;
 }
+
+export interface ScriptedRunSnapshot extends RunSnapshotBase {
+  mode: 'scripted';
+  segmentIndex: number;
+  segmentKind: SegmentKind | null;
+  segmentSecondsRemaining: number;
+  segmentSecondsTotal: number;
+  /** Epoch-ms the current segment ends while running; null when idle/done. */
+  segmentEndsAt: number | null;
+  nextSegment: { kind: SegmentKind; seconds: number } | null;
+  totalSeconds: number;
+}
+
+/** A free run's live view (ADR 0026 §6): no countdown, only what the classifier sees now. */
+export interface OpenRunSnapshot extends RunSnapshotBase {
+  mode: 'open';
+  /** The confirmed kind right now; null before the first velocity. */
+  motion: MotionKind | null;
+  /** Pace over the last ~45 s of moving samples; null while stopped or when GPS is stale. */
+  rollingPaceSecPerKm: number | null;
+  /** Whether any fix has arrived — "Waiting for GPS" until then. */
+  hasFix: boolean;
+}
+
+export type RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot;
 
 /** `timestamp` is normalized integer epoch-ms so the `run_points` int-ms→ISO write round-trips losslessly and the finalize re-fold matches live distance (ADR 0021 §3). */
 export interface BufferedRunPoint {

@@ -2,7 +2,7 @@ import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import { activeElapsedMs } from '@/domain/active-time';
-import type { CompletedSegmentRecord, RunEvent, RunSnapshot } from './types';
+import type { CompletedSegmentRecord, RunEvent, RunSnapshot, ScriptedRunSnapshot } from './types';
 
 /** Active-elapsed seconds at each skip event, measured against the events before it. */
 function skipAtsOf(events: readonly RunEvent[]): number[] {
@@ -32,7 +32,11 @@ function endsInFinalCooldown(timeline: TimelineSegment[], elapsed: number): bool
 
 /** The UI's twin of `endsInFinalCooldown` over a snapshot — the run screen's End dialog copy. */
 export function endCountsAsCompleted(snapshot: RunSnapshot): boolean {
-  return snapshot.segmentKind === 'cooldown' && snapshot.nextSegment === null;
+  return (
+    snapshot.mode === 'scripted' &&
+    snapshot.segmentKind === 'cooldown' &&
+    snapshot.nextSegment === null
+  );
 }
 
 /**
@@ -55,7 +59,7 @@ export type ModePosition = { done: true } | { done: false; segmentSeq: number };
 
 /** The plan-dependent half of a `RunSnapshot`, and the active seconds it was derived at. */
 export type ModeView = Pick<
-  RunSnapshot,
+  ScriptedRunSnapshot,
   | 'activeElapsedSeconds'
   | 'totalSeconds'
   | 'segmentIndex'

@@ -58,6 +58,7 @@ export function useSegmentClock(segmentIndex: number, status: EngineStatus): Sha
     // real segment/status transition.
     const snap = runEngine.getSnapshot();
     cancelAnimation(remaining);
+    if (snap.mode !== 'scripted') return;
     const remainingS = Math.max(0, snap.segmentSecondsRemaining);
     if (status === 'running' && snap.segmentEndsAt != null) {
       const endsAt = snap.segmentEndsAt;

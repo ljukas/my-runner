@@ -409,7 +409,11 @@ export class RunEngine {
 
   private captureReading = (reading: AltitudeReading): void => {
     try {
-      this.log.sample(reading, this.snapshot.segmentIndex, this.elevationEpochBase);
+      this.log.sample(
+        reading,
+        this.snapshot.mode === 'scripted' ? this.snapshot.segmentIndex : 0,
+        this.elevationEpochBase,
+      );
     } catch (error) {
       console.warn('[run-engine] altitude sample dropped; the run is unaffected', error);
     }

@@ -23,7 +23,19 @@ import { endCountsAsCompleted, isTimelineExhausted, RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
 import { parseSnapshotState } from './resumable';
 import type { PendingEntry, PendingSample } from './run-log';
-import type { BufferedRunPoint, CompletedRunRecord, RunLifecyclePersistence } from './types';
+import type {
+  BufferedRunPoint,
+  CompletedRunRecord,
+  RunLifecyclePersistence,
+  ScriptedRunSnapshot,
+} from './types';
+
+/** Every run in this suite is a plan session; open-mode runs are tested in open-mode.test.ts. */
+function scripted(engine: RunEngine): ScriptedRunSnapshot {
+  const snapshot = engine.getSnapshot();
+  if (snapshot.mode !== 'scripted') throw new Error('expected a scripted run');
+  return snapshot;
+}
 
 /** A recording fake so cue firing can be asserted without expo-speech/audio. */
 function makeFakeCue() {
@@ -306,7 +318,7 @@ describe('lifecycle', () => {
   test('start enters the first segment', () => {
     const { engine } = makeEngine();
     engine.start(SESSION);
-    const s = engine.getSnapshot();
+    const s = scripted(engine);
     expect(s.status).toBe('running');
     expect(s.sessionKey).toBe('w1d1');
     expect(s.segmentIndex).toBe(0);
@@ -320,14 +332,14 @@ describe('lifecycle', () => {
     const { engine } = makeEngine();
     engine.start(SESSION);
     engine.start({ ...SESSION, key: 'w9d3' });
-    expect(engine.getSnapshot().sessionKey).toBe('w1d1');
+    expect(scripted(engine).sessionKey).toBe('w1d1');
   });
 
   test('heartbeats derive the current segment from elapsed time', () => {
     const { engine, tick } = makeEngine();
     engine.start(SESSION);
     tick(12); // 12s → 2s into the run segment
-    const s = engine.getSnapshot();
+    const s = scripted(engine);
     expect(s.segmentIndex).toBe(1);
     expect(s.segmentKind).toBe('run');
     expect(s.segmentSecondsRemaining).toBe(18);
@@ -338,14 +350,14 @@ describe('lifecycle', () => {
     const { engine, tick } = makeEngine();
     engine.start(SESSION);
     tick(46); // one heartbeat 46s later → segment 3
-    expect(engine.getSnapshot().segmentIndex).toBe(3);
+    expect(scripted(engine).segmentIndex).toBe(3);
   });
 
   test('reset returns to idle', () => {
     const { engine } = makeEngine();
     engine.start(SESSION);
     engine.reset();
-    expect(engine.getSnapshot().status).toBe('idle');
+    expect(scripted(engine).status).toBe('idle');
   });
 });
 
@@ -357,7 +369,7 @@ describe('pause/resume', () => {
     engine.pause();
     advance(100);
     engine.heartbeat();
-    const s = engine.getSnapshot();
+    const s = scripted(engine);
     expect(s.status).toBe('paused');
     expect(s.activeElapsedSeconds).toBe(30);
   });
@@ -374,20 +386,20 @@ describe('pause/resume', () => {
     advance(50);
     engine.resume();
     tick(2); // active 37
-    expect(engine.getSnapshot().activeElapsedSeconds).toBe(37);
-    expect(engine.getSnapshot().segmentIndex).toBe(2); // 37 ∈ walk [30, 45)
+    expect(scripted(engine).activeElapsedSeconds).toBe(37);
+    expect(scripted(engine).segmentIndex).toBe(2); // 37 ∈ walk [30, 45)
   });
 
   test('pause when not running and resume when not paused are ignored', () => {
     const { engine } = makeEngine();
     engine.resume();
-    expect(engine.getSnapshot().status).toBe('idle');
+    expect(scripted(engine).status).toBe('idle');
     engine.start(SESSION);
     engine.resume();
-    expect(engine.getSnapshot().status).toBe('running');
+    expect(scripted(engine).status).toBe('running');
     engine.pause();
     engine.pause();
-    expect(engine.getSnapshot().status).toBe('paused');
+    expect(scripted(engine).status).toBe('paused');
   });
 });
 
@@ -397,7 +409,7 @@ describe('skip', () => {
     engine.start(SESSION);
     tick(15); // 5s into run
     engine.skipSegment();
-    const s = engine.getSnapshot();
+    const s = scripted(engine);
     expect(s.segmentIndex).toBe(2);
     expect(s.segmentKind).toBe('walk');
     expect(s.totalSeconds).toBe(60); // run shortened 20→5
@@ -409,7 +421,7 @@ describe('skip', () => {
     engine.start(SESSION);
     tick(70); // into cooldown (65–75)
     engine.skipSegment();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved).toHaveLength(1);
     expect(saved[0].status).toBe('completed');
@@ -424,10 +436,10 @@ describe('completion', () => {
     h.engine.pause();
     h.engine.resume();
     h.tick(50); // active 80 > 75 → done, capped at 75
-    expect(h.engine.getSnapshot().status).toBe('completed');
-    expect(h.engine.getSnapshot().activeElapsedSeconds).toBe(75);
+    expect(scripted(h.engine).status).toBe('completed');
+    expect(scripted(h.engine).activeElapsedSeconds).toBe(75);
     await flush();
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
     // The run must land through the points-as-spine lifecycle, never the standalone saveRun path.
     expect(h.calls).toContain('finalizeRun');
     expect(h.calls).not.toContain('saveRun');
@@ -446,7 +458,7 @@ describe('completion', () => {
     h.engine.start(SESSION);
     h.tick(12); // 2s into segment 1 (run)
     h.engine.endEarly();
-    expect(h.engine.getSnapshot().status).toBe('endedEarly');
+    expect(scripted(h.engine).status).toBe('endedEarly');
     await flush();
     expect(h.calls).toContain('finalizeRun');
     expect(h.calls).not.toContain('saveRun');
@@ -488,8 +500,8 @@ describe('completion', () => {
       h.tick(80);
       await flush();
     });
-    expect(h.engine.getSnapshot().saveFailed).toBe(true);
-    expect(h.engine.getSnapshot().savedRunId).toBeNull();
+    expect(scripted(h.engine).saveFailed).toBe(true);
+    expect(scripted(h.engine).savedRunId).toBeNull();
     expect(h.calls).not.toContain('clearSnapshot');
     expect(warnings).toBeGreaterThanOrEqual(1);
   });
@@ -499,13 +511,13 @@ describe('completion', () => {
     h.deferFinalize();
     h.engine.start(SESSION);
     h.tick(80); // completes run A; its finalize stays pending
-    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(scripted(h.engine).status).toBe('completed');
     await flush();
     h.engine.reset();
     h.engine.start({ ...SESSION, key: 'w1d2' });
     h.releaseFinalize();
     await flush();
-    const s = h.engine.getSnapshot();
+    const s = scripted(h.engine);
     expect(s.savedRunId).toBeNull();
     expect(s.sessionKey).toBe('w1d2');
     expect(s.status).toBe('running');
@@ -521,7 +533,7 @@ describe('completion', () => {
     engine.skipSegment();
     engine.endEarly();
     engine.heartbeat();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     expect(saved).toHaveLength(1);
   });
 });
@@ -532,7 +544,7 @@ describe('end during the final cooldown (issue #40)', () => {
     engine.start(SESSION);
     tick(66); // 1s into the cooldown (65–75)
     engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved[0].status).toBe('completed');
     expect(saved[0].activeDurationS).toBe(66);
@@ -551,7 +563,7 @@ describe('end during the final cooldown (issue #40)', () => {
     engine.pause();
     advance(100); // paused wall time is not active time
     engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved[0].status).toBe('completed');
     expect(saved[0].activeDurationS).toBe(70);
@@ -564,7 +576,7 @@ describe('end during the final cooldown (issue #40)', () => {
     engine.skipSegment(); // truncates it; the cooldown now starts at 50
     tick(2); // 2s into the cooldown
     engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved[0].status).toBe('completed');
   });
@@ -574,7 +586,7 @@ describe('end during the final cooldown (issue #40)', () => {
     engine.start(SESSION);
     advance(80); // past the 75s total, with no heartbeat observing it
     engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved[0].status).toBe('completed');
     expect(saved[0].activeDurationS).toBe(75); // capped at the timeline (ADR 0007)
@@ -585,7 +597,7 @@ describe('end during the final cooldown (issue #40)', () => {
     engine.start(SESSION);
     tick(65); // exactly at the cooldown's startsAt
     engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved[0].status).toBe('completed');
     expect(saved[0].segments).toHaveLength(4); // the 0-second cooldown row is filtered out
@@ -596,7 +608,7 @@ describe('end during the final cooldown (issue #40)', () => {
     engine.start(SESSION);
     tick(64); // 19s into the final run (45–65)
     engine.endEarly();
-    expect(engine.getSnapshot().status).toBe('endedEarly');
+    expect(scripted(engine).status).toBe('endedEarly');
     await flush();
     expect(saved[0].status).toBe('partial');
   });
@@ -605,9 +617,9 @@ describe('end during the final cooldown (issue #40)', () => {
     const { engine, tick } = makeEngine();
     engine.start(SESSION);
     tick(64); // final run segment
-    expect(endCountsAsCompleted(engine.getSnapshot())).toBe(false);
+    expect(endCountsAsCompleted(scripted(engine))).toBe(false);
     tick(2); // 66 → in the cooldown
-    expect(endCountsAsCompleted(engine.getSnapshot())).toBe(true);
+    expect(endCountsAsCompleted(scripted(engine))).toBe(true);
   });
 });
 
@@ -617,15 +629,15 @@ describe('clock anomalies (ADR 0007 invariants)', () => {
     engine.start(SESSION);
     advance(-500); // clock jumps back
     engine.heartbeat();
-    expect(engine.getSnapshot().activeElapsedSeconds).toBeGreaterThanOrEqual(0);
-    expect(engine.getSnapshot().status).toBe('running');
+    expect(scripted(engine).activeElapsedSeconds).toBeGreaterThanOrEqual(0);
+    expect(scripted(engine).status).toBe('running');
   });
 
   test('a forward jump can only end the session as completed, capped at the timeline', async () => {
     const { engine, tick, saved } = makeEngine();
     engine.start(SESSION);
     tick(100_000);
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     await flush();
     expect(saved[0].activeDurationS).toBe(75);
   });
@@ -648,7 +660,7 @@ describe('subscription', () => {
   test('getSnapshot is referentially stable between changes', () => {
     const { engine } = makeEngine();
     engine.start(SESSION);
-    expect(engine.getSnapshot()).toBe(engine.getSnapshot());
+    expect(scripted(engine)).toBe(scripted(engine));
   });
 });
 
@@ -775,14 +787,14 @@ describe('segmentEndsAt', () => {
   test('is the wall-clock end of the active segment at start', () => {
     const { engine } = makeEngine();
     engine.start(SESSION); // now = 1_000_000, warmup 10s
-    expect(engine.getSnapshot().segmentEndsAt).toBe(1_000_000 + 10_000);
+    expect(scripted(engine).segmentEndsAt).toBe(1_000_000 + 10_000);
   });
 
   test('tracks elapsed within a segment', () => {
     const { engine, tick } = makeEngine();
     engine.start(SESSION);
     tick(12); // now = 1_012_000, 18s left in the run segment
-    expect(engine.getSnapshot().segmentEndsAt).toBe(1_012_000 + 18_000);
+    expect(scripted(engine).segmentEndsAt).toBe(1_012_000 + 18_000);
   });
 
   test('recomputes after a skip', () => {
@@ -790,18 +802,18 @@ describe('segmentEndsAt', () => {
     engine.start(SESSION);
     advance(5); // 5s into warmup, no heartbeat
     engine.skipSegment(); // truncates warmup, enters run at now = 1_005_000
-    const s = engine.getSnapshot();
+    const s = scripted(engine);
     expect(s.segmentIndex).toBe(1);
     expect(s.segmentEndsAt).toBe(1_005_000 + 20_000);
   });
 
   test('is null at idle and after completion', () => {
     const { engine, tick } = makeEngine();
-    expect(engine.getSnapshot().segmentEndsAt).toBeNull();
+    expect(scripted(engine).segmentEndsAt).toBeNull();
     engine.start(SESSION);
     tick(75); // exhausts the 75s timeline
-    expect(engine.getSnapshot().status).toBe('completed');
-    expect(engine.getSnapshot().segmentEndsAt).toBeNull();
+    expect(scripted(engine).status).toBe('completed');
+    expect(scripted(engine).segmentEndsAt).toBeNull();
   });
 });
 
@@ -812,8 +824,8 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     WALK_TRACK.forEach(feed);
     const expected = smoothTrack(WALK_TRACK).distanceM;
     expect(expected).toBeGreaterThan(0);
-    expect(engine.getSnapshot().distanceM).toBe(expected);
-    expect(engine.getSnapshot().paceSecPerKm).toBeGreaterThan(0);
+    expect(scripted(engine).distanceM).toBe(expected);
+    expect(scripted(engine).paceSecPerKm).toBeGreaterThan(0);
   });
 
   test('a fresh fold of the buffered points, timestamps through the run_points ISO round-trip, matches live distance (live == re-derived, ADR 0021 §3)', () => {
@@ -842,7 +854,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
       })),
     );
     expect(refold.distanceM).toBeGreaterThan(0);
-    expect(refold.distanceM).toBe(engine.getSnapshot().distanceM);
+    expect(refold.distanceM).toBe(scripted(engine).distanceM);
   });
 
   test('each buffered point is tagged with the current full-timeline segment index + a monotonic seq', () => {
@@ -869,7 +881,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     engine.start(SESSION);
     feed(fixAt(2, 59, 18, 60));
     expect(engine.getBufferedPoints()).toEqual([]);
-    expect(engine.getSnapshot().distanceM).toBe(0);
+    expect(scripted(engine).distanceM).toBe(0);
   });
 
   test('a fix with null accuracy is rejected', () => {
@@ -884,12 +896,12 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     engine.start(SESSION);
     feed(fixAt(2, 59, 18));
     const countRunning = engine.getBufferedPoints().length;
-    const distanceRunning = engine.getSnapshot().distanceM;
+    const distanceRunning = scripted(engine).distanceM;
     engine.pause();
     feed(fixAt(4, 59.00004, 18));
-    expect(engine.getSnapshot().status).toBe('paused');
+    expect(scripted(engine).status).toBe('paused');
     expect(engine.getBufferedPoints().length).toBe(countRunning);
-    expect(engine.getSnapshot().distanceM).toBe(distanceRunning);
+    expect(scripted(engine).distanceM).toBe(distanceRunning);
   });
 
   test('a duplicate-timestamp fix is buffered but adds no distance (smoother de-dupes on dt ≤ 0)', () => {
@@ -897,10 +909,10 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     engine.start(SESSION);
     feed(fixAt(2, 59, 18));
     feed(fixAt(4, 59.00004, 18));
-    const distanceBefore = engine.getSnapshot().distanceM;
+    const distanceBefore = scripted(engine).distanceM;
     const countBefore = engine.getBufferedPoints().length;
     feed(fixAt(4, 59.00004, 18)); // same timestamp
-    expect(engine.getSnapshot().distanceM).toBe(distanceBefore);
+    expect(scripted(engine).distanceM).toBe(distanceBefore);
     expect(engine.getBufferedPoints().length).toBe(countBefore + 1); // full accuracy-passed stream is persisted
   });
 
@@ -911,7 +923,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     const beforeCount = engine.getBufferedPoints().length;
     expect(beforeCount).toBeGreaterThan(0);
     feed(fixAt(80, 59.0004, 18)); // elapsed 80 ≥ total 75 → completes before ingest runs
-    expect(engine.getSnapshot().status).toBe('completed');
+    expect(scripted(engine).status).toBe('completed');
     expect(engine.getBufferedPoints().length).toBe(beforeCount);
   });
 
@@ -935,7 +947,7 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
       } as unknown as LocationFix;
       feed(evil); // throws while spreading the fix, inside the ingest try/catch
       feed(fixAt(12, 59.00004, 18)); // next good fix crosses into the run segment
-      const snap = engine.getSnapshot();
+      const snap = scripted(engine);
       expect(snap.status).toBe('running');
       expect(snap.segmentIndex).toBe(1);
       expect(cues).toContain('startRun'); // cue path was never stalled
@@ -951,16 +963,16 @@ describe('GPS fix ingestion (T12, ADR 0021)', () => {
     engine.start(SESSION);
     WALK_TRACK.forEach(feed);
     expect(engine.getBufferedPoints().length).toBe(WALK_TRACK.length);
-    expect(engine.getSnapshot().distanceM).toBeGreaterThan(0);
+    expect(scripted(engine).distanceM).toBeGreaterThan(0);
 
     engine.reset();
     expect(engine.getBufferedPoints()).toEqual([]);
-    expect(engine.getSnapshot().distanceM).toBe(0);
-    expect(engine.getSnapshot().paceSecPerKm).toBeNull();
+    expect(scripted(engine).distanceM).toBe(0);
+    expect(scripted(engine).paceSecPerKm).toBeNull();
 
     engine.start(SESSION);
     expect(engine.getBufferedPoints()).toEqual([]);
-    expect(engine.getSnapshot().distanceM).toBe(0);
+    expect(scripted(engine).distanceM).toBe(0);
   });
 });
 
@@ -1072,7 +1084,7 @@ describe('point persistence & lifecycle (T13)', () => {
     expect(h.calls.lastIndexOf('flush')).toBeLessThan(h.calls.indexOf('finalizeRun'));
     expect(h.calls.at(-1)).toBe('clearSnapshot');
     expect(h.finalized[0].runId).toBe('run-1');
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
     expect(h.schedulerStops()).toBeGreaterThanOrEqual(1);
   });
 
@@ -1084,11 +1096,11 @@ describe('point persistence & lifecycle (T13)', () => {
     await flush();
     expect(h.calls).toContain('finalizeRun');
     expect(h.calls).not.toContain('clearSnapshot');
-    expect(h.engine.getSnapshot().savedRunId).toBeNull();
+    expect(scripted(h.engine).savedRunId).toBeNull();
     h.releaseFinalize();
     await flush();
     expect(h.calls.at(-1)).toBe('clearSnapshot');
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
   });
 
   test('a transient startRun failure is retried at the next cadence and the whole track still lands', async () => {
@@ -1119,7 +1131,7 @@ describe('point persistence & lifecycle (T13)', () => {
     expect(h.calls).not.toContain('finalizeRun');
     expect(h.saved).toHaveLength(1);
     expect(h.saved[0].distanceM).toBeGreaterThan(0);
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
   });
 
   test('location tracking follows the run, and reset+start leaves it on', async () => {
@@ -1143,7 +1155,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const live = makeEngine();
     live.engine.start(SESSION);
     WALK_TRACK.forEach(live.feed);
-    const distanceM = live.engine.getSnapshot().distanceM;
+    const distanceM = scripted(live.engine).distanceM;
     live.fireFlush();
     await flush();
     return {
@@ -1158,7 +1170,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
     expect(h.engine.restore({ runId: 'run-1', session: SESSION, state, points })).toBe(true);
-    const s = h.engine.getSnapshot();
+    const s = scripted(h.engine);
     expect(s.status).toBe('running');
     expect(s.sessionKey).toBe('w1d1');
     expect(s.activeElapsedSeconds).toBe(20);
@@ -1193,7 +1205,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
       [...points, ...h.engine.getBufferedPoints()].map(toSegmented),
     );
     expect(refold.distanceM).toBeGreaterThan(0);
-    expect(h.engine.getSnapshot().distanceM).toBe(refold.distanceM);
+    expect(scripted(h.engine).distanceM).toBe(refold.distanceM);
   });
 
   test('a resumed run finalizes into the same active row', async () => {
@@ -1203,7 +1215,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
     h.tick(60); // active 80 > total 75
     await flush();
-    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(scripted(h.engine).status).toBe('completed');
     expect(h.finalized[0].runId).toBe('run-1');
     expect(h.calls).not.toContain('startRun');
   });
@@ -1224,7 +1236,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
       points: [],
     });
     expect(restored).toBe(true);
-    const s = h.engine.getSnapshot();
+    const s = scripted(h.engine);
     expect(s.status).toBe('paused');
     expect(s.activeElapsedSeconds).toBe(12);
     expect(s.distanceM).toBe(0);
@@ -1246,12 +1258,12 @@ describe('resume (T14, ADR 0021 §3)', () => {
       }),
       points: [],
     });
-    expect(h.engine.getSnapshot().status).toBe('paused');
-    expect(h.engine.getSnapshot().activeElapsedSeconds).toBe(12);
-    expect(h.engine.getSnapshot().segmentIndex).toBe(2); // the skip truncated the run segment
+    expect(scripted(h.engine).status).toBe('paused');
+    expect(scripted(h.engine).activeElapsedSeconds).toBe(12);
+    expect(scripted(h.engine).segmentIndex).toBe(2); // the skip truncated the run segment
     h.engine.resume(); // and the run is not wedged: elapsed advances again
     h.tick(5);
-    expect(h.engine.getSnapshot().activeElapsedSeconds).toBe(17);
+    expect(scripted(h.engine).activeElapsedSeconds).toBe(17);
   });
 
   test('restore honours the cue watermarks — no re-announcing what was already spoken', () => {
@@ -1278,7 +1290,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
       points: [],
     });
     expect(restored).toBe(false);
-    expect(h.engine.getSnapshot().status).toBe('idle');
+    expect(scripted(h.engine).status).toBe('idle');
     expect(h.saved).toEqual([]);
   });
 
@@ -1291,7 +1303,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
       points: [],
     });
     expect(restored).toBe(false);
-    expect(h.engine.getSnapshot().status).toBe('idle');
+    expect(scripted(h.engine).status).toBe('idle');
   });
 
   test('restore leaves a live run alone', () => {
@@ -1305,7 +1317,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
       points: [],
     });
     expect(restored).toBe(false);
-    const s = h.engine.getSnapshot();
+    const s = scripted(h.engine);
     expect(s.status).toBe('running');
     expect(s.sessionKey).toBe('w1d1');
     expect(s.activeElapsedSeconds).toBe(12);
@@ -1338,7 +1350,7 @@ describe('abandon (unresumable in-flight run)', () => {
     expect(h.saved[0].status).toBe('partial');
     expect(h.saved[0].activeDurationS).toBe(75); // capped at the timeline (ADR 0007)
     expect(h.calls.at(-1)).toBe('clearSnapshot');
-    expect(h.engine.getSnapshot().status).toBe('idle');
+    expect(scripted(h.engine).status).toBe('idle');
     await flush();
     expect(h.trackerCalls).toContain('stop');
   });
@@ -1399,8 +1411,8 @@ describe('abandon (unresumable in-flight run)', () => {
       state: stateAtStart({ sessionKey: 'w1d2' }),
       aliveUntil: FIX_START,
     });
-    expect(h.engine.getSnapshot().status).toBe('running');
-    expect(h.engine.getSnapshot().sessionKey).toBe('w1d1');
+    expect(scripted(h.engine).status).toBe('running');
+    expect(scripted(h.engine).sessionKey).toBe('w1d1');
     expect(h.finalized).toEqual([]);
   });
 });
@@ -1433,7 +1445,7 @@ describe('barometer capture (spec §6)', () => {
       await flush();
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
-    expect(h.engine.getSnapshot().status).toBe('running');
+    expect(scripted(h.engine).status).toBe('running');
     expect(h.flushedSeqs()).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
@@ -1451,7 +1463,7 @@ describe('barometer capture (spec §6)', () => {
       h.engine.start(SESSION);
       h.tick(80);
       await flush();
-      expect(h.engine.getSnapshot().status).toBe('completed');
+      expect(scripted(h.engine).status).toBe('completed');
       expect(h.saved).toHaveLength(1);
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
@@ -1516,7 +1528,7 @@ describe('barometer capture (spec §6)', () => {
       await flush();
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
-    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(scripted(h.engine).status).toBe('completed');
     expect(h.saved).toHaveLength(1);
   });
 
@@ -1575,7 +1587,7 @@ describe('barometer capture (spec §6)', () => {
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
     expect(h.elevationCalls).toEqual(['start', 'stop']);
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
   });
 
   test('a stalled step-counter start does not delay the next run’s barometer', async () => {
@@ -1790,7 +1802,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       await flush();
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
-    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(scripted(h.engine).status).toBe('completed');
     expect(h.saved).toHaveLength(1);
   });
 
@@ -1813,7 +1825,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
       await flush();
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
-    expect(h.engine.getSnapshot().status).toBe('completed');
+    expect(scripted(h.engine).status).toBe('completed');
     expect(h.finalized[0].record.motionPermission).toBeUndefined();
   });
 
@@ -1829,7 +1841,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
     expect(h.calls).toContain('finalizeRun');
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
     expect(
       h
         .flushedEntries()
@@ -1857,7 +1869,7 @@ describe('finalize-time capture (spec §5.2, §6.3)', () => {
     });
     expect(warnings).toBeGreaterThanOrEqual(1);
     expect(h.calls).toContain('finalizeRun');
-    expect(h.engine.getSnapshot().savedRunId).toBe('run-1');
+    expect(scripted(h.engine).savedRunId).toBe('run-1');
     expect(h.finalized[0].record.motionPermission).toBeUndefined();
   });
 
@@ -1938,7 +1950,7 @@ describe('field-test cue suppression (spec §8.0)', () => {
       points: [],
     });
     expect(restored).toBe(true);
-    expect(h.engine.getSnapshot().segmentIndex).toBe(1); // the transition that would announce startWalk
+    expect(scripted(h.engine).segmentIndex).toBe(1); // the transition that would announce startWalk
     // Empty covers the resume announcement too: it is the engine's, so the flag reaches it.
     expect(h.cues).toEqual([]);
   });
@@ -1953,7 +1965,7 @@ describe('field-test cue suppression (spec §8.0)', () => {
       points: [],
     });
     expect(restored).toBe(true);
-    expect(h.engine.getSnapshot().segmentIndex).toBe(1);
+    expect(scripted(h.engine).segmentIndex).toBe(1);
     expect(h.cues).toContain('startRun');
     expect(h.cues).toContain('resuming');
   });

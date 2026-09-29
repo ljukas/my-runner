@@ -53,7 +53,8 @@ function track(legs: readonly [number, number][]): LocationFix[] {
 function makeFreeRunEngine({
   thresholdMps = 2.05,
   startRunFails = false,
-}: { thresholdMps?: number; startRunFails?: boolean } = {}) {
+  holdStartRun = false,
+}: { thresholdMps?: number; startRunFails?: boolean; holdStartRun?: boolean } = {}) {
   let now = START_MS;
   const calls: string[] = [];
   const finalized: CompletedRunRecord[] = [];
@@ -64,6 +65,9 @@ function makeFreeRunEngine({
   let savedId: string | null = 'run-1';
   let gateFlush: (() => void) | undefined;
   let deferFlush = false;
+  let releaseStartRun: (() => void) | undefined;
+  let failMark = false;
+  let failDiscard = false;
 
   const persistence: RunLifecyclePersistence = {
     saveRun: async (record) => {
@@ -73,6 +77,7 @@ function makeFreeRunEngine({
     },
     startRun: async (sessionKey) => {
       opened.push(sessionKey);
+      if (holdStartRun) await new Promise<void>((resolve) => (releaseStartRun = resolve));
       if (startRunFails) throw new Error('no row');
       return 'run-1';
     },
@@ -81,11 +86,15 @@ function makeFreeRunEngine({
       finalized.push(record);
       return finalizeOutcome;
     },
-    discardRun: async () => void calls.push('discardRun'),
+    discardRun: async () => {
+      calls.push('discardRun');
+      if (failDiscard) throw new Error('delete failed');
+    },
   };
   const runStore: RunStore = {
     flush: async (_runId, points, _samples, _entries, state) => {
       calls.push(state.discarding ? 'flush:discarding' : 'flush');
+      if (state.discarding && failMark) throw new Error('mark failed');
       if (deferFlush) {
         deferFlush = false; // holds back the one flush in flight, not the ones after it
         await new Promise<void>((resolve) => (gateFlush = resolve));
@@ -147,6 +156,10 @@ function makeFreeRunEngine({
     cues,
     setFinalizeOutcome: (o: FinalizeOutcome) => (finalizeOutcome = o),
     setSavedId: (id: string | null) => (savedId = id),
+    releaseStartRun: () => releaseStartRun?.(),
+    failMark: () => (failMark = true),
+    failDiscard: () => (failDiscard = true),
+    setNow: (ms: number) => (now = ms),
     deferFlush: () => (deferFlush = true),
     releaseFlush: () => gateFlush?.(),
     fireFlush: () => fireFlush(),
@@ -251,6 +264,7 @@ describe('a free run, start to finish', () => {
     h.engine.endEarly();
     await settled();
     expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', savedRunId: null });
+    expect(h.cues).not.toContain('complete');
   });
 
   test('with no in-flight row, a save that found it too short leaves the engine idle', async () => {
@@ -263,6 +277,64 @@ describe('a free run, start to finish', () => {
     await settled();
     expect(h.calls).toContain('saveRun');
     expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', savedRunId: null });
+    expect(h.cues).not.toContain('complete');
+  });
+
+  test('a pause lands after every fix the run has counted, so the saved log keeps them', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    const fixes = track([[300, 2.6]]);
+    h.feed(fixes.slice(0, -1));
+    const ahead = fixes[fixes.length - 1];
+    // a fix stamped half a second ahead of the wall clock, then a pause at the wall clock
+    h.setNow(ahead.timestamp - 500);
+    h.engine.heartbeat(ahead.timestamp - 500, ahead);
+    h.engine.pause();
+    h.setNow(ahead.timestamp + 60_000);
+    h.engine.resume();
+    h.engine.endEarly();
+    await settled();
+    const log: { type: string; at: number }[] = JSON.parse(h.finalized[0].eventLogJson!);
+    expect(log.find((e) => e.type === 'pause')!.at).toBeGreaterThan(ahead.timestamp);
+  });
+
+  test('a discard while its row is still opening writes nothing back', async () => {
+    const h = makeFreeRunEngine({ holdStartRun: true });
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    h.engine.endEarly('discard');
+    await settled();
+    h.releaseStartRun();
+    for (let i = 0; i < 4; i += 1) await settled();
+    expect(h.calls).toEqual(['flush:discarding', 'discardRun', 'clearSnapshot']);
+  });
+
+  test('a discard whose mark fails still deletes the run', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    await settled();
+    h.failMark();
+    h.engine.endEarly('discard');
+    await settled();
+    expect(h.calls.filter((c) => c !== 'flush')).toEqual([
+      'flush:discarding',
+      'discardRun',
+      'clearSnapshot',
+    ]);
+  });
+
+  test('a discard whose delete fails keeps the snapshot, so the next launch finishes it', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    await settled();
+    h.failDiscard();
+    h.engine.endEarly('discard');
+    await settled();
+    expect(h.calls).toContain('discardRun');
+    expect(h.calls).not.toContain('clearSnapshot');
+    expect(h.engine.getSnapshot().status).toBe('idle');
   });
 });
 
@@ -318,6 +390,56 @@ describe('an interrupted free run', () => {
     after.fireFlush();
     await settled();
     expect(stateOf(after).modeState).toEqual({ thresholdMps: 2.3 });
+  });
+
+  test('resumed after a long downtime, the time it was dead is a pause, not stopped time', async () => {
+    const before = makeFreeRunEngine();
+    before.engine.start(FREE_RUN_PLAN);
+    before.feed(track([[300, 2.6]]));
+    before.fireFlush();
+    await settled();
+    const points = before.flushes
+      .flatMap((f) => f.points)
+      .map((p) => ({ ...p, timestamp: Date.parse(p.timestamp) }));
+
+    const after = makeFreeRunEngine();
+    const revivedAt = START_MS + 300_000 + 45 * 60_000;
+    after.setNow(revivedAt);
+    expect(
+      after.engine.restore({
+        runId: 'run-1',
+        plan: FREE_RUN_PLAN,
+        state: stateOf(before),
+        points,
+        aliveUntil: START_MS + 300_000,
+      }),
+    ).toBe(true);
+    after.at(revivedAt + 1000);
+    await settled();
+    expect(after.finalized).toEqual([]);
+    expect(after.engine.getSnapshot().status).toBe('running');
+    expect(after.engine.getSnapshot().activeElapsedSeconds).toBeLessThan(310);
+  });
+
+  test('near its cap, a downtime does not use up the rest of its 4 hours', async () => {
+    const before = makeFreeRunEngine();
+    before.engine.start(FREE_RUN_PLAN);
+    const aliveUntil = START_MS + 3.9 * 3_600_000;
+    before.at(aliveUntil);
+    before.fireFlush();
+    await settled();
+
+    const after = makeFreeRunEngine();
+    after.setNow(aliveUntil + 30 * 60_000);
+    expect(
+      after.engine.restore({
+        runId: 'run-1',
+        plan: FREE_RUN_PLAN,
+        state: stateOf(before),
+        points: [],
+        aliveUntil,
+      }),
+    ).toBe(true);
   });
 
   test('abandoned at launch, it is saved as completed, silently', async () => {

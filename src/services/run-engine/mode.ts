@@ -3,15 +3,14 @@ import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domai
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import { activeElapsedMs, activeMsBetween, wallClockAtActive } from '@/domain/active-time';
 import { FREE_RUN_KEY, OPEN_LIMITS, type RunPlan } from '@/domain/free-run';
-import {
-  createSmootherState,
-  MAX_GAP_S,
-  smoothFix,
-  type LocationFix,
-  type SmootherState,
-} from '@/domain/geo';
+import { createSmootherState, smoothFix, type LocationFix, type SmootherState } from '@/domain/geo';
 import { pausedIntervals, type PausedInterval } from '@/domain/run-altitude';
-import { createOpenTrackState, openTrackStep, type OpenTrackState } from '@/domain/run-motion';
+import {
+  createOpenTrackState,
+  openTrackStep,
+  silentSince,
+  type OpenTrackState,
+} from '@/domain/run-motion';
 import { paceSecPerKm } from '@/domain/run-stats';
 import { isFieldTestRun } from '@/services/field-test';
 import { RESUME_GRACE_MS } from './resumable';
@@ -156,6 +155,13 @@ export interface RunMode {
   readonly cuesSuppressed: boolean;
   readonly canSkip: boolean;
   readonly canDiscard: boolean;
+  /** Whether a resume treats the time the process was dead as a pause rather than as run time. */
+  readonly bridgesDowntime: boolean;
+  /**
+   * The earliest instant a pause, resume or end may be stamped at, or null for no floor: a free run's
+   * re-fold drops a fix stamped inside a pause or after the end, so none it counted live may be.
+   */
+  eventFloorMs(): number | null;
   position(events: readonly RunEvent[], activeS: number, now: number): ModePosition;
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView;
   live(): ModeLive;
@@ -172,6 +178,22 @@ export interface RunMode {
   startNote(): { kind: RunLogKind; detail: unknown } | null;
 }
 
+/**
+ * Whether an interrupted run is past resuming: at `aliveUntil` for a mode that `bridgesDowntime`,
+ * since its dead time will be a pause, else at `now`.
+ */
+export function isExhaustedOnResume(
+  mode: RunMode,
+  events: readonly RunEvent[],
+  aliveUntil: number | undefined,
+  now: number,
+): boolean {
+  return mode.exhausted(
+    events,
+    mode.bridgesDowntime && aliveUntil !== undefined ? aliveUntil : now,
+  );
+}
+
 /** The one place a run's mode is made — a new run with no `saved`, or a resume or abandon from it. */
 export function modeFor(plan: RunPlan, deps: ModeDeps, saved?: ModeStateFields): RunMode {
   return plan.mode === 'scripted'
@@ -186,6 +208,7 @@ export class ScriptedMode implements RunMode {
   readonly cuesSuppressed: boolean;
   readonly canSkip = true;
   readonly canDiscard = false;
+  readonly bridgesDowntime = false;
   private smoother: SmootherState = createSmootherState();
   private readonly session: PlanSession;
   private readonly plannedTotalS: number;
@@ -284,6 +307,10 @@ export class ScriptedMode implements RunMode {
     return {};
   }
 
+  eventFloorMs(): null {
+    return null;
+  }
+
   finalize({ events, endAt, requested, origin }: FinalizeRequest): ModeFinal {
     const timeline = this.timeline(events);
     // Completion is capped at timeline exhaustion (ADR 0007).
@@ -340,8 +367,10 @@ export class OpenMode implements RunMode {
   readonly cuesSuppressed = false;
   readonly canSkip = false;
   readonly canDiscard = true;
+  readonly bridgesDowntime = true;
   private readonly thresholdMps: number;
   private track: OpenTrackState = createOpenTrackState();
+  private latestFedMs: number | null = null;
   private moving: { atMs: number; speedMps: number }[] = [];
   private stoppedSinceMs: number | null = null;
   private pausedCache: { count: number; paused: PausedInterval[] } | null = null;
@@ -372,8 +401,11 @@ export class OpenMode implements RunMode {
       paused: this.paused(events),
     });
     this.track = step.state;
+    this.latestFedMs = Math.max(this.latestFedMs ?? fix.timestamp, fix.timestamp);
     for (const change of step.changes) {
-      this.stoppedSinceMs = change.kind === 'stopped' ? change.atMs : null;
+      // why `??=`: a gap while stopped re-announces the stop, which must not restart its clock
+      if (change.kind === 'stopped') this.stoppedSinceMs ??= change.atMs;
+      else this.stoppedSinceMs = null;
     }
     const lastMs = this.track.previousMs ?? fix.timestamp;
     if (step.smoothedSpeedMps !== null && this.track.motion.kind !== 'stopped') {
@@ -383,15 +415,18 @@ export class OpenMode implements RunMode {
     return step.acceptedDeltaMeters;
   }
 
-  /** Active ms spent stopped up to `now`; a GPS silence past `MAX_GAP_S` counts, as the fold's gap rule does. */
+  eventFloorMs(): number | null {
+    return this.latestFedMs === null ? null : this.latestFedMs + 1;
+  }
+
+  /** Active ms spent stopped up to `now`, by the fold's own rules: a GPS silence is stopped time. */
   private stoppedMs(events: readonly RunEvent[], now: number): number {
-    const lastMs = this.track.previousMs;
-    if (lastMs === null) return 0;
-    if (this.track.motion.kind === 'stopped' && this.stoppedSinceMs !== null) {
-      return activeMsBetween(events, this.stoppedSinceMs, now);
-    }
-    const quietMs = activeMsBetween(events, lastMs, now);
-    return quietMs > MAX_GAP_S * 1000 ? quietMs : 0;
+    const since =
+      this.track.motion.kind === 'stopped'
+        ? this.stoppedSinceMs
+        : silentSince(this.paused(events), this.track.previousMs, now);
+    // why the clamp: a stop backdated to a fix cached before the start began no earlier than the run
+    return since === null ? 0 : activeMsBetween(events, Math.max(since, events[0].at), now);
   }
 
   position(events: readonly RunEvent[], activeS: number, now: number): ModePosition {
@@ -418,7 +453,7 @@ export class OpenMode implements RunMode {
 
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView {
     const lastMs = this.track.previousMs;
-    const stale = lastMs === null || activeMsBetween(events, lastMs, now) > MAX_GAP_S * 1000;
+    const stale = lastMs === null || silentSince(this.paused(events), lastMs, now) !== null;
     return {
       mode: 'open',
       activeElapsedSeconds: Math.min(activeS, OPEN_LIMITS.capActiveS),
@@ -449,7 +484,7 @@ export class OpenMode implements RunMode {
     const elapsedS = Math.min(activeElapsedMs(events, end) / 1000, OPEN_LIMITS.capActiveS);
     // why the minimum here too, beside deriveOpenRun's: a run that short is deleted without the
     // finalize work. The derivation still decides after trimming a trailing stop.
-    if (elapsedS < OPEN_LIMITS.minActiveS) return { outcome: 'discard' };
+    if (Math.round(elapsedS) < OPEN_LIMITS.minActiveS) return { outcome: 'discard' };
     return {
       outcome: 'save',
       kind: 'completed',

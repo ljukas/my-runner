@@ -1,4 +1,4 @@
-/** A free run's identity and limits (ADR 0026 §1, §2, §6). Pure. */
+/** A free run's identity and limits (ADR 0026 §1, §2, §6). */
 import type { FixPolicy } from './geo';
 import type { PlanSession } from './plan';
 import type { PausedInterval } from './run-altitude';

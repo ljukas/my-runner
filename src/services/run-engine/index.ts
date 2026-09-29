@@ -10,7 +10,7 @@ import { loadLogResumeWatermarks } from '@/db/run-log';
 import { loadBufferedRunPoints } from '@/db/run-points';
 import { dbRunPersistence } from '@/db/save-run';
 import { runs } from '@/db/schema';
-import type { RunPlan } from '@/domain/free-run';
+import { isFreeRun, type RunPlan } from '@/domain/free-run';
 import { getSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
@@ -22,7 +22,7 @@ import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
 import { stepCounterSource } from '@/services/step-counter';
 import { RunEngine, type RunRestoreInput } from './engine';
-import { modeFor } from './mode';
+import { isExhaustedOnResume, modeFor } from './mode';
 import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
 
@@ -157,8 +157,8 @@ async function clearSnapshot(): Promise<void> {
 
 /**
  * The interrupted run worth offering at launch, or null. Never throws, and never leaves work for the
- * next launch: a corrupt, stale or expired snapshot is settled here — finalized as `partial` when its
- * own `'active'` row is identifiable, else discarded.
+ * next launch: a corrupt, stale or expired snapshot is settled here — finalized (a plan run as
+ * `partial`) when its own `'active'` row is identifiable, else discarded.
  */
 export async function detectResumableRun(): Promise<ResumableRun | null> {
   try {
@@ -182,7 +182,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       await clearSnapshot();
       return stopIdleTracking();
     }
-    if (state.discarding) {
+    if (state.discarding && isFreeRun(state.sessionKey)) {
       // A discard that died before its delete landed: finish it — the runner asked for nothing to remain.
       await dbRunPersistence.discardRun(active.id);
       await clearSnapshot();
@@ -201,7 +201,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
     if (
       !offerable ||
       !isSnapshotFresh(loaded.updatedAt, mode.resumeWindowMs(), now) ||
-      mode.exhausted(state.events, now)
+      isExhaustedOnResume(mode, state.events, candidate.aliveUntil, now)
     ) {
       // why here too, not just resumeCrashedRun: abandon() also rebuilds the log counters before its
       // own finalize flush mints new rows (a tick at least) — without this the same duplicate-seq risk
@@ -232,7 +232,7 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
   }
 }
 
-/** Declining an offered run still finalizes it as `partial`, so its track stays reachable from the Log. */
+/** Declining an offered run still finalizes it (a plan run as `partial`), so its track stays reachable from the Log. */
 export async function discardResumableRun(candidate: ResumableRun): Promise<void> {
   try {
     await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });

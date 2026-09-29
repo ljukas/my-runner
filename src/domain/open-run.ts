@@ -23,7 +23,6 @@ export interface DerivedOpenRun {
   points: LatLng[];
 }
 
-/** The log up to `atMs`, ending there. */
 function cutAt(events: readonly LoggedRunEvent[], atMs: number): LoggedRunEvent[] {
   return [
     ...events.filter((event) => event.type !== 'end' && event.at <= atMs),

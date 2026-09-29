@@ -1,6 +1,5 @@
 import { desc, eq } from 'drizzle-orm';
 
-import { isFreeRun } from '@/domain/free-run';
 import { parseSessionKey, type SegmentKind } from '@/domain/plan';
 import { learnThresholdFromRuns, MOTION } from '@/domain/run-motion';
 import { db } from './client';
@@ -12,7 +11,7 @@ const PLAN_KINDS: readonly SegmentKind[] = ['warmup', 'run', 'walk', 'cooldown']
 
 /**
  * The run/walk threshold a new free run starts with: learned from the runner's last 3 completed
- * plan runs (ADR 0026 §3), 2.1 m/s without them. Never throws.
+ * plan runs (ADR 0026 §3), the fallback without them. Never throws.
  */
 export function loadLearnedThreshold(): number {
   try {
@@ -22,7 +21,7 @@ export function loadLearnedThreshold(): number {
       .where(runCompleted)
       .orderBy(desc(runs.startedAt))
       .all()
-      .filter((run) => parseSessionKey(run.sessionKey) !== null && !isFreeRun(run.sessionKey))
+      .filter((run) => parseSessionKey(run.sessionKey) !== null)
       .slice(0, 3);
     return learnThresholdFromRuns(
       recent.map((run) => ({

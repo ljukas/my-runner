@@ -17,11 +17,11 @@ function seededRandom(seed: number): () => number {
 }
 
 /** 1 Hz northward fixes from t = 1 s, one leg per `[seconds, m/s]`, with ±~1 m of seeded noise. */
-function track(legs: readonly [number, number][], fromMs = 0): LocationFix[] {
+function track(legs: readonly [number, number][], fromMs = 0, fromNorthM = 0): LocationFix[] {
   const random = seededRandom(5);
   const fixes: LocationFix[] = [];
   let t = fromMs;
-  let northM = 0;
+  let northM = fromNorthM;
   for (const [seconds, mps] of legs) {
     for (let s = 0; s < seconds; s += 1) {
       t += 1000;
@@ -112,6 +112,28 @@ describe('OpenMode — the rules a free run lives by', () => {
     );
     // stopped from ~120 s to 600 s (8 min), paused 30 min, then 5 more stopped minutes
     expect(mode.position(events, 900, 2_700_000).done).toBe(false);
+  });
+
+  test('a GPS gap while stopped does not restart the stopped clock', () => {
+    const mode = openMode();
+    feed(mode, [
+      ...track([
+        [120, 2.6],
+        [600, 0],
+      ]),
+      // 2 minutes with no fix, still standing where the run stopped
+      ...track([[1260, 0]], 840_000, 120 * 2.6),
+    ]);
+    // stopped since ~120 s: 30 minutes of it by ~1 920 s, gap or no gap
+    expect(mode.position(START, 1_950, 1_950_000)).toEqual({ done: true, origin: 'limit' });
+  });
+
+  test('counts no stopped time from before the run began', () => {
+    const mode = openMode();
+    const events: RunEvent[] = [{ type: 'start', at: 60_000 }];
+    // standing still from before the start: a cached fix, then the first minutes of the run
+    feed(mode, track([[1_830, 0]]), events);
+    expect(mode.position(events, 1_770, 1_830_000).done).toBe(false);
   });
 
   test('a timer-only run is ended only by the cap', () => {
@@ -207,6 +229,18 @@ describe('OpenMode — how it ends', () => {
       openMode().finalize({
         events: START,
         endAt: 60_000,
+        requested: 'endedEarly',
+        origin: 'runner',
+        intent: 'save',
+      }).outcome,
+    ).toBe('save');
+  });
+
+  test('rounds to the minimum as the saved duration does, so 59.5 s is kept', () => {
+    expect(
+      openMode().finalize({
+        events: START,
+        endAt: 59_500,
         requested: 'endedEarly',
         origin: 'runner',
         intent: 'save',

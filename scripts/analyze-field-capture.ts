@@ -15,11 +15,20 @@
  * or serialises a coordinate — only aggregates derived from them — so this output is safe to commit
  * and paste into a PR while `field-data/` stays gitignored.
  */
-import { elevationRollup, type AltitudeSample, type ElevationConfig } from '@/domain/elevation';
+import {
+  BAROMETER_ELEVATION_CONFIG,
+  elevationRollup,
+  pressureAltitudeM,
+  type AltitudeSample,
+  type ElevationConfig,
+} from '@/domain/elevation';
+import { runElevation } from '@/domain/run-altitude';
 
-const SUMMARY_SCHEMA = 1;
+// why 2: the grid now folds pressure through the app's own conversion rather than
+// `relativeAltitudeM`, and the summary gained `platform` and `runElevation`.
+const SUMMARY_SCHEMA = 2;
 
-/** The grid spec §8.5 scores once captures 1 and 2 exist; `w31 h10` is the shipped GPS pair. */
+/** The grid spec §8.5 scores; `w31 h10` is the GPS pair, `w5 h1` the barometer pair the app ships. */
 const CONFIG_GRID: ElevationConfig[] = [
   { medianWindow: 1, hysteresisM: 0 },
   { medianWindow: 5, hysteresisM: 1 },
@@ -157,6 +166,8 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   const runStart = ms(String(header.run.startedAt));
   const runEnd = ms(String(header.run.endedAt));
   const wallS = (runEnd - runStart) / 1000;
+  // why 'ios' when absent: `device.platform` arrived 2026-09-29, and every earlier export was iOS.
+  const platform = header.device.platform === 'android' ? 'android' : 'ios';
 
   const alt = sections.altitude?.rows ?? [];
   const pts = sections.points?.rows ?? [];
@@ -181,7 +192,8 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   );
   const coverageS = alt.length > 1 ? (at[at.length - 1]! - at[0]!) / 1000 : 0;
 
-  // Clock skew: `at` is Date.now(), sensorTimestampS is CMLogItem's boot clock. Independent rates.
+  // Clock skew: `at` is wall clock (receipt on iOS, capture on Android) and sensorTimestampS the
+  // sensor's boot clock (CMLogItem / SensorEvent). Independent rates.
   const offsets = alt.map((_, i) => (sensor[i] === null ? null : at[i]! / 1000 - sensor[i]!));
   const offOk = finite(offsets);
   const clockDriftMs = offOk.length > 1 ? (offOk[offOk.length - 1]! - offOk[0]!) * 1000 : null;
@@ -311,8 +323,13 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
     };
   }
 
-  // --- the shipped reducer over this capture (descriptive only without ground truth, spec §8.5) ---
-  const samples: AltitudeSample[] = alt.map((r, i) => ({ timestamp: at[i]!, altitudeM: rel[i] }));
+  // --- the reducer over this capture (descriptive only without ground truth, spec §8.5) ---
+  // why pressure and not `rel`: it is the input the app folds (`runElevation`), so the grid scores
+  // exactly what ships, epochs and all.
+  const samples: AltitudeSample[] = alt.map((_, i) => ({
+    timestamp: at[i]!,
+    altitudeM: Number.isFinite(press[i]) ? pressureAltitudeM(press[i]!) : null,
+  }));
   const grid = CONFIG_GRID.map((config) => {
     const { gainM, lossM } = elevationRollup(samples, config);
     return {
@@ -331,9 +348,12 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
   const pedometer = parseDetail(log.find((r) => r.kind === 'pedometer')?.detailJson ?? '');
   const ticks = log.filter((r) => r.kind === 'tick').map((r) => ms(r.at!) / 1000);
 
+  const shipped = runElevation(alt.map((r) => ({ at: r.at!, pressureHpa: Number(r.pressureHpa) })));
+
   return {
     schema: SUMMARY_SCHEMA,
     file: path.split('/').pop(),
+    platform,
     run: {
       id: String(header.run.id).slice(0, 8),
       sessionKey: header.run.sessionKey,
@@ -369,7 +389,9 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
       pressureQuantumHpa: pressureSteps.length ? Math.min(...pressureSteps) : null,
       noiseSigmaM: sigmaM,
       maxRelativeStepM: relSteps.length ? Math.max(...relSteps) : null,
-      rebaseCount: rebases.length,
+      // why null on Android: its relativeAltitudeM is computed from pressure, so the two can never
+      // disagree and the pressure-continuity detector has nothing to catch.
+      rebaseCount: platform === 'android' ? null : rebases.length,
       relativeJumpCount: jumps.length,
       pressureRelativeMaxDeviationM: consistency.length ? Math.max(...consistency) : null,
     },
@@ -410,6 +432,7 @@ function analyze(path: string, text: string, declaredZeroTruth = false) {
       tickMaxS: ticks.length > 1 ? stats(diffs(ticks)).max : null,
     },
     reducerGrid: grid,
+    runElevation: shipped ? { gainM: shipped.gainM, lossM: shipped.lossM } : null,
   };
 }
 
@@ -430,7 +453,7 @@ function report(s: Summary): void {
       `distance=${f(Number(s.run.distanceM), 0)}m  complete=${s.complete}`,
   );
   console.log(
-    `device   iOS ${s.device.osVersion}  app ${s.device.appVersion}  motion=${s.device.motionPermission}  ` +
+    `device   ${s.platform} ${s.device.osVersion}  app ${s.device.appVersion}  motion=${s.device.motionPermission}  ` +
       `sensor=${JSON.stringify(s.log.sensor)}`,
   );
   console.log(`counts   ${JSON.stringify(s.counts)}  dropped=${s.dropped}`);
@@ -465,7 +488,7 @@ function report(s: Summary): void {
       `relAlt span=${f(a.relativeAltitudeSpanM)} m`,
   );
   console.log(
-    `  rebases=${a.rebaseCount} (relAlt jumps>1m: ${a.relativeJumpCount})   ` +
+    `  rebases=${a.rebaseCount ?? 'n/a (derived from pressure)'} (relAlt jumps>1m: ${a.relativeJumpCount})   ` +
       `pressure<->relAlt max deviation=${f(a.pressureRelativeMaxDeviationM)} m`,
   );
 
@@ -530,11 +553,17 @@ function report(s: Summary): void {
   }
   for (const g of s.reducerGrid) {
     const label = `w${g.medianWindow} h${g.hysteresisM}`;
+    const isShipped =
+      g.medianWindow === BAROMETER_ELEVATION_CONFIG.medianWindow &&
+      g.hysteresisM === BAROMETER_ELEVATION_CONFIG.hysteresisM;
     console.log(
       `  ${label.padStart(10)} | ${f(g.windowSpanS, 1).padStart(6)}s | ${f(g.gainM).padStart(7)} | ` +
-        `${f(g.lossM).padStart(7)} | ${f(Math.abs(g.netM)).padStart(7)}`,
+        `${f(g.lossM).padStart(7)} | ${f(Math.abs(g.netM)).padStart(7)}${isShipped ? '  <- shipped' : ''}`,
     );
   }
+  console.log(
+    `\n  APP SHOWS  runElevation gain=${f(s.runElevation?.gainM)} m  loss=${f(s.runElevation?.lossM)} m`,
+  );
   console.log();
 }
 

@@ -1,6 +1,7 @@
 {
-  "schema": 1,
+  "schema": 2,
   "file": "runbro-20260807-0701-f3b38786.txt",
+  "platform": "ios",
   "run": {
     "id": "f3b38786",
     "sessionKey": "field-test",
@@ -153,17 +154,17 @@
       "medianWindow": 1,
       "hysteresisM": 0,
       "windowSpanS": 1.064,
-      "gainM": 35.41240692138672,
-      "lossM": 35.41240692138672,
-      "netM": 0
+      "gainM": 35.41896238013591,
+      "lossM": 35.41960308327549,
+      "netM": -0.0006407031395809781
     },
     {
       "medianWindow": 5,
       "hysteresisM": 1,
       "windowSpanS": 5.32,
-      "gainM": 18.67064666748047,
-      "lossM": 18.025917053222656,
-      "netM": 0.6447296142578125
+      "gainM": 18.678441620085636,
+      "lossM": 18.03323383510231,
+      "netM": 0.6452077849833273
     },
     {
       "medianWindow": 15,
@@ -213,5 +214,9 @@
       "lossM": 0,
       "netM": 0
     }
-  ]
+  ],
+  "runElevation": {
+    "gainM": 18.678441620085636,
+    "lossM": 18.03323383510231
+  }
 }

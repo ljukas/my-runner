@@ -43,7 +43,13 @@ bun scripts/analyze-field-capture.ts field-data/<c3>.txt field-data/<c4>.txt --c
 ## Reading a summary
 
 `schema` is the summary format version; bump it in the script when fields change
-meaning, so an old file is never silently compared against a new one.
+meaning, so an old file is never silently compared against a new one. **Schema 2**
+(2026-09-29) folds the reducer grid from pressure through the app's own conversion
+instead of `relativeAltitudeM`, and adds `platform` and `runElevation` — the gain and
+loss the app shows for that run. All eight files were regenerated under it; no
+figure the ADR cites moved beyond rounding. On an Android capture
+`altitude.rebaseCount` is null: its `relativeAltitudeM` is derived from pressure, so
+the rebase detector has nothing to compare.
 
 Three fields decide whether a capture is usable at all before any of the rest is
 worth reading:

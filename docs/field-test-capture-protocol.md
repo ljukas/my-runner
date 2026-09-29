@@ -2,7 +2,8 @@
 
 The barometer's tuning cannot be chosen from a desk. `ElevationConfig`'s
 `medianWindow` / `hysteresisM` depend on the flat-ground jitter and the drift
-magnitude of real `CMAltimeter` hardware, neither of which the simulator has and
+magnitude of real barometer hardware (`CMAltimeter` on iOS, `TYPE_PRESSURE` on
+Android), neither of which the simulator has and
 neither of which is documented. This is that measurement. (The third unknown the
 tuning rests on — the delivery cadence — was measured on 2026-08-06 without these
 captures; see immediately below.)
@@ -14,7 +15,12 @@ closed on 2026-08-06** by two ordinary training runs, not by these captures.
 
 **Captures 1 and 2 are both done (2026-08-07), and between them they showed the
 reducer needs a design change rather than better constants** — so what remains
-below is validation and two loose ends, not the critical path.
+below is validation and two loose ends, not the critical path. **Since 2026-09-29
+the app shows elevation** with drift accepted ([ADR 0015's 2026-09-29
+amendment](adr/0015-run-elevation-on-device-barometer.md#amendment-2026-09-29-elevation-shown-as-an-estimate)),
+so every capture below now also checks what the runner is shown: the analyzer's
+`APP SHOWS` line. **No Android hardware capture exists yet** — the first one, on the
+same route as an iPhone capture, is the most valuable thing this protocol can add.
 
 **The harness is proven, and two things below are now measured rather than
 guessed** ([capture analysis](superpowers/research/2026-08-06-barometer-field-capture-analysis.md)):
@@ -30,20 +36,30 @@ guessed** ([capture analysis](superpowers/research/2026-08-06-barometer-field-ca
 **Field test capture** mode (Settings → Field test), never by starting a plan
 day. A plan session would fire coaching cues at you while you stand next to a
 table, mark that training day complete, and write a permanent workout into Apple
-Health — and the app has no way to delete a run afterwards.
+Health or Health Connect — and the app has no way to delete a run afterwards.
 
 ---
 
 ## Pre-flight, once
 
+Each item names the iOS step first and the Android one after it.
+
 - [ ] A `preview` build carrying the barometer slice is installed
-      (`eas build -p ios -e preview`). The dev client will not do: this must be
-      the app you actually run with.
-- [ ] **Motion & Fitness** granted. The prompt appears at the first run's start.
-      Check Settings → Privacy & Security → Motion & Fitness.
-- [ ] Location: *While Using the App*, Precise Location **ON**.
-- [ ] **Low Power Mode OFF** for every capture — it throttles background work and
-      would make a delivery gap unattributable.
+      (`eas build -p ios -e preview` / `eas build -p android -e preview`). The dev
+      client will not do: this must be the app you actually run with. `preview`
+      sets `EXPO_PUBLIC_FIELD_TEST=1`, which is what shows the field-test row.
+- [ ] **iOS: Motion & Fitness** granted — the prompt appears at the first run's
+      start; check Settings → Privacy & Security → Motion & Fitness.
+      **Android:** the barometer needs no permission. *Physical activity*
+      (`ACTIVITY_RECOGNITION`) only gates the step count, a diagnostic; grant it
+      for a complete `pedometer` row.
+- [ ] Location: iOS *While Using the App* with Precise Location **ON**; Android
+      *While using the app* with *Use precise location* **ON**, and the run's
+      foreground-service notification allowed.
+- [ ] **Low Power Mode / Battery Saver OFF** for every capture — both throttle
+      background work and would make a delivery gap unattributable. On Android
+      also set the app's battery usage to *Unrestricted*: some vendors' own
+      optimisers stop a foreground service that stock Android keeps.
 - [ ] **Switch off any heat pump, HVAC or fan** in the building, for every indoor
       capture. Learned the expensive way on 2026-08-10: an air-to-air heat pump
       running on the top floor put **0.46 m step changes between consecutive
@@ -55,9 +71,11 @@ Health — and the app has no way to delete a run afterwards.
 - [ ] Somewhere to note things by hand — the table at the bottom of this file, or
       anything you can transcribe later.
 
-After **every** capture: export it (run summary → **Export run data**), AirDrop
-it to the Mac, drop it in `field-data/` (gitignored — these files contain your
-home address), and fill in one row of the log table. Then run the analyzer, which
+After **every** capture: export it (run summary → **Export run data**), send it to
+the Mac (AirDrop on iOS; the share sheet, or `adb pull` from a debug build's
+`cache/runbro-*.txt`, on Android), drop it in `field-data/` (gitignored — these
+files contain your home address), and fill in one row of the log table. The
+export's `device.platform` tells the analyzer which phone it came from. Then run the analyzer, which
 checks the capture is complete and usable and writes its committable metrics:
 
 ```sh

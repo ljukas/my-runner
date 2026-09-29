@@ -1,6 +1,7 @@
 {
-  "schema": 1,
+  "schema": 2,
   "file": "runbro-20260811-0756-bb35dbab.txt",
+  "platform": "ios",
   "run": {
     "id": "bb35dbab",
     "sessionKey": "field-test",
@@ -200,33 +201,33 @@
       "medianWindow": 1,
       "hysteresisM": 0,
       "windowSpanS": 1.065,
-      "gainM": 39.84620666503906,
-      "lossM": 44.88775634765625,
-      "netM": -5.0415496826171875
+      "gainM": 39.85827821150606,
+      "lossM": 44.90143699989457,
+      "netM": -5.04315878838851
     },
     {
       "medianWindow": 5,
       "hysteresisM": 1,
       "windowSpanS": 5.324999999999999,
       "gainM": 0,
-      "lossM": 5.1366729736328125,
-      "netM": -5.1366729736328125
+      "lossM": 5.137174887653686,
+      "netM": -5.137174887653686
     },
     {
       "medianWindow": 15,
       "hysteresisM": 3,
       "windowSpanS": 15.975,
       "gainM": 0,
-      "lossM": 3.001678466796875,
-      "netM": -3.001678466796875
+      "lossM": 3.003286695257529,
+      "netM": -3.003286695257529
     },
     {
       "medianWindow": 31,
       "hysteresisM": 3,
       "windowSpanS": 33.015,
       "gainM": 0,
-      "lossM": 3.0095977783203125,
-      "netM": -3.0095977783203125
+      "lossM": 3.0097231609844357,
+      "netM": -3.0097231609844357
     },
     {
       "medianWindow": 31,
@@ -241,8 +242,8 @@
       "hysteresisM": 3,
       "windowSpanS": 64.965,
       "gainM": 0,
-      "lossM": 3.0095977783203125,
-      "netM": -3.0095977783203125
+      "lossM": 3.0077580843532843,
+      "netM": -3.0077580843532843
     },
     {
       "medianWindow": 61,
@@ -260,5 +261,9 @@
       "lossM": 0,
       "netM": 0
     }
-  ]
+  ],
+  "runElevation": {
+    "gainM": 0,
+    "lossM": 5.137174887653686
+  }
 }

@@ -375,3 +375,23 @@ What constrains the design:
   bucket as a lap, and it breaks without any error if the library fixes its key.
 - **Cadence** is deferred: there is no live step stream, and the emulator has no step
   counter. **Auto-pause** is out of scope (master spec §14).
+
+## Amendment (2026-09-29): stage 3a built
+
+The engine and persistence half shipped as stage 3a; the surfaces are stage 3b. Where the build
+refined this ADR:
+
+- **§4's record flag** is `CompletedRunRecord.derived: { thresholdMps }` rather than a
+  `segmentation` field: its presence means derived, and plan records stay identical.
+- **§3/§6's end is settled in one place,** `deriveOpenRun` (`src/domain/open-run.ts`), called by the
+  derived finalize for every origin — runner, limit and abandon alike, since an abandoned run has no
+  points in memory. It applies the 4 h cap, trims a trailing stop of 30 min or more, cuts the event
+  log with it, and discards what is left under a minute. `OpenMode` also treats an ending under a
+  minute as a discard, so the engine never congratulates a run it is about to delete.
+- **§6's discard** stops the scheduler, drains the flush chain, marks the snapshot `discarding` and
+  then deletes the run and its children (no FK cascade); a launch that finds the mark finishes the
+  delete. Nothing in the app deleted runs before.
+- **The kind enum** gained `'stopped'` with a label, colour (`systemBrown`) and symbol
+  (`figure.stand` / `accessibility_new`) wherever a stored kind is looked up — moved from 3b into 3a,
+  because the widened type would not compile without them. Nothing can create a stopped row until
+  3b adds the entry point.

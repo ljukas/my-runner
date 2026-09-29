@@ -129,3 +129,20 @@ single time source.
   tool for *foreground UI smoothness* (worklet-driven animation between
   engine heartbeats) in RN-rendered elements, noting the run screen's
   countdown and gauge are SwiftUI per ADR 0005.
+
+## Amendment (2026-09-29): an open-ended run mode (ADR 0026)
+
+A free run has no timeline, so the two places this ADR leans on one are bounded differently for it
+(stage 3a of the free run, `src/services/run-engine/mode.ts`):
+
+- **§3's forward-clock bound.** A scripted run's elapsed time is capped at timeline exhaustion; an
+  open run's is capped at **4 h of active time**, and it also ends itself after **30 min stopped**.
+  Both end the run with origin `limit`, and a record past the cap ends at the 4-hour instant
+  (`wallClockAtActive`), so a clock jump can inflate a free run by at most that.
+- **§5's stale snapshot.** A stale scripted snapshot is finalized `partial`; a stale open one is
+  finalized `completed`, silently — "partial" means falling short of a plan, and a free run has none.
+  A free run under a minute is deleted instead of saved.
+
+Everything else holds unchanged: state is still derived from the event log alone, the mode is asked
+before the `end` event is appended (it decides where the run ends), and every plan-run rule lives,
+verbatim, in `ScriptedMode`.

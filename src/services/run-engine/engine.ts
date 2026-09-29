@@ -1,11 +1,5 @@
 import type { CueId } from '@/domain/cues';
-import {
-  accuracyFilter,
-  createSmootherState,
-  smoothFix,
-  type LocationFix,
-  type SmootherState,
-} from '@/domain/geo';
+import { accuracyFilter, type LocationFix } from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
 import { paceSecPerKm } from '@/domain/run-stats';
 import type { CueService } from '@/services/cue-service/port';
@@ -14,7 +8,6 @@ import type {
   ElevationSource,
   MotionPermissionStatus,
 } from '@/services/elevation';
-import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
@@ -157,8 +150,8 @@ export class RunEngine {
   private snapshot: RunSnapshot = IDLE_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
 
-  // GPS ingest state (ADR 0021 §3): folded live so the snapshot distance equals the finalize re-fold; cleared per run.
-  private smootherState: SmootherState = createSmootherState();
+  // GPS ingest state (ADR 0021 §3): the mode folds each fix, so the snapshot distance equals the
+  // finalize re-fold; cleared per run.
   private distanceM = 0;
   private pendingPoints: BufferedRunPoint[] = [];
   private nextSeq = 0;
@@ -168,8 +161,8 @@ export class RunEngine {
   private log = new RunLog();
   /** Offsets the adapter's per-process epoch past what this run already stored (spec §4.2). */
   private elevationEpochBase = 0;
-  /** A field-test capture must not coach (spec §8.0); set from the session key in start()/rebuild(). */
-  private cuesSuppressed = false;
+  /** The segment a barometer sample taken now belongs to; refreshed with the snapshot. */
+  private sampleSegmentSeq = -1;
 
   // `run_points` FK-references the `'active'` row, so nothing can be written before startRun resolves.
   private runId: string | null = null;
@@ -229,7 +222,6 @@ export class RunEngine {
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
-    this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = 0;
     this.resetIngestState();
     this.openRunRow(session.key, this.events[0].at);
@@ -260,6 +252,7 @@ export class RunEngine {
 
   skipSegment(): void {
     if (this.status !== 'running' && this.status !== 'paused') return;
+    if (!this.mode?.canSkip) return;
     this.append('skip');
     this.heartbeat(); // completes the session if the skipped segment was the last
   }
@@ -271,7 +264,7 @@ export class RunEngine {
 
   heartbeat(now: number = this.clock(), fix?: LocationFix): void {
     if (!this.mode || (this.status !== 'running' && this.status !== 'paused')) return;
-    const pos = this.mode.position(this.events, activeElapsedMs(this.events, now) / 1000);
+    const pos = this.mode.position(this.events, activeElapsedMs(this.events, now) / 1000, now);
     if (pos.done) {
       void this.finalize('completed');
       return;
@@ -327,6 +320,7 @@ export class RunEngine {
     this.scheduler.stop();
     this.resetIngestState();
     this.snapshot = IDLE_SNAPSHOT;
+    this.sampleSegmentSeq = -1;
     this.cue.release();
     this.queueTracker(() => this.tracker.stop(), 'stop');
     // why here too: a path to idle that skips finalize would otherwise leave CMAltimeter running
@@ -368,10 +362,14 @@ export class RunEngine {
 
   private refresh(now: number = this.clock()): void {
     if (!this.mode) return;
-    const view = this.mode.view(this.events, activeElapsedMs(this.events, now) / 1000, now);
+    const { sampleSegmentSeq, ...view } = this.mode.view(
+      this.events,
+      activeElapsedMs(this.events, now) / 1000,
+      now,
+    );
+    this.sampleSegmentSeq = sampleSegmentSeq;
     this.snapshot = {
       ...view,
-      mode: this.mode.kind,
       status: this.status,
       sessionKey: this.mode.key,
       savedRunId: this.savedRunId,
@@ -392,13 +390,13 @@ export class RunEngine {
   // why a seam: one flag can silence a whole run, and the log records what it would have said
   // either way (spec §6, §8.0).
   private announce(cue: CueId): void {
-    this.note('cue', { cue, suppressed: this.cuesSuppressed });
-    if (this.cuesSuppressed) return;
+    const suppressed = this.mode?.cuesSuppressed ?? false;
+    this.note('cue', { cue, suppressed });
+    if (suppressed) return;
     this.cue.announce(cue);
   }
 
   private resetIngestState(): void {
-    this.smootherState = createSmootherState();
     this.distanceM = 0;
     this.pendingPoints = [];
     this.nextSeq = 0;
@@ -409,11 +407,7 @@ export class RunEngine {
 
   private captureReading = (reading: AltitudeReading): void => {
     try {
-      this.log.sample(
-        reading,
-        this.snapshot.mode === 'scripted' ? this.snapshot.segmentIndex : 0,
-        this.elevationEpochBase,
-      );
+      this.log.sample(reading, this.sampleSegmentSeq, this.elevationEpochBase);
     } catch (error) {
       console.warn('[run-engine] altitude sample dropped; the run is unaffected', error);
     }
@@ -466,8 +460,10 @@ export class RunEngine {
         });
         return;
       }
+      const mode = this.mode;
+      if (!mode) return;
       const timestamp = Math.round(fix.timestamp);
-      const step = smoothFix(this.smootherState, { ...fix, timestamp });
+      const acceptedDeltaMeters = mode.ingest({ ...fix, timestamp }, this.events);
       const point: BufferedRunPoint = {
         seq: this.nextSeq,
         segmentSeq,
@@ -479,10 +475,9 @@ export class RunEngine {
         altitudeAccuracy: fix.altitudeAccuracy ?? null,
         speed: fix.speed,
       };
-      this.smootherState = step.state;
-      this.distanceM += step.acceptedDeltaMeters;
+      this.distanceM += acceptedDeltaMeters;
       this.pendingPoints.push(point);
-      if (step.acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
+      if (acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
       this.nextSeq += 1;
       buffered = true;
     } catch (error) {
@@ -514,7 +509,6 @@ export class RunEngine {
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
-    this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = logResume?.epochBase ?? 0;
     this.resetIngestState();
     // why the snapshot wins: it counts the rows this run minted, including any lost with the
@@ -532,10 +526,9 @@ export class RunEngine {
     // why: re-folding exactly the persisted spine — not the unflushed tail, not the snapshot anchor
     // on its own — is what keeps resumed distance equal to the live and finalize values (ADR 0021 §3).
     for (const point of points) {
-      const step = smoothFix(this.smootherState, toFix(point));
-      this.smootherState = step.state;
-      this.distanceM += step.acceptedDeltaMeters;
-      if (step.acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
+      const acceptedDeltaMeters = this.mode.ingest(toFix(point), this.events);
+      this.distanceM += acceptedDeltaMeters;
+      if (acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
       if (point.seq >= this.nextSeq) this.nextSeq = point.seq + 1;
     }
     return true;
@@ -547,14 +540,15 @@ export class RunEngine {
     at?: number,
   ): Promise<void> {
     if (!this.mode || this.events.length === 0) return;
-    this.append('end', at);
-    const endAt = this.events[this.events.length - 1].at;
-    const { kind, elapsedS, segments } = this.mode.finalize(
+    // why the mode is asked before `end` is appended: it decides where the run ends.
+    const requestedEnd = Math.max(at ?? this.clock(), this.events[this.events.length - 1].at);
+    const { kind, endAt, elapsedS, segments } = this.mode.finalize(
       this.events,
-      endAt,
+      requestedEnd,
       requestedKind,
       origin,
     );
+    this.append('end', endAt);
 
     const record: CompletedRunRecord = {
       sessionKey: this.mode.key,
@@ -685,7 +679,7 @@ export class RunEngine {
       sessionKey: mode.key,
       // why: an `end`-terminated log is not resumable, so a finalize that fails must not leave one behind.
       events: this.events.filter((event) => event.type !== 'end').map((event) => ({ ...event })),
-      ...mode.cueState(),
+      ...mode.stateFields(),
       lastAcceptedFix: this.lastAcceptedFix,
       logSeq: this.log.watermarks,
     };

@@ -2,6 +2,8 @@ import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import { activeElapsedMs } from '@/domain/active-time';
+import { createSmootherState, smoothFix, type LocationFix, type SmootherState } from '@/domain/geo';
+import { isFieldTestRun } from '@/services/field-test';
 import type { CompletedSegmentRecord, RunEvent, RunSnapshot, ScriptedRunSnapshot } from './types';
 
 /** Active-elapsed seconds at each skip event, measured against the events before it. */
@@ -57,9 +59,13 @@ export function isTimelineExhausted(
 /** A run's position: done, or inside the segment whose `seq` new points are tagged with. */
 export type ModePosition = { done: true } | { done: false; segmentSeq: number };
 
-/** The plan-dependent half of a `RunSnapshot`, and the active seconds it was derived at. */
+/**
+ * The plan-dependent half of a `RunSnapshot`, the active seconds it was derived at, and the segment
+ * a barometer sample taken now belongs to.
+ */
 export type ModeView = Pick<
   ScriptedRunSnapshot,
+  | 'mode'
   | 'activeElapsedSeconds'
   | 'totalSeconds'
   | 'segmentIndex'
@@ -68,18 +74,20 @@ export type ModeView = Pick<
   | 'segmentSecondsTotal'
   | 'segmentEndsAt'
   | 'nextSegment'
->;
+> & { sampleSegmentSeq: number };
 
 /** How a run is being finalized: by the runner, or silently from a stale log at launch. */
 export type FinalizeOrigin = 'runner' | 'abandon';
 
 export interface ModeFinal {
   kind: 'completed' | 'endedEarly';
+  /** Where the run's `end` event goes. */
+  endAt: number;
   elapsedS: number;
   segments: CompletedSegmentRecord[];
 }
 
-/** Cue bookkeeping a crash-resume must carry across processes (persisted in the snapshot state). */
+/** What a crash-resume must carry across processes (persisted in the snapshot state). */
 export interface ModeCueState {
   lastAnnouncedIndex: number;
   halfwayFired: boolean;
@@ -92,24 +100,33 @@ export interface ModeCueState {
 export interface RunMode {
   readonly kind: 'scripted';
   readonly key: string;
-  position(events: readonly RunEvent[], activeS: number): ModePosition;
+  /** A field-test capture must not coach (spec §8.0). */
+  readonly cuesSuppressed: boolean;
+  readonly canSkip: boolean;
+  position(events: readonly RunEvent[], activeS: number, now: number): ModePosition;
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView;
+  /** Folds one accepted fix into the mode's own track (ADR 0021 §3); returns the metres it committed. */
+  ingest(fix: LocationFix, events: readonly RunEvent[]): number;
   /** Cues due at a running refresh; advances the mode's cue state. */
   takeCues(events: readonly RunEvent[], elapsedS: number): CueId[];
   exhausted(events: readonly RunEvent[], now: number): boolean;
+  /** Over the log before its `end` event; `endAt` is where the engine would put it. */
   finalize(
     events: readonly RunEvent[],
     endAt: number,
     requested: 'completed' | 'endedEarly',
     origin: FinalizeOrigin,
   ): ModeFinal;
-  cueState(): ModeCueState;
+  stateFields(): ModeCueState;
 }
 
 /** A plan session's run: the scripted timeline (ADR 0007). */
 export class ScriptedMode implements RunMode {
   readonly kind = 'scripted';
   readonly key: string;
+  readonly cuesSuppressed: boolean;
+  readonly canSkip = true;
+  private smoother: SmootherState = createSmootherState();
   private readonly session: PlanSession;
   private readonly plannedTotalS: number;
   /** The final run is announced as "last run", not a generic "start running". */
@@ -125,6 +142,7 @@ export class ScriptedMode implements RunMode {
   ) {
     this.session = session;
     this.key = session.key;
+    this.cuesSuppressed = isFieldTestRun(session.key);
     this.plannedTotalS = sessionTotalSeconds(session);
     this.lastRunIndex = session.segments.findLastIndex((s) => s.kind === 'run');
     this.lastAnnouncedIndex = cueState.lastAnnouncedIndex;
@@ -149,10 +167,11 @@ export class ScriptedMode implements RunMode {
     const total = totalSeconds(timeline);
     const elapsed = Math.min(activeS, total);
     const pos = positionAt(timeline, elapsed);
-    const base = { activeElapsedSeconds: elapsed, totalSeconds: total };
+    const base = { mode: 'scripted' as const, activeElapsedSeconds: elapsed, totalSeconds: total };
     if (pos.done) {
       return {
         ...base,
+        sampleSegmentSeq: timeline.length - 1,
         segmentIndex: timeline.length - 1,
         segmentKind: timeline[timeline.length - 1]?.kind ?? null,
         segmentSecondsRemaining: 0,
@@ -165,6 +184,7 @@ export class ScriptedMode implements RunMode {
     const next = timeline[pos.index + 1];
     return {
       ...base,
+      sampleSegmentSeq: pos.index,
       segmentIndex: pos.index,
       segmentKind: segment.kind,
       segmentSecondsRemaining: pos.secondsRemaining,
@@ -215,6 +235,7 @@ export class ScriptedMode implements RunMode {
         : requested;
     return {
       kind,
+      endAt,
       elapsedS,
       segments: timeline
         .filter((segment) => segment.wasSkipped || segment.startsAt < elapsedS)
@@ -230,7 +251,13 @@ export class ScriptedMode implements RunMode {
     };
   }
 
-  cueState(): ModeCueState {
+  stateFields(): ModeCueState {
     return { lastAnnouncedIndex: this.lastAnnouncedIndex, halfwayFired: this.halfwayFired };
+  }
+
+  ingest(fix: LocationFix): number {
+    const step = smoothFix(this.smoother, fix);
+    this.smoother = step.state;
+    return step.acceptedDeltaMeters;
   }
 }

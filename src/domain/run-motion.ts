@@ -22,7 +22,7 @@ export type StoredSegmentKind = SegmentKind | MotionKind;
 
 /**
  * Measured on 12 field captures (spec §4.4). Provisional until an outdoor capture with a stop at a
- * crossing and a mid-run pause exists (stage 1 plan, open item).
+ * crossing and a mid-run pause exists (#79).
  */
 export const MOTION = {
   stoppedBelowMps: 0.5,

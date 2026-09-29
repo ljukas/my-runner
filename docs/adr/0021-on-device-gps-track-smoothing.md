@@ -216,8 +216,9 @@ finalize (`src/db/derived-finalize.ts`), so for such a run finalize **rewrites**
 and `run_altitude_samples.segment_seq` to the bucket each row falls in, by timestamp with the fold's
 own `(start, end]` rule, and deletes the points after a trimmed end. This is the one exception to the
 points being append-only; the fix fields themselves are never changed. The payoff is that every
-reader that joins on `segment_seq` — route colouring, splits, the export — works for free runs
-unchanged.
+reader that joins on `segment_seq` — route colouring, splits, the export — finds a free run's rows
+under its buckets; what those readers show for a bucket (its kind's label, colour, symbol) is stage
+3b's work.
 
 §3's invariant (live == finalize == every re-fold) extends to free runs through one shared rule,
 `FixPolicy` / `pausePolicy` in `src/domain/geo.ts` and `run-motion.ts`: a fix at or before the last

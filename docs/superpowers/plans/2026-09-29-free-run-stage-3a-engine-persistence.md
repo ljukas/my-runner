@@ -52,7 +52,7 @@ run, so the app behaves as `main` for users. Stage 3b adds the surfaces.
   and `finalize` returning `endAt` and an outcome. `modeFor(plan, …)` is the one factory.
 - `OpenMode` — never done by itself except at the limits (4 h active; 30 min stopped) with origin
   `limit`; saves `completed`; `takeCues` is empty until stage 4.
-- `startFreeRun()`, `endEarly(intent)` with `'discard'`, restore/abandon over a `RunPlan`, `planOf`
+- `start(plan: RunPlan)`, `endEarly(intent)` with `'discard'`, restore/abandon over a `RunPlan`, `planOf`
   for resume (the field test keeps `offerable: false`), the 4 h window, `modeState.thresholdMps`, and a
   persisted `discarding` flag so a failed delete is retried, never resurrected as a completed run.
 
@@ -63,7 +63,7 @@ run, so the app behaves as `main` for users. Stage 3b adds the surfaces.
 3. Engine types: the snapshot union, and the harness-only narrowing in `engine.test.ts`.
 4. Engine seam: the mode owns its fold, cue suppression, skip and persisted fields; `RunPlan` in
    restore/abandon. Differential check against the pre-refactor engine.
-5. `OpenMode`, `startFreeRun`, discard, the limits, resume; wiring in `index.ts`; the re-fold
+5. `OpenMode`, discard, the limits, resume; wiring in `index.ts`; the re-fold
    callers. Differential check again.
 6. Docs: ADR 0007, 0021 and 0026 amendments.
 
@@ -73,3 +73,18 @@ run, so the app behaves as `main` for users. Stage 3b adds the surfaces.
 - `bun:sqlite` tests for the derived finalize and the hard delete (FKs on).
 - Differential old-vs-new engine for plan runs after commits 4 and 5.
 - Adversarial review (lensed, executing) before the PR.
+
+## Review fixes (2026-09-29)
+
+The lensed adversarial review found two Criticals, five Majors and a list of Minors; the owner chose
+to fix all of them before the PR, and to close the engine gaps 3b would otherwise hit here.
+
+- **Domain:** a trailing GPS silence is stopped time (`silentSince`, one rule for gaps and the end);
+  bucket durations round from whole milliseconds; a log with no `end` ends at its last event.
+- **Persistence:** `saveRun` derives a free run too (null when too short); a fallback log keeps its
+  pauses.
+- **Engine:** one `start(plan)`; the mode owns its start note and opaque `modeState`; `ModeFinal` is
+  a union with a discard reason; downtime is a pause on resume; the event floor; `complete` only
+  after the save kept the run; the discard guard; the live stopped clock follows the fold.
+- **3b fields:** `gpsStale`, `endDiscards`, `elapsedAnchorMs`, `lastOutcome`, and a discard shows
+  as ended at once.

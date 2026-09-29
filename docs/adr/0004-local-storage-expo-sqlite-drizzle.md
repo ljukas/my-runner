@@ -132,3 +132,13 @@ only results; the training plan remains static TypeScript data (spec §3).
 - **AsyncStorage or MMKV for settings** — rejected: `expo-sqlite/kv-store` is
   an official drop-in on the engine we already ship, so a second storage
   dependency buys nothing.
+
+## Amendment (2026-09-29): the first hard delete (ADR 0026)
+
+Decision 5's soft delete is for rows a user can see and remove. A **discarded free run** is removed
+outright instead — the run and its children, children first, since the foreign keys do not cascade
+(`deleteRunTree`, `src/db/derived-finalize.ts`). The same happens to a free run left under a minute.
+Such a run never left its in-flight `'active'` state, never appeared in the Log and never reached
+Health, and the runner asked for nothing to remain; a tombstone would record a run that, as far as
+any reader or a future sync layer is concerned, never existed. Every completed run keeps the soft
+delete (owner decision, 2026-09-29).

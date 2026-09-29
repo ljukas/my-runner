@@ -75,9 +75,10 @@ The "Becomes" names are the design; stage 2 shipped them as `position`, `view`, 
 `exhausted`, `finalize(…, origin)` and `cueState`, and its plan lists which rows stage 3 still moves.
 
 **Snapshot.** `RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot`, built on a shared base: `mode`,
-`status`, `sessionKey`, `activeElapsedSeconds`, `distanceM`, `savedRunId`, `saveFailed`. The open
-branch adds `bucket` and `rollingPaceSecPerKm`. `IDLE_SNAPSHOT` is scripted-shaped, with `mode:
-'scripted'`.
+`status`, `sessionKey`, `activeElapsedSeconds`, `distanceM`, `savedRunId`, `saveFailed`,
+`elapsedAnchorMs` and `lastOutcome`. The open branch adds `motion`, `rollingPaceSecPerKm`,
+`gpsStale` and `endDiscards` (stage 3a, ADR 0026's amendment). `IDLE_SNAPSHOT` is scripted-shaped,
+with `mode: 'scripted'`.
 
 **Why stage 2 ships no behaviour change.** Stage 2 keeps `start(PlanSession)` and
 `restore({ session })`, and keeps the snapshot flat with `mode: 'scripted'`. `engine.test.ts` calls

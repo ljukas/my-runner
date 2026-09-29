@@ -387,10 +387,30 @@ refined this ADR:
   derived finalize for every origin — runner, limit and abandon alike, since an abandoned run has no
   points in memory. It applies the 4 h cap, trims a trailing stop of 30 min or more, cuts the event
   log with it, and discards what is left under a minute. `OpenMode` also treats an ending under a
-  minute as a discard, so the engine never congratulates a run it is about to delete.
+  minute as a discard, rounding as the saved duration does; and because the trim can still leave a
+  run under a minute, the engine speaks a free run's `complete` only once its save kept it. A
+  trailing GPS silence is stopped time by the same rule as a gap between fixes (`silentSince`), so
+  a run whose fixes stop long before its end is trimmed like one that recorded the stop.
 - **§6's discard** stops the scheduler, drains the flush chain, marks the snapshot `discarding` and
   then deletes the run and its children (no FK cascade); a launch that finds the mark finishes the
-  delete. Nothing in the app deleted runs before.
+  delete. While it runs, no flush may write the run back — including the one a late `startRun`
+  would queue. A failed mark still deletes, and the snapshot is cleared only once the delete has
+  landed. Nothing in the app deleted runs before (ADR 0004's 2026-09-29 amendment).
+- **§5's resume** treats the time the process was dead as a pause: restoring an open run appends a
+  pause at its last known-alive instant and a resume at now, so a long downtime neither ends it as
+  stopped time nor spends its 4-hour cap, and its exhaustion is judged at that instant too. A plan
+  run resumes as before.
+- **The fold's pause rule needs a floor.** It drops a fix stamped inside a pause or after the end,
+  and a fix can be stamped ahead of the wall clock; so an open run's pause, resume and end land at
+  least 1 ms after the latest fix it was fed (`RunMode.eventFloorMs`), and the saved distance keeps
+  every fix the live one counted.
+- **One entry point,** `start(plan: RunPlan)`: the mode, not the engine, knows what a free run adds
+  (its threshold, its start note, its opaque `modeState`).
+- **The snapshot's 3b fields** are in the engine already: `gpsStale` (no speed for 10 s) in place of
+  a has-fix flag, `endDiscards` for the End dialog, `elapsedAnchorMs` for the count-up clock, and
+  `lastOutcome` (`discarded` / `tooShort`) on the idle snapshot a free run leaves without a summary.
+- **A free run whose `startRun` failed** is saved through `saveRun`, which derives it the same way
+  and returns null when it was too short to keep.
 - **The kind enum** gained `'stopped'` with a label, colour (`systemBrown`) and symbol
   (`figure.stand` / `accessibility_new`) wherever a stored kind is looked up — moved from 3b into 3a,
   because the widened type would not compile without them. Nothing can create a stopped row until

@@ -1169,7 +1169,14 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const { distanceM, state, points } = await crashAfterFlush();
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
-    expect(h.engine.restore({ runId: 'run-1', session: SESSION, state, points })).toBe(true);
+    expect(
+      h.engine.restore({
+        runId: 'run-1',
+        plan: { mode: 'scripted', session: SESSION },
+        state,
+        points,
+      }),
+    ).toBe(true);
     const s = scripted(h.engine);
     expect(s.status).toBe('running');
     expect(s.sessionKey).toBe('w1d1');
@@ -1186,7 +1193,12 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const { state, points } = await crashAfterFlush();
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
-    h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
+    h.engine.restore({
+      runId: 'run-1',
+      plan: { mode: 'scripted', session: SESSION },
+      state,
+      points,
+    });
     expect(h.engine.getBufferedPoints()).toEqual([]);
     h.feed(fixAt(20, 59.0004, 18));
     expect(h.engine.getBufferedPoints().map((p) => p.seq)).toEqual([points.length]);
@@ -1199,7 +1211,12 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const { state, points } = await crashAfterFlush();
     const h = makeEngine();
     h.setNow(FIX_START + 40_000); // > MAX_GAP_S after the last persisted fix → the smoother resets
-    h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
+    h.engine.restore({
+      runId: 'run-1',
+      plan: { mode: 'scripted', session: SESSION },
+      state,
+      points,
+    });
     [0, 1, 2, 3].forEach((i) => h.feed(fixAt(40 + i, 59.0004 + i * 0.000018, 18)));
     const refold = smoothTrackBySegment(
       [...points, ...h.engine.getBufferedPoints()].map(toSegmented),
@@ -1212,7 +1229,12 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const { state, points } = await crashAfterFlush();
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
-    h.engine.restore({ runId: 'run-1', session: SESSION, state, points });
+    h.engine.restore({
+      runId: 'run-1',
+      plan: { mode: 'scripted', session: SESSION },
+      state,
+      points,
+    });
     h.tick(60); // active 80 > total 75
     await flush();
     expect(scripted(h.engine).status).toBe('completed');
@@ -1225,7 +1247,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     h.setNow(FIX_START + 100_000);
     const restored = h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart({
         events: [
           { type: 'start', at: FIX_START },
@@ -1247,7 +1269,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     h.setNow(FIX_START + 100_000);
     h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart({
         events: [
           { type: 'start', at: FIX_START },
@@ -1271,7 +1293,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     h.setNow(FIX_START + 20_000); // elapsed 20 → the already-announced run segment
     h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart({ lastAnnouncedIndex: 1, halfwayFired: true }),
       points: [],
     });
@@ -1285,7 +1307,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     h.setNow(FIX_START + 200_000);
     const restored = h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart(),
       points: [],
     });
@@ -1298,7 +1320,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     const h = makeEngine();
     const restored = h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart({ events: [], lastAnnouncedIndex: -1 }),
       points: [],
     });
@@ -1312,7 +1334,7 @@ describe('resume (T14, ADR 0021 §3)', () => {
     h.tick(12);
     const restored = h.engine.restore({
       runId: 'run-9',
-      session: { ...SESSION, key: 'w1d2' },
+      plan: { mode: 'scripted', session: { ...SESSION, key: 'w1d2' } },
       state: stateAtStart({ sessionKey: 'w1d2' }),
       points: [],
     });
@@ -1340,7 +1362,7 @@ describe('abandon (unresumable in-flight run)', () => {
     h.setNow(FIX_START + 200_000);
     await h.engine.abandon({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart(),
       aliveUntil: FIX_START + 200_000,
     });
@@ -1360,7 +1382,7 @@ describe('abandon (unresumable in-flight run)', () => {
     h.setNow(FIX_START + 70_000); // elapsed 70 ∈ cooldown [65,75)
     await h.engine.abandon({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart(),
       aliveUntil: FIX_START + 70_000,
     });
@@ -1374,7 +1396,7 @@ describe('abandon (unresumable in-flight run)', () => {
     h.setNow(FIX_START + 200_000); // noticed long after the process died
     await h.engine.abandon({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart(),
       aliveUntil: FIX_START + 18_000,
     });
@@ -1390,7 +1412,7 @@ describe('abandon (unresumable in-flight run)', () => {
     h.setNow(FIX_START + 200_000);
     await h.engine.abandon({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart({
         events: [
           { type: 'start', at: FIX_START },
@@ -1407,7 +1429,7 @@ describe('abandon (unresumable in-flight run)', () => {
     h.engine.start(SESSION);
     await h.engine.abandon({
       runId: 'run-9',
-      session: { ...SESSION, key: 'w1d2' },
+      plan: { mode: 'scripted', session: { ...SESSION, key: 'w1d2' } },
       state: stateAtStart({ sessionKey: 'w1d2' }),
       aliveUntil: FIX_START,
     });
@@ -1496,7 +1518,12 @@ describe('barometer capture (spec §6)', () => {
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
     expect(
-      h.engine.restore({ runId: 'run-1', session: SESSION, state: stateAtStart(), points: [] }),
+      h.engine.restore({
+        runId: 'run-1',
+        plan: { mode: 'scripted', session: SESSION },
+        state: stateAtStart(),
+        points: [],
+      }),
     ).toBe(true);
     await flush();
     expect(h.elevationCalls).toEqual(['start']);
@@ -1570,7 +1597,12 @@ describe('barometer capture (spec §6)', () => {
   test('the step counter is re-armed on restore()', async () => {
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
-    h.engine.restore({ runId: 'run-1', session: SESSION, state: stateAtStart(), points: [] });
+    h.engine.restore({
+      runId: 'run-1',
+      plan: { mode: 'scripted', session: SESSION },
+      state: stateAtStart(),
+      points: [],
+    });
     await flush();
     expect(h.stepCounterLifecycle).toEqual(['start']);
   });
@@ -1641,9 +1673,14 @@ describe('barometer capture (spec §6)', () => {
 
     const h = makeEngine();
     h.setNow(FIX_START + 20_000);
-    expect(h.engine.restore({ runId: 'run-1', session: SESSION, state: state!, points: [] })).toBe(
-      true,
-    );
+    expect(
+      h.engine.restore({
+        runId: 'run-1',
+        plan: { mode: 'scripted', session: SESSION },
+        state: state!,
+        points: [],
+      }),
+    ).toBe(true);
     h.emitReading(readingAt(21, 1011));
     h.fireFlush();
     await flush();
@@ -1656,7 +1693,7 @@ describe('barometer capture (spec §6)', () => {
     h.setNow(FIX_START + 20_000);
     h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart(), // written before `logSeq` existed
       points: [],
       logResume: { nextSampleSeq: 40, nextEntrySeq: 900, epochBase: 3 },
@@ -1937,14 +1974,17 @@ describe('field-test cue suppression (spec §8.0)', () => {
     h.setNow(FIX_START + 15_000); // 15s elapsed → past the 10s warmup, into the walk segment
     const restored = h.engine.restore({
       runId: 'run-1',
-      session: {
-        key: FIELD_TEST_SESSION_KEY,
-        week: 0,
-        day: 0,
-        segments: [
-          { kind: 'warmup', seconds: 10 },
-          { kind: 'walk', seconds: 3600 },
-        ],
+      plan: {
+        mode: 'scripted',
+        session: {
+          key: FIELD_TEST_SESSION_KEY,
+          week: 0,
+          day: 0,
+          segments: [
+            { kind: 'warmup', seconds: 10 },
+            { kind: 'walk', seconds: 3600 },
+          ],
+        },
       },
       state: stateAtStart({ sessionKey: FIELD_TEST_SESSION_KEY }),
       points: [],
@@ -1960,7 +2000,7 @@ describe('field-test cue suppression (spec §8.0)', () => {
     h.setNow(FIX_START + 15_000);
     const restored = h.engine.restore({
       runId: 'run-1',
-      session: SESSION,
+      plan: { mode: 'scripted', session: SESSION },
       state: stateAtStart(),
       points: [],
     });

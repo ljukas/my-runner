@@ -5,7 +5,7 @@ import {
   FIELD_TEST_SESSION_KEY,
   fieldTestSession,
   isFieldTestRun,
-  resumeDispositionOf,
+  planOf,
   skipForFieldTest,
 } from './field-test';
 
@@ -33,7 +33,7 @@ describe('field test', () => {
   });
 });
 
-describe('resumeDispositionOf (crash recovery, spec §8.0)', () => {
+describe('planOf (crash recovery, spec §8.0; ADR 0026)', () => {
   const W1D1: PlanSession = {
     key: 'w1d1',
     week: 1,
@@ -45,17 +45,17 @@ describe('resumeDispositionOf (crash recovery, spec §8.0)', () => {
   // Load-bearing: without this branch the launch discards the capture's snapshot and orphans its
   // `'active'` row.
   test("a capture's snapshot resolves to its own session, so its interrupted run can be finalized", () => {
-    const disposition = resumeDispositionOf(FIELD_TEST_SESSION_KEY, plan);
-    expect(disposition?.session).toEqual(fieldTestSession());
+    const disposition = planOf(FIELD_TEST_SESSION_KEY, plan);
+    expect(disposition?.plan).toEqual({ mode: 'scripted', session: fieldTestSession() });
   });
 
   test('a capture is never offered back to the runner — it is finalized as partial instead', () => {
-    expect(resumeDispositionOf(FIELD_TEST_SESSION_KEY, plan)?.offerable).toBe(false);
+    expect(planOf(FIELD_TEST_SESSION_KEY, plan)?.offerable).toBe(false);
   });
 
   test('the capture branch never consults the plan (no plan day claims its key)', () => {
     let lookups = 0;
-    resumeDispositionOf(FIELD_TEST_SESSION_KEY, (key) => {
+    planOf(FIELD_TEST_SESSION_KEY, (key) => {
       lookups++;
       return plan(key);
     });
@@ -63,11 +63,24 @@ describe('resumeDispositionOf (crash recovery, spec §8.0)', () => {
   });
 
   test('a plan day resolves to its plan session and is offered as before', () => {
-    expect(resumeDispositionOf('w1d1', plan)).toEqual({ session: W1D1, offerable: true });
+    expect(planOf('w1d1', plan)).toEqual({
+      plan: { mode: 'scripted', session: W1D1 },
+      offerable: true,
+    });
   });
 
   test('a key neither the plan nor a capture claims is nothing to settle', () => {
-    expect(resumeDispositionOf('w99d9', plan)).toBeNull();
+    expect(planOf('w99d9', plan)).toBeNull();
+  });
+
+  test('a free run resolves to the open plan, never consulting the plan, and is offered', () => {
+    let lookups = 0;
+    const disposition = planOf('free-run', (key) => {
+      lookups++;
+      return plan(key);
+    });
+    expect(disposition).toEqual({ plan: { mode: 'open', key: 'free-run' }, offerable: true });
+    expect(lookups).toBe(0);
   });
 });
 

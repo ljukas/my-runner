@@ -5,21 +5,24 @@ import { AppState } from 'react-native';
 
 import { findActiveRun } from '@/db/active-run';
 import { db } from '@/db/client';
+import { loadLearnedThreshold } from '@/db/motion-threshold';
 import { loadLogResumeWatermarks } from '@/db/run-log';
 import { loadBufferedRunPoints } from '@/db/run-points';
 import { dbRunPersistence } from '@/db/save-run';
 import { runs } from '@/db/schema';
-import { getSession, type PlanSession } from '@/domain/plan';
+import type { RunPlan } from '@/domain/free-run';
+import { getSession } from '@/domain/plan';
 import { activePlan } from '@/services/active-plan';
 import { cueService } from '@/services/cue-service';
 import { elevationSource, hasBarometer, type ElevationSource } from '@/services/elevation';
-import { resumeDispositionOf, skipForFieldTest } from '@/services/field-test';
+import { planOf, skipForFieldTest } from '@/services/field-test';
 import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
 import { stepCounterSource } from '@/services/step-counter';
-import { isTimelineExhausted, RunEngine, type RunRestoreInput } from './engine';
+import { RunEngine, type RunRestoreInput } from './engine';
+import { modeFor } from './mode';
 import { PROCESS_TOKEN } from './run-log';
 import { isSnapshotFresh, parseSnapshotState, snapshotAliveUntil } from './resumable';
 
@@ -78,6 +81,7 @@ export const runEngine = new RunEngine({
   tracker: locationTracker,
   elevation: elevationWithSensorLog,
   stepCounter: stepCounterSource,
+  thresholdMps: loadLearnedThreshold,
 });
 
 // Module scope, never a React effect, and imported from the app entry rather than a route: iOS
@@ -114,7 +118,7 @@ try {
 
 export interface ResumableRun {
   runId: string;
-  session: PlanSession;
+  plan: RunPlan;
   state: RunSnapshotState;
   /** Where this run's record ends if it is abandoned rather than resumed (`snapshotAliveUntil`). */
   aliveUntil: number;
@@ -172,25 +176,32 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
       active.sessionKey === state.sessionKey &&
       Date.parse(active.startedAt) === state.events[0].at;
     const disposition = state
-      ? resumeDispositionOf(state.sessionKey, (key) => getSession(activePlan(), key))
+      ? planOf(state.sessionKey, (key) => getSession(activePlan(), key))
       : null;
     if (!state || !active || !disposition || !tiedToRow) {
       await clearSnapshot();
       return stopIdleTracking();
     }
+    if (state.discarding) {
+      // A discard that died before its delete landed: finish it — the runner asked for nothing to remain.
+      await dbRunPersistence.discardRun(active.id);
+      await clearSnapshot();
+      return stopIdleTracking();
+    }
 
-    const { session, offerable } = disposition;
+    const { plan, offerable } = disposition;
+    const mode = modeFor(plan, { thresholdMps: state.modeState?.thresholdMps });
     const now = Date.now();
     const candidate: ResumableRun = {
       runId: active.id,
-      session,
+      plan,
       state,
       aliveUntil: snapshotAliveUntil(loaded.updatedAt, now),
     };
     if (
       !offerable ||
-      !isSnapshotFresh(loaded.updatedAt, session, now) ||
-      isTimelineExhausted(session, state.events, now)
+      !isSnapshotFresh(loaded.updatedAt, mode.resumeWindowMs(), now) ||
+      mode.exhausted(state.events, now)
     ) {
       // why here too, not just resumeCrashedRun: abandon() also rebuilds the log counters before its
       // own finalize flush mints new rows (a tick at least) — without this the same duplicate-seq risk

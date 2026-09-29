@@ -1,5 +1,4 @@
 import type { LocationFix } from '@/domain/geo';
-import { sessionTotalSeconds, type PlanSession } from '@/domain/plan';
 import type { RunSnapshotState } from '@/services/run-store/port';
 import type { RunEvent } from './types';
 
@@ -53,6 +52,14 @@ function parseLogSeq(value: unknown): RunSnapshotState['logSeq'] {
   return { sampleSeq, entrySeq };
 }
 
+function parseModeState(value: unknown): RunSnapshotState['modeState'] {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { thresholdMps } = value as { thresholdMps?: unknown };
+  return typeof thresholdMps === 'number' && Number.isFinite(thresholdMps) && thresholdMps > 0
+    ? { thresholdMps }
+    : undefined;
+}
+
 /**
  * Narrows an untrusted `state_json` payload; null for anything the engine could not replay. An
  * `end` event is such a case: the run it belongs to already finished, so there is nothing to recover.
@@ -76,6 +83,8 @@ export function parseSnapshotState(value: unknown): RunSnapshotState | null {
     halfwayFired: state.halfwayFired,
     lastAcceptedFix: parseFix(state.lastAcceptedFix),
     logSeq: parseLogSeq(state.logSeq),
+    ...(parseModeState(state.modeState) && { modeState: parseModeState(state.modeState) }),
+    ...(state.discarding === true && { discarding: true }),
   };
 }
 
@@ -84,11 +93,11 @@ export function parseSnapshotState(value: unknown): RunSnapshotState | null {
  * why the `age >= 0` floor: a backwards device-clock jump would otherwise make an arbitrarily
  * old snapshot look fresh.
  */
-export function isSnapshotFresh(updatedAt: string, session: PlanSession, now: number): boolean {
+export function isSnapshotFresh(updatedAt: string, windowMs: number, now: number): boolean {
   const stampedAt = Date.parse(updatedAt);
   if (Number.isNaN(stampedAt)) return false;
   const age = now - stampedAt;
-  return age >= 0 && age < sessionTotalSeconds(session) * 1000 + RESUME_GRACE_MS;
+  return age >= 0 && age < windowMs;
 }
 
 /**

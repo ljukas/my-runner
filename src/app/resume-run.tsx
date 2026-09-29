@@ -5,6 +5,7 @@ import { View } from 'react-native';
 import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { sessionTitle } from '@/domain/format';
+import { keyOf } from '@/domain/free-run';
 import { discardResumableRun, resumeCrashedRun } from '@/services/run-engine';
 import { clearResumeOffer, peekResumeOffer } from '@/services/run-engine/resume-offer';
 
@@ -43,7 +44,7 @@ export default function ResumeRunScreen() {
           Resume run?
         </Text>
         <Text tone="secondary">
-          {`${sessionTitle(candidate.session.key)} was interrupted. Resume to pick up where you left off, or save what you ran so far.`}
+          {`${sessionTitle(keyOf(candidate.plan))} was interrupted. Resume to pick up where you left off, or save what you ran so far.`}
         </Text>
       </View>
 

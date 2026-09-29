@@ -46,6 +46,10 @@ export interface RunSnapshotState {
   lastAcceptedFix: LocationFix | null;
   /** Watermarks so a resumed run's instrumentation `seq` continues instead of restarting (spec §5.1). Absent in snapshots written before this slice. */
   logSeq?: { sampleSeq: number; entrySeq: number };
+  /** A free run's threshold, so a resumed run is bucketed as it began (ADR 0026 §3). */
+  modeState?: { thresholdMps: number };
+  /** Set before a discard's delete: a launch that finds it finishes the delete (ADR 0026 §6). */
+  discarding?: boolean;
 }
 
 export interface RunStore {

@@ -1,4 +1,4 @@
-import type { LoggedRunEvent } from './run-altitude';
+import { pausedIntervals, type LoggedRunEvent } from './run-altitude';
 
 /**
  * Active time is derived from the timestamped event log, never accumulated
@@ -42,4 +42,17 @@ export function wallClockAtActive(
     }
   }
   return runningFrom === null ? null : runningFrom + remainingMs;
+}
+
+/** Milliseconds of active time between two instants: the wall clock between them, less their pauses. */
+export function activeMsBetween(
+  events: readonly LoggedRunEvent[],
+  fromMs: number,
+  toMs: number,
+): number {
+  let paused = 0;
+  for (const pause of pausedIntervals(events)) {
+    paused += Math.max(0, Math.min(toMs, pause.toMs) - Math.max(fromMs, pause.fromMs));
+  }
+  return Math.max(0, toMs - fromMs - paused);
 }

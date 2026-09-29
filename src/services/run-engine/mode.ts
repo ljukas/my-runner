@@ -1,10 +1,32 @@
 import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
-import { activeElapsedMs } from '@/domain/active-time';
-import { createSmootherState, smoothFix, type LocationFix, type SmootherState } from '@/domain/geo';
+import { activeElapsedMs, activeMsBetween, wallClockAtActive } from '@/domain/active-time';
+import { FREE_RUN_KEY, OPEN_LIMITS, type RunPlan } from '@/domain/free-run';
+import {
+  createSmootherState,
+  MAX_GAP_S,
+  smoothFix,
+  type LocationFix,
+  type SmootherState,
+} from '@/domain/geo';
+import { pausedIntervals, type PausedInterval } from '@/domain/run-altitude';
+import {
+  createOpenTrackState,
+  MOTION,
+  openTrackStep,
+  type OpenTrackState,
+} from '@/domain/run-motion';
+import { paceSecPerKm } from '@/domain/run-stats';
 import { isFieldTestRun } from '@/services/field-test';
-import type { CompletedSegmentRecord, RunEvent, RunSnapshot, ScriptedRunSnapshot } from './types';
+import { RESUME_GRACE_MS } from './resumable';
+import type {
+  CompletedSegmentRecord,
+  OpenRunSnapshot,
+  RunEvent,
+  RunSnapshot,
+  ScriptedRunSnapshot,
+} from './types';
 
 /** Active-elapsed seconds at each skip event, measured against the events before it. */
 function skipAtsOf(events: readonly RunEvent[]): number[] {
@@ -56,28 +78,41 @@ export function isTimelineExhausted(
   return positionAt(timelineOf(session, events), elapsed).done;
 }
 
-/** A run's position: done, or inside the segment whose `seq` new points are tagged with. */
-export type ModePosition = { done: true } | { done: false; segmentSeq: number };
+/** A run's position: done (and why), or inside the segment whose `seq` new points are tagged with. */
+export type ModePosition =
+  { done: true; origin: 'runner' | 'limit' } | { done: false; segmentSeq: number };
 
 /**
  * The plan-dependent half of a `RunSnapshot`, the active seconds it was derived at, and the segment
  * a barometer sample taken now belongs to.
  */
-export type ModeView = Pick<
-  ScriptedRunSnapshot,
-  | 'mode'
-  | 'activeElapsedSeconds'
-  | 'totalSeconds'
-  | 'segmentIndex'
-  | 'segmentKind'
-  | 'segmentSecondsRemaining'
-  | 'segmentSecondsTotal'
-  | 'segmentEndsAt'
-  | 'nextSegment'
-> & { sampleSegmentSeq: number };
+export type ModeView = (
+  | Pick<
+      ScriptedRunSnapshot,
+      | 'mode'
+      | 'activeElapsedSeconds'
+      | 'totalSeconds'
+      | 'segmentIndex'
+      | 'segmentKind'
+      | 'segmentSecondsRemaining'
+      | 'segmentSecondsTotal'
+      | 'segmentEndsAt'
+      | 'nextSegment'
+    >
+  | Pick<
+      OpenRunSnapshot,
+      'mode' | 'activeElapsedSeconds' | 'motion' | 'rollingPaceSecPerKm' | 'hasFix'
+    >
+) & { sampleSegmentSeq: number };
 
-/** How a run is being finalized: by the runner, or silently from a stale log at launch. */
-export type FinalizeOrigin = 'runner' | 'abandon';
+/** Snapshot fields a fix changes between refreshes; a scripted run has none. */
+export type ModeLive = Partial<Pick<OpenRunSnapshot, 'motion' | 'rollingPaceSecPerKm' | 'hasFix'>>;
+
+/** How a run is being finalized: by the runner, by a limit, or silently from a stale log at launch. */
+export type FinalizeOrigin = 'runner' | 'limit' | 'abandon';
+
+/** What the runner asked for; only a mode that `canDiscard` honours a discard. */
+export type FinalizeIntent = 'save' | 'discard';
 
 export interface ModeFinal {
   kind: 'completed' | 'endedEarly';
@@ -85,12 +120,20 @@ export interface ModeFinal {
   endAt: number;
   elapsedS: number;
   segments: CompletedSegmentRecord[];
+  outcome: FinalizeIntent;
+  /** A free run's buckets are derived from its points at finalize (ADR 0026 §4). */
+  derived?: { thresholdMps: number };
 }
 
-/** What a crash-resume must carry across processes (persisted in the snapshot state). */
+/** A scripted run's cue watermarks, which a crash-resume carries across processes. */
 export interface ModeCueState {
   lastAnnouncedIndex: number;
   halfwayFired: boolean;
+}
+
+/** What a mode persists in the snapshot state; an open run adds its threshold. */
+export interface ModeStateFields extends ModeCueState {
+  modeState?: { thresholdMps: number };
 }
 
 /**
@@ -98,26 +141,41 @@ export interface ModeCueState {
  * event log — implementations may cache on that (`ScriptedMode` does), so never pass another log.
  */
 export interface RunMode {
-  readonly kind: 'scripted';
+  readonly kind: RunSnapshot['mode'];
   readonly key: string;
   /** A field-test capture must not coach (spec §8.0). */
   readonly cuesSuppressed: boolean;
   readonly canSkip: boolean;
+  readonly canDiscard: boolean;
   position(events: readonly RunEvent[], activeS: number, now: number): ModePosition;
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView;
+  live(): ModeLive;
   /** Folds one accepted fix into the mode's own track (ADR 0021 §3); returns the metres it committed. */
   ingest(fix: LocationFix, events: readonly RunEvent[]): number;
   /** Cues due at a running refresh; advances the mode's cue state. */
   takeCues(events: readonly RunEvent[], elapsedS: number): CueId[];
   exhausted(events: readonly RunEvent[], now: number): boolean;
+  /** How long after its last flush an interrupted run is still offered for resume. */
+  resumeWindowMs(): number;
   /** Over the log before its `end` event; `endAt` is where the engine would put it. */
   finalize(
     events: readonly RunEvent[],
     endAt: number,
     requested: 'completed' | 'endedEarly',
     origin: FinalizeOrigin,
+    intent: FinalizeIntent,
   ): ModeFinal;
-  stateFields(): ModeCueState;
+  stateFields(): ModeStateFields;
+}
+
+/** The one place a run's mode is made — for a new run, a resume, or an abandon. */
+export function modeFor(
+  plan: RunPlan,
+  { saved, thresholdMps }: { saved?: ModeCueState; thresholdMps?: number } = {},
+): RunMode {
+  return plan.mode === 'scripted'
+    ? new ScriptedMode(plan.session, saved)
+    : new OpenMode(thresholdMps ?? MOTION.fallbackThresholdMps);
 }
 
 /** A plan session's run: the scripted timeline (ADR 0007). */
@@ -126,6 +184,7 @@ export class ScriptedMode implements RunMode {
   readonly key: string;
   readonly cuesSuppressed: boolean;
   readonly canSkip = true;
+  readonly canDiscard = false;
   private smoother: SmootherState = createSmootherState();
   private readonly session: PlanSession;
   private readonly plannedTotalS: number;
@@ -159,7 +218,7 @@ export class ScriptedMode implements RunMode {
 
   position(events: readonly RunEvent[], activeS: number): ModePosition {
     const pos = positionAt(this.timeline(events), activeS);
-    return pos.done ? { done: true } : { done: false, segmentSeq: pos.index };
+    return pos.done ? { done: true, origin: 'runner' } : { done: false, segmentSeq: pos.index };
   }
 
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView {
@@ -216,6 +275,14 @@ export class ScriptedMode implements RunMode {
     return isTimelineExhausted(this.session, events, now);
   }
 
+  resumeWindowMs(): number {
+    return this.plannedTotalS * 1000 + RESUME_GRACE_MS;
+  }
+
+  live(): ModeLive {
+    return {};
+  }
+
   finalize(
     events: readonly RunEvent[],
     endAt: number,
@@ -237,6 +304,7 @@ export class ScriptedMode implements RunMode {
       kind,
       endAt,
       elapsedS,
+      outcome: 'save',
       segments: timeline
         .filter((segment) => segment.wasSkipped || segment.startsAt < elapsedS)
         .map((segment, seq) => ({
@@ -259,5 +327,139 @@ export class ScriptedMode implements RunMode {
     const step = smoothFix(this.smoother, fix);
     this.smoother = step.state;
     return step.acceptedDeltaMeters;
+  }
+}
+
+/** Pace is shown over the last stretch, not the whole run, so a walk break does not linger in it. */
+const ROLLING_WINDOW_MS = 45_000;
+
+/** A free run (ADR 0026): no timeline — it ends by hand, or at a limit, and is bucketed by speed. */
+export class OpenMode implements RunMode {
+  readonly kind = 'open';
+  readonly key = FREE_RUN_KEY;
+  readonly cuesSuppressed = false;
+  readonly canSkip = false;
+  readonly canDiscard = true;
+  private readonly thresholdMps: number;
+  private track: OpenTrackState = createOpenTrackState();
+  private moving: { atMs: number; speedMps: number }[] = [];
+  private stoppedSinceMs: number | null = null;
+  private pausedCache: { count: number; paused: PausedInterval[] } | null = null;
+
+  constructor(thresholdMps: number) {
+    this.thresholdMps = thresholdMps;
+  }
+
+  private paused(events: readonly RunEvent[]): PausedInterval[] {
+    if (this.pausedCache?.count !== events.length) {
+      this.pausedCache = { count: events.length, paused: pausedIntervals(events) };
+    }
+    return this.pausedCache.paused;
+  }
+
+  ingest(fix: LocationFix, events: readonly RunEvent[]): number {
+    const step = openTrackStep(this.track, fix, {
+      thresholdMps: this.thresholdMps,
+      paused: this.paused(events),
+    });
+    this.track = step.state;
+    for (const change of step.changes) {
+      this.stoppedSinceMs = change.kind === 'stopped' ? change.atMs : null;
+    }
+    const lastMs = this.track.previousMs ?? fix.timestamp;
+    if (step.smoothedSpeedMps !== null && this.track.motion.kind !== 'stopped') {
+      this.moving.push({ atMs: lastMs, speedMps: step.smoothedSpeedMps });
+    }
+    this.moving = this.moving.filter((sample) => sample.atMs > lastMs - ROLLING_WINDOW_MS);
+    return step.acceptedDeltaMeters;
+  }
+
+  /** Active ms spent stopped up to `now`; a GPS silence past `MAX_GAP_S` counts, as the fold's gap rule does. */
+  private stoppedMs(events: readonly RunEvent[], now: number): number {
+    const lastMs = this.track.previousMs;
+    if (lastMs === null) return 0;
+    if (this.track.motion.kind === 'stopped' && this.stoppedSinceMs !== null) {
+      return activeMsBetween(events, this.stoppedSinceMs, now);
+    }
+    const quietMs = activeMsBetween(events, lastMs, now);
+    return quietMs > MAX_GAP_S * 1000 ? quietMs : 0;
+  }
+
+  position(events: readonly RunEvent[], activeS: number, now: number): ModePosition {
+    if (activeS >= OPEN_LIMITS.capActiveS) return { done: true, origin: 'limit' };
+    if (this.stoppedMs(events, now) >= OPEN_LIMITS.stoppedLimitS * 1000) {
+      return { done: true, origin: 'limit' };
+    }
+    return { done: false, segmentSeq: 0 };
+  }
+
+  private rollingPace(stale: boolean): number | null {
+    if (stale || this.track.motion.kind === 'stopped' || this.moving.length === 0) return null;
+    const meanMps = this.moving.reduce((sum, s) => sum + s.speedMps, 0) / this.moving.length;
+    return paceSecPerKm(meanMps, 1);
+  }
+
+  live(): ModeLive {
+    return {
+      motion: this.track.motion.kind,
+      hasFix: this.track.previousMs !== null,
+      rollingPaceSecPerKm: this.rollingPace(false),
+    };
+  }
+
+  view(events: readonly RunEvent[], activeS: number, now: number): ModeView {
+    const lastMs = this.track.previousMs;
+    const stale = lastMs === null || activeMsBetween(events, lastMs, now) > MAX_GAP_S * 1000;
+    return {
+      mode: 'open',
+      activeElapsedSeconds: Math.min(activeS, OPEN_LIMITS.capActiveS),
+      motion: this.track.motion.kind,
+      hasFix: lastMs !== null,
+      rollingPaceSecPerKm: this.rollingPace(stale),
+      // why 0: finalize re-tags every sample with its bucket (ADR 0026 §4)
+      sampleSegmentSeq: 0,
+    };
+  }
+
+  takeCues(): CueId[] {
+    return [];
+  }
+
+  exhausted(events: readonly RunEvent[], now: number): boolean {
+    return activeElapsedMs(events, now) >= OPEN_LIMITS.capActiveS * 1000;
+  }
+
+  resumeWindowMs(): number {
+    return OPEN_LIMITS.resumeWindowMs;
+  }
+
+  finalize(
+    events: readonly RunEvent[],
+    endAt: number,
+    _requested: 'completed' | 'endedEarly',
+    _origin: FinalizeOrigin,
+    intent: FinalizeIntent,
+  ): ModeFinal {
+    const pastCap = activeElapsedMs(events, endAt) > OPEN_LIMITS.capActiveS * 1000;
+    const end = pastCap ? (wallClockAtActive(events, OPEN_LIMITS.capActiveS) ?? endAt) : endAt;
+    const elapsedS = Math.min(activeElapsedMs(events, end) / 1000, OPEN_LIMITS.capActiveS);
+    return {
+      kind: 'completed',
+      endAt: end,
+      elapsedS,
+      segments: [],
+      // why the minimum here too, beside deriveOpenRun's: the engine must not congratulate a run
+      // it is about to delete. The derivation still decides after trimming a trailing stop.
+      outcome: intent === 'discard' || elapsedS < OPEN_LIMITS.minActiveS ? 'discard' : 'save',
+      derived: { thresholdMps: this.thresholdMps },
+    };
+  }
+
+  stateFields(): ModeStateFields {
+    return {
+      lastAnnouncedIndex: -1,
+      halfwayFired: false,
+      modeState: { thresholdMps: this.thresholdMps },
+    };
   }
 }

@@ -4,6 +4,7 @@ import type { RouteMapRoute } from '@/components/route-map/port';
 import { hasAltitudeSamples, loadSummaryAltitudeSamples } from '@/db/run-log';
 import { loadRunFixes } from '@/db/run-points';
 import type { Run, RunSegment } from '@/db/schema';
+import { runPolicy } from '@/domain/free-run';
 import { DP_EPSILON_M, type BoundingBox, type LatLng } from '@/domain/geo';
 import { parseEventLog, pausedIntervals } from '@/domain/run-altitude';
 import { toRouteLines } from '@/domain/route-render';
@@ -37,7 +38,7 @@ export type RunTrack = (
   elevation: SummaryElevation | null;
 };
 
-type RunTotals = Pick<Run, 'distanceM' | 'activeDurationS' | 'eventLogJson'>;
+type RunTotals = Pick<Run, 'sessionKey' | 'distanceM' | 'activeDurationS' | 'eventLogJson'>;
 
 function useStyledRoute(geometry: RunRouteGeometry | null, segments: readonly RunSegment[]) {
   const segmentColors = useSegmentColors();
@@ -70,18 +71,21 @@ export function useRunTrack(
   const distanceM = run?.distanceM ?? null;
   const activeDurationS = run?.activeDurationS ?? 0;
   const eventLogJson = run?.eventLogJson ?? null;
+  const sessionKey = run?.sessionKey ?? '';
   // why: keyed on neither the viewport nor the palette, so a rotation, a keyboard, the modal
   // settling, or a light/dark switch never re-runs the ~1800-fix and ~1800-sample read and refold.
   const summary = useMemo(() => {
     if (!loaded) return null;
     try {
+      const pauses = pausedIntervals(parseEventLog(eventLogJson));
       return deriveRunSummary({
         fixes: loadRunFixes(runId),
         hasAltitudeSamples: hasAltitudeSamples(runId),
         loadAltitudeSamples: () => loadSummaryAltitudeSamples(runId),
-        pauses: pausedIntervals(parseEventLog(eventLogJson)),
+        pauses,
         distanceM,
         activeDurationS,
+        policy: runPolicy(sessionKey, pauses),
       });
     } catch (error) {
       // why: no ErrorBoundary wraps this route; a SQLite read failure must degrade to the
@@ -89,7 +93,7 @@ export function useRunTrack(
       console.warn('[use-run-track] track load failed; showing the fallback', error);
       return null;
     }
-  }, [runId, loaded, distanceM, activeDurationS, eventLogJson]);
+  }, [runId, loaded, distanceM, activeDurationS, eventLogJson, sessionKey]);
 
   const route = useStyledRoute(summary?.route ?? null, segments);
   const profile = summary?.profile ?? null;
@@ -104,19 +108,23 @@ export function useRunTrack(
 /** The same route for the full-screen viewer, which zooms further and reads no series. */
 export function useRunRoute(
   runId: string,
+  run: Pick<Run, 'sessionKey' | 'eventLogJson'> | undefined,
   segments: readonly RunSegment[],
   loaded: boolean,
   epsilon = DP_EPSILON_M,
 ): RunRoute {
+  const sessionKey = run?.sessionKey ?? '';
+  const eventLogJson = run?.eventLogJson ?? null;
   const geometry = useMemo(() => {
     if (!loaded) return null;
     try {
-      return deriveRunRoute(loadRunFixes(runId), epsilon);
+      const policy = runPolicy(sessionKey, pausedIntervals(parseEventLog(eventLogJson)));
+      return deriveRunRoute(loadRunFixes(runId), epsilon, policy);
     } catch (error) {
       console.warn('[use-run-track] route load failed; showing the fallback', error);
       return null;
     }
-  }, [runId, loaded, epsilon]);
+  }, [runId, loaded, epsilon, sessionKey, eventLogJson]);
 
   return useStyledRoute(geometry, segments);
 }

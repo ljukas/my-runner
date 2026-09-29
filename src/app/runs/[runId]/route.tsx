@@ -44,7 +44,7 @@ export default function RunRouteScreen() {
   const loaded = runLoaded !== undefined && segmentsLoaded !== undefined;
   const failed = runError !== undefined || segmentsError !== undefined;
 
-  const route = useRunRoute(runId, segments, loaded, VIEWER_DP_EPSILON_M);
+  const route = useRunRoute(runId, run, segments, loaded, VIEWER_DP_EPSILON_M);
 
   if (failed || (loaded && !run)) return <RunUnavailable reason="missing" />;
   if (!loaded) return <View className="flex-1 bg-background" />;

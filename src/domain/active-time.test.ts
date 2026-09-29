@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { wallClockAtActive } from './active-time';
+import { activeMsBetween, wallClockAtActive } from './active-time';
 
 const start = { type: 'start', at: 1_000 };
 
@@ -22,5 +22,16 @@ describe('wallClockAtActive', () => {
 
   test('is null while the run is paused before it reaches that active time', () => {
     expect(wallClockAtActive([start, { type: 'pause', at: 31_000 }], 60)).toBeNull();
+  });
+});
+
+describe('activeMsBetween', () => {
+  test('is the wall clock between the instants, less the paused part of it', () => {
+    const events = [start, { type: 'pause', at: 11_000 }, { type: 'resume', at: 21_000 }];
+    expect(activeMsBetween(events, 6_000, 31_000)).toBe(15_000);
+  });
+
+  test('counts an unfinished pause up to the later instant', () => {
+    expect(activeMsBetween([start, { type: 'pause', at: 11_000 }], 1_000, 60_000)).toBe(10_000);
   });
 });

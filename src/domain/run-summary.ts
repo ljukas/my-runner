@@ -8,6 +8,7 @@ import {
   smoothTrackForRender,
   toSegmentPolylines,
   type BoundingBox,
+  type FixPolicy,
   type LatLng,
   type SegmentedFix,
   type SegmentPolyline,
@@ -50,14 +51,17 @@ export interface RunSummaryInput {
   pauses: readonly PausedInterval[];
   distanceM: number | null;
   activeDurationS: number;
+  /** A free run's fold rule (`runPolicy`), so the route and chart agree with its saved distance. */
+  policy?: FixPolicy;
 }
 
 /** The drawn route, or null when it spans less than `MIN_ROUTE_EXTENT_M`. Throws on bad input. */
 export function deriveRunRoute(
   fixes: readonly SegmentedFix[],
   epsilon: number,
+  policy?: FixPolicy,
 ): RunRouteGeometry | null {
-  const chunks = toSegmentPolylines(smoothTrackForRender(fixes), epsilon);
+  const chunks = toSegmentPolylines(smoothTrackForRender(fixes, policy), epsilon);
   if (chunks.length === 0) return null;
 
   // why: over what is DRAWN, not every render point — a dropped chunk's outlier is off-screen and
@@ -92,7 +96,7 @@ function isolated<T>(part: string, derive: () => T): Isolated<T> {
  * a chart or a climb drawn from that same rejected drift (spec §8).
  */
 export function deriveRunSummary(input: RunSummaryInput): RunSummary {
-  const route = isolated('route', () => deriveRunRoute(input.fixes, DP_EPSILON_M));
+  const route = isolated('route', () => deriveRunRoute(input.fixes, DP_EPSILON_M, input.policy));
   // why a second gate beside the route: it is spatial (a 100 m bbox diagonal) while the stat grid
   // and splits gate on a 0.5 m/s speed floor, and a slow shuffle clears the first but not the second.
   const measured = hasMeasuredDistance(input.distanceM, input.activeDurationS);
@@ -106,7 +110,10 @@ export function deriveRunSummary(input: RunSummaryInput): RunSummary {
 
   const profile = placed
     ? isolated('profile', () => {
-        const points = toRunProfile(input.fixes, { altitude: folded?.series });
+        const points = toRunProfile(input.fixes, {
+          altitude: folded?.series,
+          policy: input.policy,
+        });
         return isDrawableProfile(points) ? points : null;
       })
     : null;

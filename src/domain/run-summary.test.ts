@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { altitudePressureHpa } from './elevation';
 import { DP_EPSILON_M, MIN_ROUTE_EXTENT_M, type SegmentedFix } from './geo';
 import type { StoredAltitudeSample } from './run-altitude';
+import { pausePolicy } from './run-motion';
 import { deriveRunRoute, deriveRunSummary, type RunSummaryInput } from './run-summary';
 
 const DEG_PER_METRE = 1 / 111_320;
@@ -145,5 +146,34 @@ describe('deriveRunSummary', () => {
     });
     if (partial.elevation?.status !== 'estimated') throw new Error('expected an estimate');
     expect(partial.elevation.gainM).toBeLessThan(8);
+  });
+});
+
+describe('deriveRunSummary — a free run folds by its pause rule (spec §4.3)', () => {
+  // 600 s at 3 m/s with a 20 s pause at 300 s: the runner keeps walking while paused, so a plain fold
+  // bridges the chord the free run's saved distance leaves out
+  const paused = [{ fromMs: START_MS + 300_500, toMs: START_MS + 320_500 }];
+  const savedDistance = 3 * 599 - 3 * 20;
+
+  test('the chart spans the saved distance, not the bridged one', () => {
+    const summary = deriveRunSummary({
+      fixes: track(600, 3),
+      hasAltitudeSamples: false,
+      loadAltitudeSamples: () => [],
+      pauses: paused,
+      distanceM: savedDistance,
+      activeDurationS: 580,
+      policy: pausePolicy(paused),
+    });
+    const last = summary.profile!.at(-1)!;
+    const width = last.distanceM / (summary.profile!.length - 0.5);
+    const extent = last.distanceM + width / 2;
+    // bridged, it would span ~1797 m; the 20 s chord at 3 m/s is the ~60 m it must leave out
+    expect(extent).toBeLessThan(3 * 599 - 30);
+  });
+
+  test('the drawn route breaks at the pause', () => {
+    const route = deriveRunRoute(track(600, 3), DP_EPSILON_M, pausePolicy(paused));
+    expect(route?.chunks.length).toBe(2);
   });
 });

@@ -10,7 +10,7 @@ Date: 2026-07-26
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge.
+Accepted (2026-07-27, on merge of #48). Not yet implemented.
 
 ## Context
 

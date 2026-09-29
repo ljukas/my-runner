@@ -4,7 +4,7 @@ Date: 2026-08-03
 
 ## Status
 
-Proposed — draft for review. Flip to Accepted on merge.
+Accepted (2026-08-04, on merge of #53). Implemented.
 
 ## Context
 

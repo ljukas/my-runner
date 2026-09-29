@@ -169,6 +169,8 @@ export interface RunMode {
    * re-fold drops a fix stamped inside a pause or after the end, so none it counted live may be.
    */
   eventFloorMs(): number | null;
+  /** The integer epoch ms a fix is folded and stored at; `nowMs` is the engine's wall clock. */
+  fixTimeMs(fixMs: number, nowMs: number): number;
   position(events: readonly RunEvent[], activeS: number, now: number): ModePosition;
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView;
   live(events: readonly RunEvent[], now: number): ModeLive;
@@ -318,6 +320,10 @@ export class ScriptedMode implements RunMode {
     return null;
   }
 
+  fixTimeMs(fixMs: number): number {
+    return Math.round(fixMs);
+  }
+
   finalize({ events, endAt, requested, origin }: FinalizeRequest): ModeFinal {
     const timeline = this.timeline(events);
     // Completion is capped at timeline exhaustion (ADR 0007).
@@ -430,6 +436,11 @@ export class OpenMode implements RunMode {
     return this.latestFedMs === null ? null : this.latestFedMs + 1;
   }
 
+  // why the clamp: the floor above trusts fix times, so one dated ahead would stretch the run to it
+  fixTimeMs(fixMs: number, nowMs: number): number {
+    return Math.round(Math.min(fixMs, nowMs));
+  }
+
   /** Active ms spent stopped up to `now`, by the fold's own rules: a GPS silence is stopped time. */
   private stoppedMs(events: readonly RunEvent[], now: number): number {
     const since =
@@ -465,7 +476,9 @@ export class OpenMode implements RunMode {
       mode: 'open',
       activeElapsedSeconds: Math.min(activeS, OPEN_LIMITS.capActiveS),
       ...this.live(events, now),
-      endDiscards: Math.round(activeS) < OPEN_LIMITS.minActiveS,
+      endDiscards:
+        Math.round(activeElapsedMs(events, Math.max(now, this.eventFloorMs() ?? now)) / 1000) <
+        OPEN_LIMITS.minActiveS,
       // why 0: finalize re-tags every sample with its bucket (ADR 0026 §4)
       sampleSegmentSeq: 0,
     };

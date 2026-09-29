@@ -181,6 +181,8 @@ export class RunEngine {
   // `run_points` FK-references the `'active'` row, so nothing can be written before startRun resolves.
   private runId: string | null = null;
   private startRunPromise: Promise<string | null> | null = null;
+  /** This run's row id whether or not a later run has superseded it: what an ending run writes to. */
+  private rowId: Promise<string | null> = Promise.resolve(null);
   // why: flushes are chained, never overlapped — the pre-finalize flush must queue behind an
   // in-flight cadence flush instead of being dropped, or the run's tail is lost.
   private flushChain: Promise<boolean> = Promise.resolve(true);
@@ -337,8 +339,9 @@ export class RunEngine {
   async abandon(input: RunAbandonInput): Promise<void> {
     if (this.status !== 'idle') return;
     if (!this.rebuild({ ...input, points: [] })) return;
+    const generation = this.runGeneration;
     await this.finalize('endedEarly', 'abandon', input.aliveUntil);
-    this.reset();
+    if (generation === this.runGeneration) this.reset();
   }
 
   reset(): void {
@@ -355,6 +358,7 @@ export class RunEngine {
     this.runGeneration += 1;
     this.runId = null;
     this.startRunPromise = null;
+    this.rowId = Promise.resolve(null);
     this.scheduler.stop();
     this.resetIngestState();
     this.snapshot = lastOutcome === null ? IDLE_SNAPSHOT : { ...IDLE_SNAPSHOT, lastOutcome };
@@ -413,7 +417,10 @@ export class RunEngine {
       sessionKey: this.mode.key,
       savedRunId: this.savedRunId,
       saveFailed: this.saveFailed,
-      elapsedAnchorMs: this.status === 'running' ? now - activeMs : null,
+      elapsedAnchorMs:
+        this.status === 'running'
+          ? Math.max(now, this.events[this.events.length - 1].at) - activeMs
+          : null,
       lastOutcome: null,
       distanceM: this.distanceM,
       paceSecPerKm: paceSecPerKm(this.distanceM, view.activeElapsedSeconds),
@@ -503,7 +510,7 @@ export class RunEngine {
       }
       const mode = this.mode;
       if (!mode) return;
-      const timestamp = Math.round(fix.timestamp);
+      const timestamp = mode.fixTimeMs(fix.timestamp, this.clock());
       const acceptedDeltaMeters = mode.ingest({ ...fix, timestamp }, this.events);
       const point: BufferedRunPoint = {
         seq: this.nextSeq,
@@ -561,6 +568,7 @@ export class RunEngine {
     // The `'active'` row already exists — recovery must never open a second one.
     this.runId = runId;
     this.startRunPromise = Promise.resolve(runId);
+    this.rowId = this.startRunPromise;
 
     // why: re-folding exactly the persisted spine — not the unflushed tail, not the snapshot anchor
     // on its own — is what keeps resumed distance equal to the live and finalize values (ADR 0021 §3).
@@ -580,6 +588,8 @@ export class RunEngine {
     intent: FinalizeIntent = 'save',
   ): Promise<void> {
     if (!this.mode || this.events.length === 0) return;
+    const generation = this.runGeneration;
+    const rowId = this.rowId;
     // why the mode is asked before `end` is appended: it decides where the run ends.
     const requestedEnd = Math.max(
       at ?? this.clock(),
@@ -594,7 +604,7 @@ export class RunEngine {
       intent,
     });
     if (final.outcome === 'discard') {
-      await this.discard(this.runGeneration, final.reason);
+      await this.discard(generation, rowId, final.reason);
       return;
     }
     const { kind, endAt, elapsedS, segments, derived } = final;
@@ -612,6 +622,7 @@ export class RunEngine {
       eventLogJson: JSON.stringify(this.events),
       ...(derived && { derived }),
     };
+    const liveDistanceM = this.distanceM;
 
     this.status = kind;
     this.refresh(endAt);
@@ -631,9 +642,13 @@ export class RunEngine {
       this.readMotionPermission(),
     ]);
     record.motionPermission = motionPermission;
+    if (generation !== this.runGeneration) {
+      await this.persistSuperseded(record, await rowId, liveDistanceM);
+      return;
+    }
     this.queueTracker(() => this.tracker.stop(), 'stop');
     this.queueSensors('stop');
-    await this.completeRun(record, this.runGeneration, congratulates && derived !== undefined);
+    await this.completeRun(record, generation, rowId, liveDistanceM, congratulates && !!derived);
   }
 
   // --- persistence ---
@@ -641,22 +656,25 @@ export class RunEngine {
   private openRunRow(sessionKey: string, startedAt: number): void {
     const generation = this.runGeneration;
     this.runId = null;
-    this.startRunPromise = this.persistence
-      .startRun(sessionKey, new Date(startedAt).toISOString())
-      .then(
-        (id) => {
-          if (generation !== this.runGeneration) return null; // superseded by reset()/start()
-          this.runId = id;
-          // why: stamp this run's own snapshot at once — until it lands, a launch-time resume can
-          // still find the previous attempt's snapshot beside this row.
-          void this.queueFlush();
-          return id;
-        },
-        (error) => {
-          console.warn('[run-engine] startRun failed; retrying at the next flush cadence', error);
-          return null;
-        },
-      );
+    const opening = this.persistence.startRun(sessionKey, new Date(startedAt).toISOString());
+    this.rowId = opening.then(
+      (id) => id,
+      () => null,
+    );
+    this.startRunPromise = opening.then(
+      (id) => {
+        if (generation !== this.runGeneration) return null; // superseded by reset()/start()
+        this.runId = id;
+        // why: stamp this run's own snapshot at once — until it lands, a launch-time resume can
+        // still find the previous attempt's snapshot beside this row.
+        void this.queueFlush();
+        return id;
+      },
+      (error) => {
+        console.warn('[run-engine] startRun failed; retrying at the next flush cadence', error);
+        return null;
+      },
+    );
   }
 
   private async awaitRunId(): Promise<string | null> {
@@ -755,22 +773,28 @@ export class RunEngine {
   private async completeRun(
     record: CompletedRunRecord,
     generation: number,
+    rowId: Promise<string | null>,
+    liveDistanceM: number,
     congratulateOnSave: boolean,
   ): Promise<void> {
     try {
-      const runId = await this.awaitRunId();
-      if (generation !== this.runGeneration) return; // superseded by reset()/start()
+      const runId = await rowId;
+      if (generation !== this.runGeneration) {
+        return await this.persistSuperseded(record, runId, liveDistanceM);
+      }
       if (runId === null) {
         // No `'active'` row means no point was ever insertable either, so the live scalar is the
         // only distance this run will ever have.
-        const id = await this.persistence.saveRun({ ...record, distanceM: this.distanceM });
+        const id = await this.persistence.saveRun({ ...record, distanceM: liveDistanceM });
         if (generation !== this.runGeneration) return;
         if (id === null) return this.forgetDiscarded();
         this.markSaved(id, congratulateOnSave);
         return;
       }
       const drained = await this.drainPendingPoints();
-      if (generation !== this.runGeneration) return;
+      if (generation !== this.runGeneration) {
+        return await this.persistSuperseded(record, runId, liveDistanceM);
+      }
       if (!drained) {
         console.warn(
           `[run-engine] ${this.pendingPoints.length} point(s) could not be persisted; the saved distance is short`,
@@ -790,6 +814,24 @@ export class RunEngine {
     }
     // Only now: until finalizeRun commits, the snapshot is the run's only recovery path.
     await this.clearSnapshotQuietly();
+  }
+
+  /**
+   * A run whose ending was overtaken by reset()/start(): its record still lands on its own row, and
+   * nothing the next run owns (status, cues, sensors, the snapshot) is touched. A leftover snapshot
+   * of it is cleared at the next launch, since it no longer ties to an `'active'` row.
+   */
+  private async persistSuperseded(
+    record: CompletedRunRecord,
+    runId: string | null,
+    liveDistanceM: number,
+  ): Promise<void> {
+    try {
+      if (runId === null) await this.persistence.saveRun({ ...record, distanceM: liveDistanceM });
+      else await this.persistence.finalizeRun(runId, record);
+    } catch (error) {
+      console.warn('[run-engine] finalize of a superseded run failed', error);
+    }
   }
 
   /** A free run its save found too short: it is gone, so there is no summary to show. */
@@ -815,9 +857,12 @@ export class RunEngine {
    */
   private async discard(
     generation: number,
+    rowId: Promise<string | null>,
     reason: NonNullable<RunSnapshot['lastOutcome']>,
   ): Promise<void> {
     const mode = this.mode;
+    const mark = mode && { ...this.snapshotState(mode), discarding: true };
+    const current = () => generation === this.runGeneration;
     this.status = 'endedEarly';
     this.discarding = true;
     this.snapshot = { ...this.snapshot, status: 'endedEarly', elapsedAnchorMs: null };
@@ -829,24 +874,23 @@ export class RunEngine {
     this.queueSensors('stop');
     try {
       await this.flushChain;
-      const runId = await this.awaitRunId();
-      if (generation !== this.runGeneration) return;
-      if (runId !== null && mode) {
-        try {
-          await this.runStore.flush(runId, [], [], [], {
-            ...this.snapshotState(mode),
-            discarding: true,
-          });
-        } catch (error) {
-          console.warn('[run-engine] discard mark failed; deleting anyway', error);
+      const runId = await rowId;
+      if (runId !== null) {
+        // why only while current: once another run has started, the snapshot row is that run's
+        if (current() && mark) {
+          try {
+            await this.runStore.flush(runId, [], [], [], mark);
+          } catch (error) {
+            console.warn('[run-engine] discard mark failed; deleting anyway', error);
+          }
         }
         await this.persistence.discardRun(runId);
       }
-      await this.runStore.clearSnapshot();
+      if (current()) await this.runStore.clearSnapshot();
     } catch (error) {
       console.warn('[run-engine] discard failed; the next launch finishes it', error);
     }
-    if (generation === this.runGeneration) this.resetTo(reason);
+    if (current()) this.resetTo(reason);
   }
 
   private markSaved(id: string, congratulate = false): void {

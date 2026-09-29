@@ -229,6 +229,14 @@ describe('saveDerivedRun — a free run with no in-flight row', () => {
     });
   });
 
+  test('keeps the live distance, having no points to derive one from', () => {
+    const db = makeDb();
+    db.transaction((tx) =>
+      saveDerivedRun(tx, 'new', { ...record(300_000), distanceM: 812.5 }, ctx()),
+    );
+    expect(db.select().from(runs).get()?.distanceM).toBe(812.5);
+  });
+
   test('writes nothing for a run under a minute', () => {
     const db = makeDb();
     const outcome = db.transaction((tx) => saveDerivedRun(tx, 'new', record(40_000), ctx()));

@@ -125,7 +125,8 @@ export function writeDerivedFinalize(
       status: 'completed',
       endedAt: endIso,
       activeDurationS: derived.activeDurationS,
-      distanceM: hasPoints ? derived.distanceM : null,
+      // why the record's: a run whose row never opened has no points, only its live distance
+      distanceM: hasPoints ? derived.distanceM : (record.distanceM ?? null),
       summaryPolyline: hasPoints ? encodePolyline(derived.points) : null,
       eventLogJson: JSON.stringify(derived.events),
       motionPermission: record.motionPermission ?? null,

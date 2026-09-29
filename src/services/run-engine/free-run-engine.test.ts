@@ -68,6 +68,10 @@ function makeFreeRunEngine({
   let releaseStartRun: (() => void) | undefined;
   let failMark = false;
   let failDiscard = false;
+  let holdStepRead = false;
+  let releaseStepRead: (() => void) | undefined;
+  let trackerStops = 0;
+  const finalizedIds: string[] = [];
 
   const persistence: RunLifecyclePersistence = {
     saveRun: async (record) => {
@@ -77,12 +81,14 @@ function makeFreeRunEngine({
     },
     startRun: async (sessionKey) => {
       opened.push(sessionKey);
+      const id = `run-${opened.length}`;
       if (holdStartRun) await new Promise<void>((resolve) => (releaseStartRun = resolve));
       if (startRunFails) throw new Error('no row');
-      return 'run-1';
+      return id;
     },
-    finalizeRun: async (_runId, record) => {
+    finalizeRun: async (runId, record) => {
       calls.push('finalizeRun');
+      finalizedIds.push(runId);
       finalized.push(record);
       return finalizeOutcome;
     },
@@ -108,7 +114,7 @@ function makeFreeRunEngine({
     requestPermission: async () => 'granted',
     getPermissionStatus: async () => 'granted',
     start: async () => {},
-    stop: async () => {},
+    stop: async () => void (trackerStops += 1),
     onFix: () => () => {},
   };
   const hub = createReadingHub();
@@ -123,7 +129,10 @@ function makeFreeRunEngine({
   const stepCounter: StepCounterSource = {
     start: async () => {},
     stop: async () => {},
-    read: async () => 0,
+    read: async () => {
+      if (holdStepRead) await new Promise<void>((resolve) => (releaseStepRead = resolve));
+      return 0;
+    },
   };
   const cue: CueService = {
     prepare: () => {},
@@ -160,6 +169,13 @@ function makeFreeRunEngine({
     failMark: () => (failMark = true),
     failDiscard: () => (failDiscard = true),
     setNow: (ms: number) => (now = ms),
+    holdStepRead: () => (holdStepRead = true),
+    releaseStepRead: () => {
+      holdStepRead = false;
+      releaseStepRead?.();
+    },
+    trackerStops: () => trackerStops,
+    finalizedIds,
     deferFlush: () => (deferFlush = true),
     releaseFlush: () => gateFlush?.(),
     fireFlush: () => fireFlush(),
@@ -295,7 +311,35 @@ describe('a free run, start to finish', () => {
     h.engine.endEarly();
     await settled();
     const log: { type: string; at: number }[] = JSON.parse(h.finalized[0].eventLogJson!);
-    expect(log.find((e) => e.type === 'pause')!.at).toBeGreaterThan(ahead.timestamp);
+    const stored = h.flushes.flatMap((f) => f.points).map((p) => Date.parse(p.timestamp));
+    expect(log.find((e) => e.type === 'pause')!.at).toBeGreaterThan(Math.max(...stored));
+  });
+
+  test('a fix dated ahead of the wall clock is stored at the clock, so it cannot inflate the run', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    const fixes = track([[300, 2.6]]);
+    h.feed(fixes.slice(0, -1));
+    const last = fixes[fixes.length - 1];
+    const dayAhead = { ...last, timestamp: last.timestamp + 86_400_000 };
+    h.setNow(last.timestamp);
+    h.engine.heartbeat(last.timestamp, dayAhead);
+    h.engine.pause();
+    h.at(last.timestamp + 1000);
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'paused' });
+    expect(h.engine.getSnapshot().activeElapsedSeconds).toBeLessThan(310);
+    h.fireFlush();
+    await settled();
+    const stored = h.flushes.flatMap((f) => f.points).map((p) => Date.parse(p.timestamp));
+    expect(Math.max(...stored)).toBe(last.timestamp);
+  });
+
+  test('the count-up anchor ignores a cached fix older than the start', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    const [first] = track([[1, 2.6]]);
+    h.engine.heartbeat(START_MS - 120_000, { ...first, timestamp: START_MS - 120_000 });
+    expect(h.engine.getSnapshot().elapsedAnchorMs).toBe(START_MS);
   });
 
   test('a discard while its row is still opening writes nothing back', async () => {
@@ -387,6 +431,98 @@ describe('what the run screen reads off a free run', () => {
     h.setNow(START_MS + 70_000);
     h.engine.resume();
     expect(h.engine.getSnapshot().elapsedAnchorMs).toBe(START_MS + 60_000);
+  });
+});
+
+describe('a run overtaken by reset() or start() while it is still ending', () => {
+  const drain = async () => {
+    for (let i = 0; i < 6; i += 1) await settled();
+  };
+
+  test('a reset straight after a discard still deletes the run', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    await settled();
+    h.engine.endEarly('discard');
+    h.engine.reset();
+    await drain();
+    expect(h.calls).toContain('discardRun');
+  });
+
+  test("a discard overtaken by the next run never touches that run's snapshot", async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    await settled();
+    h.engine.endEarly('discard');
+    h.engine.reset();
+    h.engine.start(FREE_RUN_PLAN);
+    await drain();
+    expect(h.calls).toContain('discardRun');
+    expect(h.calls).not.toContain('flush:discarding');
+    expect(h.calls).not.toContain('clearSnapshot');
+    expect(h.engine.getSnapshot().status).toBe('running');
+  });
+
+  test('a reset while the finish reads the step count saves the run once, on its own row', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(scriptedPlan(PLAN));
+    h.feed(track([[60, 2.6]]));
+    await settled();
+    h.holdStepRead();
+    h.engine.endEarly();
+    await settled();
+    h.engine.reset();
+    h.releaseStepRead();
+    await drain();
+    expect(h.calls).not.toContain('saveRun');
+    expect(h.finalizedIds).toEqual(['run-1']);
+  });
+
+  test('the next run started meanwhile keeps its row, its tracker and its silence', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    await settled();
+    h.holdStepRead();
+    h.engine.endEarly();
+    await settled();
+    h.engine.reset();
+    h.engine.start(scriptedPlan(PLAN));
+    await settled();
+    const stopsBefore = h.trackerStops();
+    h.releaseStepRead();
+    await drain();
+    expect(h.finalizedIds).toEqual(['run-1']);
+    expect(h.cues).not.toContain('complete');
+    expect(h.trackerStops()).toBe(stopsBefore);
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'running', savedRunId: null });
+  });
+
+  test("an abandon's end does not stop a run started while it was finishing", async () => {
+    const before = makeFreeRunEngine();
+    before.engine.start(FREE_RUN_PLAN);
+    before.feed(track([[300, 2.6]]));
+    before.fireFlush();
+    await settled();
+
+    const h = makeFreeRunEngine();
+    h.holdStepRead();
+    const abandoning = h.engine.abandon({
+      runId: 'run-9',
+      plan: FREE_RUN_PLAN,
+      state: before.flushes.at(-1)!.state,
+      aliveUntil: START_MS + 300_000,
+    });
+    await settled();
+    h.engine.reset();
+    h.engine.start(scriptedPlan(PLAN));
+    h.releaseStepRead();
+    await abandoning;
+    await drain();
+    expect(h.finalizedIds).toEqual(['run-9']);
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'running', sessionKey: 'w1d1' });
   });
 });
 

@@ -199,3 +199,13 @@ fails, the default flips to the hosted-API adapter behind the same port.**
 - **Defer free-run routing entirely** — viable and not precluded: this ADR fixes *how*
   it is built if built, not *that* it must be. The build commitment remains a separate
   call.
+
+## Amendment (2026-09-29): the open-ended mode is decided by ADR 0026
+
+Decision §6's "new open-ended run mode in the engine" is now
+[ADR 0026](0026-free-run-open-mode-motion-buckets.md): an unguided free run behind a `RunMode`
+strategy, with run/walk/stopped buckets. It deliberately ships without a target or a route.
+This ADR's loop generator attaches later as that mode's `goal`
+(`RunPlan = { mode: 'open'; goal: null }` today), and §6's storage notes are settled there:
+the reserved `'free-run'` session key keeps `runs.session_key` NOT NULL, and the
+`run_segments.kind` enum widens with `'stopped'` only.

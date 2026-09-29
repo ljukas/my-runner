@@ -268,3 +268,4 @@ Design specs live in `docs/superpowers/specs/` — `2026-07-11-c25k-app-design.m
 - [ADR 0023 — Completion as a projection over two sources (runs ∪ manual marks); week-focus derives from it](docs/adr/0023-session-completion-projection-manual-marks.md)
 - [ADR 0024 — Charting: victory-native as an official-tooling exception, contained to one file](docs/adr/0024-victory-native-charting.md)
 - [ADR 0025 — Android support: a staged migration behind the existing seams](docs/adr/0025-android-staged-migration.md) (supersedes ADR 0020; its stage table is the migration's source of truth)
+- [ADR 0026 — Free run: an open-ended run mode behind a `RunMode` strategy, with run/walk/stopped buckets derived from smoothed GPS speed](docs/adr/0026-free-run-open-mode-motion-buckets.md)

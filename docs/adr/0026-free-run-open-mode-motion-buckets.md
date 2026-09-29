@@ -90,13 +90,13 @@ What constrains the design:
     crossing as walking.
   - It never confirmed 5 of 34 run segments for a jogger hovering at 2.10 m/s.
 - **Revision 2 classifier** (described in §3 below):
-  - **97.5%** mean agreement on the plans' walk/run intervals. Each run is held out from
+  - **97.3%** mean agreement on the plans' walk/run intervals. Each run is held out from
     the threshold it is scored with, and the first 10 s of each interval are excluded.
-  - The worst run scores 92.1%; the tired day scores 96.2%, where a midpoint-of-medians threshold scored 70.1%.
+  - The worst run scores 92.0%; the tired day scores 94.8%, where a midpoint-of-medians threshold scored 70.1%.
   - Run pace is within 2% on 7 of the 8 runs. The eighth runner stopped inside a
     scripted run segment; detection excludes that stop, and the script's own pace
     includes it.
-  - It labels **98.7%** of field-test fixes as stopped.
+  - It labels **99.6%** of field-test active time as stopped.
   - It labels **every second** of synthetic 10–30 s stops inside a run as stopped.
   - For a walker at 0.8 m/s coming out of a stop, 7% of their walking is labelled
     stopped; at 1.0 m/s, none of it.

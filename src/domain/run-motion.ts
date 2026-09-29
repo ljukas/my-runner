@@ -32,6 +32,8 @@ export const MOTION = {
   fallbackThresholdMps: 2.1,
   learnSkipMs: 10_000,
   learnMinSamples: 60,
+  learnFloorMps: 1.5,
+  learnCeilingMps: 3.0,
 } as const;
 
 export interface MotionSample {
@@ -43,10 +45,21 @@ export interface MotionSample {
 }
 
 interface Candidate {
-  kind: MotionKind;
   sinceMs: number;
+  /** Samples that differed from the current kind, per kind they implied; the plurality confirms. */
+  votes: Partial<Record<MotionKind, number>>;
+  latest: MotionKind;
   agreeing: number;
   seen: number;
+}
+
+/** The kind most of a candidate's samples implied; a tie goes to the latest one. */
+function pluralityOf(candidate: Candidate): MotionKind {
+  let best = candidate.latest;
+  for (const [kind, count] of Object.entries(candidate.votes) as [MotionKind, number][]) {
+    if (count > (candidate.votes[best] ?? 0)) best = kind;
+  }
+  return best;
 }
 
 export interface MotionState {
@@ -105,23 +118,21 @@ export function motionStep(
     };
   }
 
-  // why the kind is overwritten but `sinceMs` kept: slowing from a run through a walk into a stop is
-  // one change, and its boundary is where the slowing began.
-  const next: Candidate = candidate
-    ? {
-        kind: target,
-        sinceMs: candidate.sinceMs,
-        agreeing: candidate.agreeing + 1,
-        seen: candidate.seen + 1,
-      }
-    : { kind: target, sinceMs: sample.atMs, agreeing: 1, seen: 1 };
+  // why one candidate across kinds, keeping `sinceMs`: slowing from a run through a walk into a stop
+  // is one change, and its boundary is where the slowing began.
+  const votes = candidate?.votes ?? {};
+  const next: Candidate = {
+    sinceMs: candidate?.sinceMs ?? sample.atMs,
+    votes: { ...votes, [target]: (votes[target] ?? 0) + 1 },
+    latest: target,
+    agreeing: (candidate?.agreeing ?? 0) + 1,
+    seen: (candidate?.seen ?? 0) + 1,
+  };
   const confirmed =
     sample.atMs - next.sinceMs >= MOTION.dwellMs && next.agreeing / next.seen >= MOTION.agreement;
   if (!confirmed) return { state: { kind: state.kind, candidate: next }, transition: null };
-  return {
-    state: { kind: next.kind, candidate: null },
-    transition: { kind: next.kind, atMs: next.sinceMs },
-  };
+  const kind = pluralityOf(next);
+  return { state: { kind, candidate: null }, transition: { kind, atMs: next.sinceMs } };
 }
 
 export interface MotionBucket {
@@ -185,6 +196,9 @@ const activeMs = (paused: readonly PausedInterval[], fromMs: number, toMs: numbe
 const pauseBetween = (paused: readonly PausedInterval[], fromMs: number, toMs: number) =>
   paused.some((pause) => pause.fromMs >= fromMs && pause.fromMs < toMs);
 
+const withinPause = (paused: readonly PausedInterval[], atMs: number) =>
+  paused.some((pause) => atMs >= pause.fromMs && atMs < pause.toMs);
+
 /**
  * One accepted fix of a free run through the smoother and `motionStep` — the step the live engine
  * takes, and the one `rollupOpenTrack` folds (ADR 0026 §3). The smoother restarts at the first fix
@@ -197,6 +211,11 @@ export function openTrackStep(
   { thresholdMps, paused }: OpenTrackStepOptions,
 ): OpenTrackStep {
   const previous = state.previousMs;
+  // why ignored rather than folded: a fix stamped at or before the last one, or inside a pause,
+  // describes no active movement — and would read as a gap to the next fix.
+  if ((previous !== null && fix.timestamp <= previous) || withinPause(paused, fix.timestamp)) {
+    return { state, acceptedDeltaMeters: 0, smoothedPoint: null, changes: [] };
+  }
   const afterPause = previous !== null && pauseBetween(paused, previous, fix.timestamp);
   const afterGap =
     previous !== null && activeMs(paused, previous, fix.timestamp) > MAX_GAP_S * 1000;
@@ -221,7 +240,12 @@ export function openTrackStep(
   if (moved.transition) changes.push(moved.transition);
 
   return {
-    state: { smoother: smoothed.state, motion: moved.state, previousMs: fix.timestamp },
+    // why the smoother's clock, not this fix's: a velocity-gated fix is no position to measure from
+    state: {
+      smoother: smoothed.state,
+      motion: moved.state,
+      previousMs: smoothed.state.lastAcceptedTime,
+    },
     acceptedDeltaMeters: smoothed.acceptedDeltaMeters,
     smoothedPoint: smoothed.smoothedPoint,
     changes,
@@ -244,7 +268,9 @@ export function rollupOpenTrack(
   let distanceM = 0;
 
   for (const fix of fixes) {
-    if (fix.timestamp < startMs || fix.timestamp > endMs) continue;
+    // why only the end is cut: the engine ingests a fix stamped just before the start (a cached
+    // first fix), so dropping it would make the saved distance differ from the live one.
+    if (fix.timestamp > endMs) continue;
     const step = openTrackStep(state, fix, stepOptions);
     state = step.state;
     distanceM += step.acceptedDeltaMeters;
@@ -309,7 +335,10 @@ export interface LabelledSpeed {
   msIntoSegment: number;
 }
 
-/** Replays the smoother over a plan run's accepted fixes; steps without a velocity are dropped. */
+/**
+ * Replays the smoother over ONE plan run's accepted fixes; steps without a velocity are dropped. Call
+ * it per run and concatenate: segment starts are keyed by `segmentSeq`, which every run reuses.
+ */
 export function labelledSpeeds(
   fixes: readonly SegmentedFix[],
   kindBySeq: ReadonlyMap<number, SegmentKind>,
@@ -338,11 +367,15 @@ export function labelledSpeeds(
  * the midpoint of the medians (spec §4.4). Warm-ups and cool-downs are left out.
  */
 export function learnThreshold(samples: readonly LabelledSpeed[]): number {
-  const settled = samples.filter((s) => s.msIntoSegment >= MOTION.learnSkipMs);
+  // why stopped samples go too: a runner standing inside a scripted run would drag its p10 down.
+  const settled = samples.filter(
+    (s) => s.msIntoSegment >= MOTION.learnSkipMs && s.speedMps > MOTION.stoppedUntilAboveMps,
+  );
   const walk = settled.filter((s) => s.kind === 'walk').map((s) => s.speedMps);
   const run = settled.filter((s) => s.kind === 'run').map((s) => s.speedMps);
   if (walk.length < MOTION.learnMinSamples || run.length < MOTION.learnMinSamples) {
     return MOTION.fallbackThresholdMps;
   }
-  return (quantile(walk, 0.9) + quantile(run, 0.1)) / 2;
+  const learned = (quantile(walk, 0.9) + quantile(run, 0.1)) / 2;
+  return Math.min(Math.max(learned, MOTION.learnFloorMps), MOTION.learnCeilingMps);
 }

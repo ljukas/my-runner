@@ -131,9 +131,10 @@ The overlap between walking and running moves with the day. On `2d8d4091` (w4d1)
 - **Candidate.** A target that differs from the current kind starts a candidate. The candidate can
   retarget (run, then walk, then stopped) without resetting its start. A sample "agrees" when it
   differs from the current kind. The candidate is confirmed on a sample that still differs, once 8 s
-  of fix time have passed since it began and at least 70% of its samples agreed; the confirmed kind is
-  the one that sample implies. A change that has already reverted by the 8 s mark is not confirmed,
-  and a candidate is dropped when its agreement falls below 70%. (This is the rule §4.4 measured.)
+  of fix time have passed since it began and at least 70% of its samples agreed. The confirmed kind is
+  the one most of its samples implied, ties going to the latest, so one noisy sample cannot pick it.
+  A change that has already reverted by the 8 s mark is not confirmed, and a candidate is dropped
+  when its agreement falls below 70%.
 - **Boundary.** A confirmed boundary is backdated to the candidate's first sample.
 - **Null speed.** A null speed holds the current kind.
 - **Pauses.** A fix that falls after a pause boundary clears the candidate. In open mode the smoother
@@ -142,7 +143,12 @@ The overlap between walking and running moves with the day. On `2d8d4091` (w4d1)
   smoother and the reducer: the pause restart and the gap rule live here, and the live engine calls
   it. `rollupOpenTrack(fixes, { T, paused, startMs, endMs })` folds the same step and returns
   `{ distanceM, points, buckets }`:
-  - Fixes outside `startMs`…`endMs` are ignored, and buckets tile that span.
+  - Fixes after `endMs` are ignored. Fixes stamped just before `startMs` are kept, because the
+    engine ingests a cached first fix; their distance goes to the first bucket.
+  - A fix stamped at or before the smoother's last accepted fix, or inside a pause, is ignored:
+    it describes no active movement, and would otherwise read as a gap to the next fix.
+  - Buckets tile `startMs`…`endMs`. A run with no velocity at all (no GPS, or two fixes or
+    fewer) has no buckets, and no distance to attribute.
   - A fix on a boundary closes the earlier bucket: a delta is the leg ending at its fix, so buckets
     are `(start, end]`. Stage 3's `segment_seq` rewrite must use the same rule.
   - A GPS gap longer than `MAX_GAP_S` becomes stopped time.
@@ -162,30 +168,40 @@ When a free run starts, `T` = ½·(walk p90 + run p10) over the runner's last 3 
 
 - only walk and run intervals count;
 - the first 10 s of each interval are dropped, because runners react late to the cue;
-- at least 60 samples of each kind are needed, otherwise `T` = 2.1 m/s.
+- samples at or below 0.8 m/s are dropped too: a runner standing inside a scripted run would
+  otherwise drag the run p10 down (on `19615682` it fell to 1.49 m/s, and agreement to 60%);
+- at least 60 samples of each kind are needed, otherwise `T` = 2.1 m/s;
+- `T` is clamped to 1.5–3.0 m/s, so a thin or odd history cannot label ordinary walking as running.
 
 `T` is written to `run_log` (`motion_threshold`) and read back at finalize, so a run is always
 re-bucketed with its own `T`.
 
-Each plan run was scored with a `T` learned only from the runs before it:
+Each plan run was scored with a `T` learned only from the runs before it. The table is the output of
+`bun scripts/replay-free-run-motion.ts field-data/*.txt ~/Downloads/runbro-*.txt` at stage 1:
 
 | run | prior runs | T (m/s) | interval agreement | run pace (script → detected) |
 | --- | --- | --- | --- | --- |
-| `3ff243b0` w3d3 | 0 | 2.10 | 100.0% | 6:32 → 6:27 |
-| `38f9634f` w3d1 | 1 | 2.01 | 96.4% | 6:35 → 6:38 |
-| `98459df2` w3d1 | 2 | 2.16 | 100.0% | 6:42 → 6:39 |
-| `b4ae7b11` w3d2 | 3 | 2.15 | 100.0% | 6:04 → 6:00 |
-| `d8190994` w4d1 | 3 | 2.17 | 100.0% | 6:04 → 6:01 |
-| `19615682` w2d1 | 3 | 2.17 | 92.1% | 7:09 → 6:20 |
-| `d2e6a7b8` w4d2 | 3 | 2.14 | 95.5% | 6:20 → 6:13 |
-| `2d8d4091` w4d1 | 3 | 2.04 | 96.2% | 7:23 → 7:15 |
-| **mean** | | | **97.5%** | 7 of 8 within 2% |
+| `3ff243b0` w3d3 | 0 | 2.10 | 99.9% | 6:32 → 6:28 |
+| `38f9634f` w3d1 | 1 | 2.01 | 96.7% | 6:35 → 6:39 |
+| `98459df2` w3d1 | 2 | 2.16 | 100.0% | 6:42 → 6:40 |
+| `b4ae7b11` w3d2 | 3 | 2.15 | 100.0% | 6:04 → 6:01 |
+| `d8190994` w4d1 | 3 | 2.17 | 100.0% | 6:04 → 6:02 |
+| `19615682` w2d1 | 3 | 2.17 | 92.0% | 7:09 → 6:22 |
+| `d2e6a7b8` w4d2 | 3 | 2.15 | 95.1% | 6:20 → 6:13 |
+| `2d8d4091` w4d1 | 3 | 2.06 | 94.8% | 7:23 → 7:19 |
+| **mean** | | | **97.3%** | 7 of 8 within 2% |
+
+The mean was 97.5% before the stage-1 code review: dropping stopped samples from learning raised `T`
+slightly for runs whose history includes `19615682` (`2d8d4091` fell from 96.1% to 94.8%). That is the
+price of not collapsing `T` for a runner who stops inside scripted runs. Field tests: 99.6% of active
+time is labelled stopped (the harness measures time; the scratch measurement below counted fixes).
 
 "Interval agreement" counts walk and run intervals only, excluding the first 10 s of each. The
 `19615682` gap is the runner stopping inside a scripted run segment: the script counts the stop as
 running, detection does not.
 
-The learning formulas compared, as mean held-out agreement:
+The learning formulas compared, as mean held-out agreement (the scratch measurement, before the
+stage-1 review's fixes):
 
 | formula | agreement |
 | --- | --- |
@@ -412,3 +428,10 @@ evidence, engine, Health, and the spec's premises. Confirmed findings, and where
   §7 resequenced.
 
 Rejected: none of the confirmed findings. Deferred: nothing.
+
+**Stage 1's code** had three more adversarial reviews before merge. An executed property-based run
+(8,000 random fix streams) found four Majors, all fixed: an out-of-order fix corrupted the buckets
+(negative durations); fixes stamped inside a pause were counted; `T` collapsed for a runner who stops
+inside scripted runs; and the fold dropped the pre-start fixes the engine ingests, so live and saved
+distance disagreed on every capture. It also led to confirming a candidate by plurality. After the
+fixes, the same property suite passes all 8,000 cases.

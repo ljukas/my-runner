@@ -375,6 +375,30 @@ describe('rollupOpenTrack — durations and bounds', () => {
     buckets.forEach((b) => expect(Math.abs(b.durationS - b.activeS)).toBeLessThan(1));
   });
 
+  test('rounds the total from whole milliseconds, where the seconds sum sits a hair under .5', () => {
+    // 120.002 + 61.006 + 60.492 s adds up to 241.49999999999997 in floating point.
+    const at = (ms: number, northM: number): LocationFix => ({
+      timestamp: ms,
+      lat: 59 + northM * DEG_PER_M,
+      lng: 18,
+      altitude: null,
+      accuracy: 5,
+      speed: null,
+    });
+    const fixes = [
+      ...Array.from({ length: 121 }, (_, i) => at(2 + i * 1000, i * 2.6)),
+      ...Array.from({ length: 61 }, (_, i) => at(181_008 + i * 1000, (181 + i) * 2.6)),
+    ];
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: 241_500,
+    });
+    expect(buckets.map((b) => b.kind)).toEqual(['run', 'stopped', 'run']);
+    expect(buckets.reduce((sum, b) => sum + b.durationS, 0)).toBe(Math.round(241_500 / 1000));
+  });
+
   test('fixes after the run ended add no distance', () => {
     const fixes = track([{ seconds: 120, mps: 2.6 }]);
     const options = { thresholdMps: T, paused: [], startMs: 0 };

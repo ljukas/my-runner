@@ -5,7 +5,7 @@ import { pausedIntervals, type LoggedRunEvent } from './run-altitude';
 import { rollupOpenTrack, type MotionBucket } from './run-motion';
 
 export interface OpenRunInput {
-  /** The run's event log, ending in its `end` event. */
+  /** The run's event log; it ends at its last event, whether or not that is an `end`. */
   events: readonly LoggedRunEvent[];
   /** Its accepted fixes, in `seq` order. */
   fixes: readonly LocationFix[];
@@ -48,8 +48,8 @@ function fold(
  * what is left is under a minute.
  */
 export function deriveOpenRun({ events, fixes, thresholdMps }: OpenRunInput): DerivedOpenRun {
-  let log = [...events];
-  const endAt = log[log.length - 1].at;
+  const endAt = events[events.length - 1].at;
+  let log = cutAt(events, endAt);
   if (activeElapsedMs(log, endAt) > OPEN_LIMITS.capActiveS * 1000) {
     log = cutAt(log, wallClockAtActive(log, OPEN_LIMITS.capActiveS) ?? endAt);
   }

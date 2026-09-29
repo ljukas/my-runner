@@ -198,6 +198,21 @@ const activeMs = (paused: readonly PausedInterval[], fromMs: number, toMs: numbe
 const pauseBetween = (paused: readonly PausedInterval[], fromMs: number, toMs: number) =>
   paused.some((pause) => pause.fromMs >= fromMs && pause.fromMs < toMs);
 
+/**
+ * Where a GPS silence began, when the silence up to `atMs` is longer than `MAX_GAP_S` of active time;
+ * null otherwise. One rule for the fold and the live engine: such a silence is stopped time, whether a
+ * later fix closes it or the run ends inside it.
+ */
+export function silentSince(
+  paused: readonly PausedInterval[],
+  lastAcceptedMs: number | null,
+  atMs: number,
+): number | null {
+  return lastAcceptedMs !== null && activeMs(paused, lastAcceptedMs, atMs) > MAX_GAP_S * 1000
+    ? lastAcceptedMs
+    : null;
+}
+
 const withinPause = (paused: readonly PausedInterval[], atMs: number) =>
   paused.some((pause) => atMs >= pause.fromMs && atMs < pause.toMs);
 
@@ -239,8 +254,7 @@ export function openTrackStep(
     };
   }
   const afterPause = policy.restartsBefore(previous, fix);
-  const afterGap =
-    previous !== null && activeMs(paused, previous, fix.timestamp) > MAX_GAP_S * 1000;
+  const afterGap = silentSince(paused, previous, fix.timestamp) !== null;
 
   const smoothed = smoothFix(afterPause ? createSmootherState() : state.smoother, fix);
   const changes: MotionTransition[] =
@@ -303,6 +317,9 @@ export function rollupOpenTrack(
     if (step.smoothedPoint) points.push(step.smoothedPoint);
     changes.push(...step.changes);
   }
+  const silent = silentSince(stepOptions.paused, state.previousMs, endMs);
+  if (silent !== null && state.motion.kind !== null)
+    changes.push({ kind: 'stopped', atMs: silent });
 
   return {
     distanceM,
@@ -326,21 +343,23 @@ function toBuckets(
     if (spans.at(-1)?.kind !== change.kind) spans.push({ kind: change.kind, startMs: at });
   }
 
-  const buckets = spans.map((span, seq): MotionBucket => {
-    const bucketEnd = spans[seq + 1]?.startMs ?? endMs;
-    return {
-      seq,
-      kind: span.kind,
-      startMs: span.startMs,
-      endMs: bucketEnd,
-      activeS: activeMs(paused, span.startMs, bucketEnd) / 1000,
-      durationS: 0,
-      distanceM: 0,
-    };
-  });
+  const spanMs = spans.map((span, seq) =>
+    activeMs(paused, span.startMs, spans[seq + 1]?.startMs ?? endMs),
+  );
+  const buckets = spans.map((span, seq): MotionBucket => ({
+    seq,
+    kind: span.kind,
+    startMs: span.startMs,
+    endMs: spans[seq + 1]?.startMs ?? endMs,
+    activeS: spanMs[seq] / 1000,
+    durationS: 0,
+    distanceM: 0,
+  }));
+  // why the total from whole milliseconds: a sum of per-bucket seconds can land a hair under x.5 and
+  // round away from the run's own active time.
   const whole = largestRemainder(
     buckets.map((b) => b.activeS),
-    Math.round(buckets.reduce((sum, b) => sum + b.activeS, 0)),
+    Math.round(spanMs.reduce((sum, ms) => sum + ms, 0) / 1000),
   );
   buckets.forEach((bucket, i) => (bucket.durationS = whole[i]));
   // why `<`: a delta is the leg ending at its fix, so a fix exactly on a boundary closes the earlier bucket.

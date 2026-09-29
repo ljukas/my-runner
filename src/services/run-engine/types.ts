@@ -22,6 +22,10 @@ interface RunSnapshotBase {
   /** Set once persistence resolves after completion/end-early. */
   savedRunId: string | null;
   saveFailed: boolean;
+  /** Epoch ms the active clock counts up from while running (now − active time); null otherwise. */
+  elapsedAnchorMs: number | null;
+  /** Why the last run left no summary (a free run, ADR 0026 §6); null otherwise, and once a run starts. */
+  lastOutcome: 'discarded' | 'tooShort' | null;
 }
 
 export interface ScriptedRunSnapshot extends RunSnapshotBase {
@@ -43,8 +47,10 @@ export interface OpenRunSnapshot extends RunSnapshotBase {
   motion: MotionKind | null;
   /** Pace over the last ~45 s of moving samples; null while stopped or when GPS is stale. */
   rollingPaceSecPerKm: number | null;
-  /** Whether any fix has arrived — "Waiting for GPS" until then. */
-  hasFix: boolean;
+  /** No speed for 10 s of active time, or none yet: "Waiting for GPS" (spec §5.2). */
+  gpsStale: boolean;
+  /** Ending now would delete the run: under a minute of active time, as the save rounds it. */
+  endDiscards: boolean;
 }
 
 export type RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot;

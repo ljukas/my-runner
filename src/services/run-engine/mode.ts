@@ -96,12 +96,19 @@ export type ModeView = (
     >
   | Pick<
       OpenRunSnapshot,
-      'mode' | 'activeElapsedSeconds' | 'motion' | 'rollingPaceSecPerKm' | 'hasFix'
+      | 'mode'
+      | 'activeElapsedSeconds'
+      | 'motion'
+      | 'rollingPaceSecPerKm'
+      | 'gpsStale'
+      | 'endDiscards'
     >
 ) & { sampleSegmentSeq: number };
 
 /** Snapshot fields a fix changes between refreshes; a scripted run has none. */
-export type ModeLive = Partial<Pick<OpenRunSnapshot, 'motion' | 'rollingPaceSecPerKm' | 'hasFix'>>;
+export type ModeLive = Partial<
+  Pick<OpenRunSnapshot, 'motion' | 'rollingPaceSecPerKm' | 'gpsStale'>
+>;
 
 /** How a run is being finalized: by the runner, by a limit, or silently from a stale log at launch. */
 export type FinalizeOrigin = 'runner' | 'limit' | 'abandon';
@@ -120,7 +127,7 @@ export interface FinalizeRequest {
 }
 
 export type ModeFinal =
-  | { outcome: 'discard' }
+  | { outcome: 'discard'; reason: 'discarded' | 'tooShort' }
   | {
       outcome: 'save';
       kind: 'completed' | 'endedEarly';
@@ -164,7 +171,7 @@ export interface RunMode {
   eventFloorMs(): number | null;
   position(events: readonly RunEvent[], activeS: number, now: number): ModePosition;
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView;
-  live(): ModeLive;
+  live(events: readonly RunEvent[], now: number): ModeLive;
   /** Folds one accepted fix into the mode's own track (ADR 0021 §3); returns the metres it committed. */
   ingest(fix: LocationFix, events: readonly RunEvent[]): number;
   /** Cues due at a running refresh; advances the mode's cue state. */
@@ -359,6 +366,8 @@ export class ScriptedMode implements RunMode {
 
 /** Pace is shown over the last stretch, not the whole run, so a walk break does not linger in it. */
 const ROLLING_WINDOW_MS = 45_000;
+/** Spec §5.2: "Waiting for GPS" after this long with no speed. */
+const GPS_STALE_MS = 10_000;
 
 /** A free run (ADR 0026): no timeline — it ends by hand, or at a limit, and is bucketed by speed. */
 export class OpenMode implements RunMode {
@@ -371,6 +380,7 @@ export class OpenMode implements RunMode {
   private readonly thresholdMps: number;
   private track: OpenTrackState = createOpenTrackState();
   private latestFedMs: number | null = null;
+  private lastSpeedMs: number | null = null;
   private moving: { atMs: number; speedMps: number }[] = [];
   private stoppedSinceMs: number | null = null;
   private pausedCache: { count: number; paused: PausedInterval[] } | null = null;
@@ -408,6 +418,7 @@ export class OpenMode implements RunMode {
       else this.stoppedSinceMs = null;
     }
     const lastMs = this.track.previousMs ?? fix.timestamp;
+    if (step.smoothedSpeedMps !== null) this.lastSpeedMs = lastMs;
     if (step.smoothedSpeedMps !== null && this.track.motion.kind !== 'stopped') {
       this.moving.push({ atMs: lastMs, speedMps: step.smoothedSpeedMps });
     }
@@ -437,29 +448,24 @@ export class OpenMode implements RunMode {
     return { done: false, segmentSeq: 0 };
   }
 
-  private rollingPace(stale: boolean): number | null {
-    if (stale || this.track.motion.kind === 'stopped' || this.moving.length === 0) return null;
+  live(events: readonly RunEvent[], now: number): Required<ModeLive> {
+    const gpsStale =
+      this.lastSpeedMs === null || activeMsBetween(events, this.lastSpeedMs, now) > GPS_STALE_MS;
+    const moving = !gpsStale && this.track.motion.kind !== 'stopped' && this.moving.length > 0;
     const meanMps = this.moving.reduce((sum, s) => sum + s.speedMps, 0) / this.moving.length;
-    return paceSecPerKm(meanMps, 1);
-  }
-
-  live(): ModeLive {
     return {
       motion: this.track.motion.kind,
-      hasFix: this.track.previousMs !== null,
-      rollingPaceSecPerKm: this.rollingPace(false),
+      gpsStale,
+      rollingPaceSecPerKm: moving ? paceSecPerKm(meanMps, 1) : null,
     };
   }
 
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView {
-    const lastMs = this.track.previousMs;
-    const stale = lastMs === null || silentSince(this.paused(events), lastMs, now) !== null;
     return {
       mode: 'open',
       activeElapsedSeconds: Math.min(activeS, OPEN_LIMITS.capActiveS),
-      motion: this.track.motion.kind,
-      hasFix: lastMs !== null,
-      rollingPaceSecPerKm: this.rollingPace(stale),
+      ...this.live(events, now),
+      endDiscards: Math.round(activeS) < OPEN_LIMITS.minActiveS,
       // why 0: finalize re-tags every sample with its bucket (ADR 0026 §4)
       sampleSegmentSeq: 0,
     };
@@ -478,13 +484,14 @@ export class OpenMode implements RunMode {
   }
 
   finalize({ events, endAt, intent }: FinalizeRequest): ModeFinal {
-    if (intent === 'discard') return { outcome: 'discard' };
+    if (intent === 'discard') return { outcome: 'discard', reason: 'discarded' };
     const pastCap = activeElapsedMs(events, endAt) > OPEN_LIMITS.capActiveS * 1000;
     const end = pastCap ? (wallClockAtActive(events, OPEN_LIMITS.capActiveS) ?? endAt) : endAt;
     const elapsedS = Math.min(activeElapsedMs(events, end) / 1000, OPEN_LIMITS.capActiveS);
     // why the minimum here too, beside deriveOpenRun's: a run that short is deleted without the
     // finalize work. The derivation still decides after trimming a trailing stop.
-    if (Math.round(elapsedS) < OPEN_LIMITS.minActiveS) return { outcome: 'discard' };
+    if (Math.round(elapsedS) < OPEN_LIMITS.minActiveS)
+      return { outcome: 'discard', reason: 'tooShort' };
     return {
       outcome: 'save',
       kind: 'completed',

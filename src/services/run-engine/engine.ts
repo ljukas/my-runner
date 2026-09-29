@@ -53,6 +53,8 @@ const IDLE_SNAPSHOT: RunSnapshot = {
   paceSecPerKm: null,
   savedRunId: null,
   saveFailed: false,
+  elapsedAnchorMs: null,
+  lastOutcome: null,
 };
 
 // why: SQLite caps a statement at 32,766 bind parameters and each point binds 8 — an unbounded
@@ -291,7 +293,7 @@ export class RunEngine {
     }
     // Timing/cues derive first; GPS ingestion can neither stall nor throw out of them.
     this.refresh(now);
-    if (this.status === 'running' && fix) this.ingestFix(fix, pos.segmentSeq);
+    if (this.status === 'running' && fix) this.ingestFix(fix, pos.segmentSeq, now);
     this.armFlush();
   }
 
@@ -340,6 +342,10 @@ export class RunEngine {
   }
 
   reset(): void {
+    this.resetTo(null);
+  }
+
+  private resetTo(lastOutcome: RunSnapshot['lastOutcome']): void {
     this.mode = null;
     this.events = [];
     this.status = 'idle';
@@ -351,7 +357,7 @@ export class RunEngine {
     this.startRunPromise = null;
     this.scheduler.stop();
     this.resetIngestState();
-    this.snapshot = IDLE_SNAPSHOT;
+    this.snapshot = lastOutcome === null ? IDLE_SNAPSHOT : { ...IDLE_SNAPSHOT, lastOutcome };
     this.sampleSegmentSeq = -1;
     this.cue.release();
     this.queueTracker(() => this.tracker.stop(), 'stop');
@@ -398,11 +404,8 @@ export class RunEngine {
 
   private refresh(now: number = this.clock()): void {
     if (!this.mode) return;
-    const { sampleSegmentSeq, ...view } = this.mode.view(
-      this.events,
-      activeElapsedMs(this.events, now) / 1000,
-      now,
-    );
+    const activeMs = activeElapsedMs(this.events, now);
+    const { sampleSegmentSeq, ...view } = this.mode.view(this.events, activeMs / 1000, now);
     this.sampleSegmentSeq = sampleSegmentSeq;
     this.snapshot = {
       ...view,
@@ -410,6 +413,8 @@ export class RunEngine {
       sessionKey: this.mode.key,
       savedRunId: this.savedRunId,
       saveFailed: this.saveFailed,
+      elapsedAnchorMs: this.status === 'running' ? now - activeMs : null,
+      lastOutcome: null,
       distanceM: this.distanceM,
       paceSecPerKm: paceSecPerKm(this.distanceM, view.activeElapsedSeconds),
     };
@@ -483,7 +488,7 @@ export class RunEngine {
 
   // The mode folds the fix as its finalize re-fold will over run_points (ADR 0021 §3): the integer-ms
   // timestamp survives the ISO round-trip, and the full accuracy-passed stream is buffered (no re-gate — the smoother owns velocity).
-  private ingestFix(fix: LocationFix, segmentSeq: number): void {
+  private ingestFix(fix: LocationFix, segmentSeq: number, now: number): void {
     let buffered = false;
     try {
       if (!accuracyFilter(fix)) {
@@ -523,7 +528,7 @@ export class RunEngine {
     if (buffered) {
       this.snapshot = {
         ...this.snapshot,
-        ...this.mode?.live(),
+        ...this.mode?.live(this.events, now),
         distanceM: this.distanceM,
         paceSecPerKm: paceSecPerKm(this.distanceM, this.snapshot.activeElapsedSeconds),
       };
@@ -589,7 +594,7 @@ export class RunEngine {
       intent,
     });
     if (final.outcome === 'discard') {
-      await this.discard(this.runGeneration);
+      await this.discard(this.runGeneration, final.reason);
       return;
     }
     const { kind, endAt, elapsedS, segments, derived } = final;
@@ -790,7 +795,7 @@ export class RunEngine {
   /** A free run its save found too short: it is gone, so there is no summary to show. */
   private async forgetDiscarded(): Promise<void> {
     await this.clearSnapshotQuietly();
-    this.reset();
+    this.resetTo('tooShort');
   }
 
   private async clearSnapshotQuietly(): Promise<void> {
@@ -808,10 +813,15 @@ export class RunEngine {
    * `awaitRunId`'s retry from reopening the run; and the snapshot is marked `discarding` before the
    * delete, so a delete that fails is finished at the next launch rather than resumed or saved.
    */
-  private async discard(generation: number): Promise<void> {
+  private async discard(
+    generation: number,
+    reason: NonNullable<RunSnapshot['lastOutcome']>,
+  ): Promise<void> {
     const mode = this.mode;
     this.status = 'endedEarly';
     this.discarding = true;
+    this.snapshot = { ...this.snapshot, status: 'endedEarly', elapsedAnchorMs: null };
+    this.emit();
     this.scheduler.stop();
     this.pendingPoints = [];
     this.cue.release();
@@ -836,7 +846,7 @@ export class RunEngine {
     } catch (error) {
       console.warn('[run-engine] discard failed; the next launch finishes it', error);
     }
-    if (generation === this.runGeneration) this.reset();
+    if (generation === this.runGeneration) this.resetTo(reason);
   }
 
   private markSaved(id: string, congratulate = false): void {

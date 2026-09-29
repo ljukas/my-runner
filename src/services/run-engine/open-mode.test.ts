@@ -146,7 +146,7 @@ describe('OpenMode — its live view', () => {
     expect(openMode().view(START, 30, 30_000)).toMatchObject({
       mode: 'open',
       motion: null,
-      hasFix: false,
+      gpsStale: true,
       rollingPaceSecPerKm: null,
     });
   });
@@ -155,7 +155,7 @@ describe('OpenMode — its live view', () => {
     const mode = openMode();
     feed(mode, track([[120, 2.6]]));
     const view = mode.view(START, 120, 120_000);
-    expect(view).toMatchObject({ motion: 'run', hasFix: true });
+    expect(view).toMatchObject({ motion: 'run', gpsStale: false });
     // 2.6 m/s is 384.6 s/km
     expect(view.mode === 'open' && view.rollingPaceSecPerKm).toBeCloseTo(384.6, -1);
   });
@@ -173,6 +173,22 @@ describe('OpenMode — its live view', () => {
       motion: 'stopped',
       rollingPaceSecPerKm: null,
     });
+  });
+
+  test('calls GPS stale after 10 s with no speed, and shows no pace then', () => {
+    const mode = openMode();
+    feed(mode, track([[120, 2.6]]));
+    expect(mode.view(START, 125, 125_000)).toMatchObject({ gpsStale: false });
+    expect(mode.view(START, 131, 131_000)).toMatchObject({
+      gpsStale: true,
+      rollingPaceSecPerKm: null,
+    });
+  });
+
+  test('says when ending now would discard the run, rounding as the save does', () => {
+    expect(openMode().view(START, 59, 59_000)).toMatchObject({ endDiscards: true });
+    expect(openMode().view(START, 59.5, 59_500)).toMatchObject({ endDiscards: false });
+    expect(openMode().view(START, 60, 60_000)).toMatchObject({ endDiscards: false });
   });
 
   test('shows no pace once GPS has gone quiet', () => {

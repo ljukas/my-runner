@@ -338,6 +338,58 @@ describe('a free run, start to finish', () => {
   });
 });
 
+describe('what the run screen reads off a free run', () => {
+  test('a discard shows as ended at once, and leaves the idle snapshot saying so', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    h.engine.endEarly('discard');
+    expect(h.engine.getSnapshot().status).toBe('endedEarly');
+    await settled();
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', lastOutcome: 'discarded' });
+  });
+
+  test('a run ended under a minute leaves the idle snapshot saying it was too short', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[40, 2.6]]));
+    h.engine.endEarly();
+    await settled();
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', lastOutcome: 'tooShort' });
+  });
+
+  test('a run its save found too short says so too', async () => {
+    const h = makeFreeRunEngine();
+    h.setFinalizeOutcome('discarded');
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    h.engine.endEarly();
+    await settled();
+    expect(h.engine.getSnapshot()).toMatchObject({ status: 'idle', lastOutcome: 'tooShort' });
+  });
+
+  test('the next run starts with no outcome', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.engine.endEarly('discard');
+    await settled();
+    h.engine.start(FREE_RUN_PLAN);
+    expect(h.engine.getSnapshot().lastOutcome).toBeNull();
+  });
+
+  test('the count-up clock is anchored where active time began, and stops while paused', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.at(START_MS + 10_000);
+    expect(h.engine.getSnapshot().elapsedAnchorMs).toBe(START_MS);
+    h.engine.pause();
+    expect(h.engine.getSnapshot().elapsedAnchorMs).toBeNull();
+    h.setNow(START_MS + 70_000);
+    h.engine.resume();
+    expect(h.engine.getSnapshot().elapsedAnchorMs).toBe(START_MS + 60_000);
+  });
+});
+
 describe('a free run ends itself at its limits', () => {
   test('at 4 hours of active time', async () => {
     const h = makeFreeRunEngine();

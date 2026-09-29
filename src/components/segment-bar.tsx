@@ -1,6 +1,6 @@
 import { StyleSheet, View, type ColorValue } from 'react-native';
 
-import type { PlannedSegment } from '@/domain/plan';
+import type { StoredSegmentKind } from '@/domain/run-motion';
 import { useSegmentColors } from '@/hooks/use-theme';
 
 export function SegmentBar({
@@ -8,7 +8,7 @@ export function SegmentBar({
   accessibilityLabel,
   dividerColor,
 }: {
-  segments: PlannedSegment[];
+  segments: { kind: StoredSegmentKind; seconds: number }[];
   accessibilityLabel?: string;
   dividerColor?: ColorValue;
 }) {

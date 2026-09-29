@@ -1,4 +1,8 @@
-import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run-engine/types';
+import type {
+  CompletedRunRecord,
+  FinalizeOutcome,
+  RunLifecyclePersistence,
+} from '@/services/run-engine/types';
 
 /**
  * Fires the Health save after — never before — the local write commits (ADR 0011 §4), and only on a
@@ -42,9 +46,11 @@ export function withHealthSync(
       return runId;
     },
 
-    async finalizeRun(runId: string, record: CompletedRunRecord): Promise<void> {
-      await base.finalizeRun(runId, record);
-      fireSync(runId);
+    async finalizeRun(runId: string, record: CompletedRunRecord): Promise<FinalizeOutcome> {
+      const outcome = await base.finalizeRun(runId, record);
+      // A discarded run no longer exists, and must never reach Health (ADR 0026 §6).
+      if (outcome === 'saved') fireSync(runId);
+      return outcome;
     },
   };
 }

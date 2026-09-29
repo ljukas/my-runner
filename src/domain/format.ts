@@ -1,11 +1,13 @@
-import { parseSessionKey, type PlanSession, type SegmentKind } from './plan';
+import { parseSessionKey, type PlanSession } from './plan';
+import type { StoredSegmentKind } from './run-motion';
 
 /** Display names for segment kinds, shared by the run and summary screens (and later TTS cues). */
-export const SEGMENT_KIND_LABEL: Record<SegmentKind, string> = {
+export const SEGMENT_KIND_LABEL: Record<StoredSegmentKind, string> = {
   warmup: 'Warm Up',
   run: 'Run',
   walk: 'Walk',
   cooldown: 'Cool Down',
+  stopped: 'Stopped',
 };
 
 /** `m:ss` countdown/elapsed clock. Ceils so a fresh segment shows its full length. */

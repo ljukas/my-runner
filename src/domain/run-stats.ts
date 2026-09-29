@@ -1,9 +1,8 @@
 import { MIN_MEASURED_SPEED_MPS } from './geo';
-import type { SegmentKind } from './plan';
 import type { StoredSegmentKind } from './run-motion';
 
 export interface RunStatsSegment {
-  kind: SegmentKind;
+  kind: StoredSegmentKind;
   actualDurationS: number;
 }
 

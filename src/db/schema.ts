@@ -33,7 +33,7 @@ export const runSegments = sqliteTable('run_segments', {
     .notNull()
     .references(() => runs.id),
   seq: integer('seq').notNull(),
-  kind: text('kind', { enum: ['warmup', 'run', 'walk', 'cooldown'] }).notNull(),
+  kind: text('kind', { enum: ['warmup', 'run', 'walk', 'cooldown', 'stopped'] }).notNull(),
   plannedDurationS: integer('planned_duration_s').notNull(),
   actualDurationS: integer('actual_duration_s').notNull(),
   distanceM: real('distance_m'),

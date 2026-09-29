@@ -2,8 +2,13 @@ import { eq } from 'drizzle-orm';
 import * as Crypto from 'expo-crypto';
 
 import { encodePolyline, smoothTrackBySegment } from '@/domain/geo';
-import type { CompletedRunRecord, RunLifecyclePersistence } from '@/services/run-engine/types';
+import type {
+  CompletedRunRecord,
+  FinalizeOutcome,
+  RunLifecyclePersistence,
+} from '@/services/run-engine/types';
 import { db } from './client';
+import { deleteRunTree, writeDerivedFinalize } from './derived-finalize';
 import { loadRunFixes } from './run-points';
 import { runSegments, runs } from './schema';
 
@@ -70,9 +75,14 @@ export const dbRunPersistence: RunLifecyclePersistence = {
     return runId;
   },
 
-  async finalizeRun(runId: string, record: CompletedRunRecord): Promise<void> {
-    const { hasPoints, distanceM, points, distanceBySegmentSeq } = rollupFromPoints(runId);
+  async finalizeRun(runId: string, record: CompletedRunRecord): Promise<FinalizeOutcome> {
     const nowIso = new Date().toISOString();
+    if (record.derived) {
+      return db.transaction((tx) =>
+        writeDerivedFinalize(tx, runId, record, { nowIso, newId: Crypto.randomUUID }),
+      );
+    }
+    const { hasPoints, distanceM, points, distanceBySegmentSeq } = rollupFromPoints(runId);
 
     const segmentRows = record.segments.map((segment) => ({
       id: Crypto.randomUUID(),
@@ -120,5 +130,10 @@ export const dbRunPersistence: RunLifecyclePersistence = {
         tx.insert(runSegments).values(segmentRows).run();
       }
     });
+    return 'saved';
+  },
+
+  async discardRun(runId: string): Promise<void> {
+    db.transaction((tx) => deleteRunTree(tx, runId));
   },
 };

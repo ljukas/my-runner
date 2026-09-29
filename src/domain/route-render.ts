@@ -1,7 +1,7 @@
 import { ROUTE_STROKE_W, ROUTE_STROKE_W_RUN } from '@/constants/theme';
 
 import type { LatLng, SegmentPolyline } from './geo';
-import type { SegmentKind } from './plan';
+import type { StoredSegmentKind } from './run-motion';
 
 export interface RouteLine {
   id: string;
@@ -14,8 +14,8 @@ export interface RouteLine {
  * (ADR 0021 §4). */
 export function toRouteLines(
   chunks: readonly SegmentPolyline[],
-  segments: readonly { seq: number; kind: SegmentKind }[],
-  colors: Record<SegmentKind, string>,
+  segments: readonly { seq: number; kind: StoredSegmentKind }[],
+  colors: Record<StoredSegmentKind, string>,
 ): RouteLine[] {
   const kindBySeq = new Map(segments.map((segment) => [segment.seq, segment.kind]));
 

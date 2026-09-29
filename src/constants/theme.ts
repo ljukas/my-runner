@@ -8,7 +8,7 @@
 import type { AndroidSymbol } from 'expo-symbols';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
-import type { SegmentKind } from '@/domain/plan';
+import type { StoredSegmentKind } from '@/domain/run-motion';
 
 const PRIMARY = '#3c87f7';
 
@@ -51,20 +51,23 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 /** Segment-kind accents — Apple iOS system colors (vibrant), per color scheme.
  * warmup=systemOrange, run=systemRed (Apple activity/Health red), walk=systemYellow,
- * cooldown=systemTeal. Shared by the SegmentBar, legend, run screen, and summary.
- * Access via the `useSegmentColors()` hook so it follows light/dark. */
-export const SegmentColors: Record<'light' | 'dark', Record<SegmentKind, string>> = {
+ * cooldown=systemTeal, stopped=systemBrown (a free run's standing time, ADR 0026 §5). Shared by the
+ * SegmentBar, legend, run screen, and summary. Access via the `useSegmentColors()` hook so it follows
+ * light/dark. */
+export const SegmentColors: Record<'light' | 'dark', Record<StoredSegmentKind, string>> = {
   light: {
     warmup: '#FF9500',
     run: '#007AFF',
     walk: '#8E8E93',
     cooldown: '#30B0C7',
+    stopped: '#A2845E',
   },
   dark: {
     warmup: '#FF9F0A',
     run: '#0A84FF',
     walk: '#8E8E93',
     cooldown: '#40CBE0',
+    stopped: '#AC8E68',
   },
 };
 
@@ -113,9 +116,11 @@ export const ChartGridColors: Record<'light' | 'dark', string> = {
 
 /** Segment-kind symbols for the run screen phase label, per platform glyph set. Warm-up/cool-down
  * are walking phases in the plan; only the run intervals get the running figure. */
-export const SegmentSymbols: Record<SegmentKind, { ios: SFSymbol; android: AndroidSymbol }> = {
-  warmup: { ios: 'figure.walk', android: 'directions_walk' },
-  run: { ios: 'figure.run', android: 'directions_run' },
-  walk: { ios: 'figure.walk', android: 'directions_walk' },
-  cooldown: { ios: 'figure.cooldown', android: 'self_improvement' },
-};
+export const SegmentSymbols: Record<StoredSegmentKind, { ios: SFSymbol; android: AndroidSymbol }> =
+  {
+    warmup: { ios: 'figure.walk', android: 'directions_walk' },
+    run: { ios: 'figure.run', android: 'directions_run' },
+    walk: { ios: 'figure.walk', android: 'directions_walk' },
+    cooldown: { ios: 'figure.cooldown', android: 'self_improvement' },
+    stopped: { ios: 'figure.stand', android: 'accessibility_new' },
+  };

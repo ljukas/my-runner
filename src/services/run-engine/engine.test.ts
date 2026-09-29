@@ -193,7 +193,9 @@ function makeEngine(
       if (failSave) throw new Error('db down');
       finalized.push({ runId, record });
       saved.push(record); // `saved` covers either persistence path, so record assertions stay one shape
+      return 'saved' as const;
     },
+    discardRun: async () => {},
   };
 
   const runStore: RunStore = {

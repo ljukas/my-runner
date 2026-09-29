@@ -67,7 +67,16 @@ export interface CompletedRunRecord {
   /** The event log, persisted because `active_run_snapshot` is cleared at finalize and it would otherwise be destroyed (spec §5.2). */
   eventLogJson?: string;
   motionPermission?: string;
+  /**
+   * Present on a free run: its buckets are derived from the points at finalize (ADR 0026 §3–§4), with
+   * the threshold it ran under. `endedAt`/`activeDurationS` are then provisional — the derivation
+   * settles them (trim, cap) — and `eventLogJson` must be set.
+   */
+  derived?: { thresholdMps: number };
 }
+
+/** What a finalize did: saved the run, or deleted it (a free run left under a minute; ADR 0026 §6). */
+export type FinalizeOutcome = 'saved' | 'discarded';
 
 /** Persistence port (ADR 0003) — the engine never touches the DB directly. */
 export interface RunPersistence {
@@ -81,5 +90,7 @@ export interface RunPersistence {
  */
 export interface RunLifecyclePersistence extends RunPersistence {
   startRun(sessionKey: string, startedAtIso: string): Promise<string>;
-  finalizeRun(runId: string, record: CompletedRunRecord): Promise<void>;
+  finalizeRun(runId: string, record: CompletedRunRecord): Promise<FinalizeOutcome>;
+  /** Deletes an in-flight run and everything it owns — a discarded free run (ADR 0026 §6). */
+  discardRun(runId: string): Promise<void>;
 }

@@ -11,7 +11,7 @@ import {
   type SegmentedFix,
   type SegmentPolyline,
 } from './geo';
-import { runElevation, type StoredAltitudeSample } from './run-altitude';
+import { runElevation, type PausedInterval, type StoredAltitudeSample } from './run-altitude';
 import { isDrawableProfile, toRunProfile, type ProfilePoint } from './run-profile';
 import { hasMeasuredDistance } from './run-stats';
 
@@ -31,13 +31,17 @@ export interface RunSummary {
   route: RunRouteGeometry | null;
   /** Null unless there is a route, a measured distance and a strokable pace line. */
   profile: ProfilePoint[] | null;
-  /** Null when the run recorded no barometer samples at all: no sensor, or motion access denied. */
+  /** Null when the run recorded no barometer samples at all (no sensor, or motion access denied), and
+   *  when deriving the route or the elevation threw — a defect is not the runner's lack of data. */
   elevation: SummaryElevation | null;
 }
 
 export interface RunSummaryInput {
   fixes: readonly SegmentedFix[];
-  altitudeSamples: readonly StoredAltitudeSample[];
+  hasAltitudeSamples: boolean;
+  /** Called only when the run has a route and a measured distance to set the samples on. */
+  loadAltitudeSamples: () => readonly StoredAltitudeSample[];
+  pauses: readonly PausedInterval[];
   distanceM: number | null;
   activeDurationS: number;
   epsilon: number;
@@ -65,13 +69,14 @@ export function deriveRunRoute(
 }
 
 // why each part is caught on its own: a throw in the pace or elevation fold must not take the
-// route map down with it, nor the route take the others.
-function isolated<T>(part: string, derive: () => T): T | null {
+// route map down with it, nor the route take the others. Undefined, not null, so a caller can tell
+// a throw from a derivation's own "nothing to show".
+function isolated<T>(part: string, derive: () => T): T | undefined {
   try {
     return derive();
   } catch (error) {
     console.warn(`[run-summary] ${part} failed; omitting it`, error);
-    return null;
+    return undefined;
   }
 }
 
@@ -85,22 +90,25 @@ export function deriveRunSummary(input: RunSummaryInput): RunSummary {
   // why a second gate beside the route: it is spatial (a 100 m bbox diagonal) while the stat grid
   // and splits gate on a 0.5 m/s speed floor, and a slow shuffle clears the first but not the second.
   const measured = hasMeasuredDistance(input.distanceM, input.activeDurationS);
-  const placed = route !== null && measured;
+  const placed = route != null && measured;
 
-  const hasSamples = input.altitudeSamples.length > 0;
   const derived =
-    placed && hasSamples ? isolated('elevation', () => runElevation(input.altitudeSamples)) : null;
+    placed && input.hasAltitudeSamples
+      ? isolated('elevation', () => runElevation(input.loadAltitudeSamples(), input.pauses))
+      : null;
 
   const profile = placed
-    ? isolated('profile', () => {
+    ? (isolated('profile', () => {
         const points = toRunProfile(input.fixes, undefined, derived?.series);
         return isDrawableProfile(points) ? points : null;
-      })
+      }) ?? null)
     : null;
 
   let elevation: SummaryElevation | null = null;
   if (derived) elevation = { status: 'estimated', gainM: derived.gainM, lossM: derived.lossM };
-  else if (hasSamples) elevation = { status: 'insufficient' };
+  else if (input.hasAltitudeSamples && route !== undefined && derived !== undefined) {
+    elevation = { status: 'insufficient' };
+  }
 
-  return { route, profile, elevation };
+  return { route: route ?? null, profile, elevation };
 }

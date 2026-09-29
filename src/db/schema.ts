@@ -97,9 +97,9 @@ export const runAltitudeSamples = sqliteTable(
     epoch: integer('epoch').notNull(),
     segmentSeq: integer('segment_seq').notNull(),
   },
-  // why indexed when the dropped primary key would have covered it: every read here is
-  // `where run_id = ?`, and on the launch/resume path — a full scan of a season of runs.
-  (table) => [index('run_altitude_samples_run_id_idx').on(table.runId)],
+  // why (run_id, seq), not run_id alone: every read is `where run_id = ?`, and the summary's is also
+  // `order by seq` on each open — a run_id-only index leaves SQLite a temp B-tree sort of ~3600 rows.
+  (table) => [index('run_altitude_samples_run_id_seq_idx').on(table.runId, table.seq)],
 );
 
 /**
@@ -118,7 +118,7 @@ export const runLog = sqliteTable(
     kind: text('kind').notNull(),
     detailJson: text('detail_json'),
   },
-  (table) => [index('run_log_run_id_idx').on(table.runId)],
+  (table) => [index('run_log_run_id_seq_idx').on(table.runId, table.seq)],
 );
 
 /**

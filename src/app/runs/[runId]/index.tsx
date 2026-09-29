@@ -83,13 +83,7 @@ export default function RunSummaryScreen() {
           <>
             <RunSummaryHeadline run={run} celebrate={celebrating} />
             <RouteMapCard run={run} track={track} />
-            <RunStatGrid
-              run={run}
-              segments={segments}
-              elevationGainM={
-                track.elevation?.status === 'estimated' ? track.elevation.gainM : null
-              }
-            />
+            <RunStatGrid run={run} segments={segments} elevation={track.elevation} />
             <RunElevationNote elevation={track.elevation} />
             <RunProfileCard run={run} track={track} />
             <SegmentBreakdown segments={segments} />

@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 
 import type { RouteMapRoute } from '@/components/route-map/port';
-import { loadAltitudeSamples } from '@/db/run-log';
+import { hasAltitudeSamples, loadSummaryAltitudeSamples } from '@/db/run-log';
 import { loadRunFixes } from '@/db/run-points';
 import type { Run, RunSegment } from '@/db/schema';
 import { DP_EPSILON_M, type BoundingBox, type LatLng } from '@/domain/geo';
+import { pausedIntervals, type LoggedRunEvent } from '@/domain/run-altitude';
 import { toRouteLines } from '@/domain/route-render';
 import type { ProfilePoint } from '@/domain/run-profile';
 import {
@@ -36,7 +37,23 @@ export type RunTrack = (
   elevation: SummaryElevation | null;
 };
 
-type RunTotals = Pick<Run, 'distanceM' | 'activeDurationS'>;
+// why lenient: a run saved before the event log was persisted carries none, and pauses are an
+// adjustment to elevation, never a reason to lose the rest of the summary.
+function parseEventLog(json: string | null): LoggedRunEvent[] {
+  if (!json) return [];
+  try {
+    const events: unknown = JSON.parse(json);
+    if (!Array.isArray(events)) return [];
+    return events.filter(
+      (event): event is LoggedRunEvent =>
+        typeof event?.type === 'string' && typeof event?.at === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+type RunTotals = Pick<Run, 'distanceM' | 'activeDurationS' | 'eventLogJson'>;
 
 function useStyledRoute(geometry: RunRouteGeometry | null, segments: readonly RunSegment[]) {
   const segmentColors = useSegmentColors();
@@ -68,6 +85,7 @@ export function useRunTrack(
 ): RunTrack {
   const distanceM = run?.distanceM ?? null;
   const activeDurationS = run?.activeDurationS ?? 0;
+  const eventLogJson = run?.eventLogJson ?? null;
   // why: keyed on neither the viewport nor the palette, so a rotation, a keyboard, the modal
   // settling, or a light/dark switch never re-runs the ~1800-fix and ~1800-sample read and refold.
   const summary = useMemo(() => {
@@ -75,7 +93,9 @@ export function useRunTrack(
     try {
       return deriveRunSummary({
         fixes: loadRunFixes(runId),
-        altitudeSamples: loadAltitudeSamples(runId),
+        hasAltitudeSamples: hasAltitudeSamples(runId),
+        loadAltitudeSamples: () => loadSummaryAltitudeSamples(runId),
+        pauses: pausedIntervals(parseEventLog(eventLogJson)),
         distanceM,
         activeDurationS,
         epsilon: DP_EPSILON_M,
@@ -86,7 +106,7 @@ export function useRunTrack(
       console.warn('[use-run-track] track load failed; showing the fallback', error);
       return null;
     }
-  }, [runId, loaded, distanceM, activeDurationS]);
+  }, [runId, loaded, distanceM, activeDurationS, eventLogJson]);
 
   const route = useStyledRoute(summary?.route ?? null, segments);
   const profile = summary?.profile ?? null;

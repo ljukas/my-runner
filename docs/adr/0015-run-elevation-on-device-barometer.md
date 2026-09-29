@@ -720,11 +720,22 @@ should be tuned against. Until then the number is shown, and labelled an estimat
    2026-08-03 amendment's rule that a total spanning a gap "must be declined". That
    rule assumed a relative-altitude input that restarts after the gap; with pressure
    the gap banks its net change and loses only the terrain inside it — an under-count,
-   never fabricated gain.
+   never fabricated gain. **A runner's pause is the opposite case and is excluded:** the
+   engine keeps sampling while paused (the samples stay as field data), but
+   `runElevation` drops every sample inside a `pause`→`resume` interval of the run's
+   event log and rebases the altitude after it onto the altitude before it, so a lift
+   ride or a stairwell walked during a pause banks nothing — matching distance, which
+   takes no fixes while paused. A clock step backwards clamps a sample's timestamp
+   rather than dropping it: rows arrive in `seq` order, so its pressure is still valid.
 4. **Item 5 (storage) resolves as re-derived, not stored.** Like the pace chart,
    elevation is folded from `run_altitude_samples` on every open of the summary; no
-   `runs` column, no migration. A stored total would freeze whichever drift model
-   was current when the run was saved.
+   `runs` column. A stored total would freeze whichever drift model was current when
+   the run was saved. Because that read runs synchronously on every open, migration
+   `0004` replaces the `run_id` index with a composite `(run_id, seq)` one — the
+   `order by seq` otherwise costs a temp B-tree sort of every sample; `run_log`'s index
+   gets the same shape for the export's read — and the summary
+   reads only `at` and `pressure_hpa`, and only once the route gate has passed
+   (an existence check answers "any samples?" before that).
 5. **Item 2's GPS fallback is not built.** A run without barometer samples shows no
    elevation. The spec's own measurements (2026-08-03) show GPS altitude banks ~92 m
    of phantom gain in poor sky, and Android's ellipsoidal/zero-for-missing altitude
@@ -740,7 +751,9 @@ should be tuned against. Until then the number is shown, and labelled an estimat
      one of those is missing. One route gate covers the map, the chart and the
      elevation, so a treadmill session never shows drift as climb.
    - **Nothing** when there are no samples at all (no barometer, or motion access
-     denied) — "more data" would be untrue there.
+     denied) — "more data" would be untrue there — and when deriving the route or the
+     elevation threw: a defect is not the runner's shortfall, and the note must not
+     hide it behind one.
 7. **Not written to health stores.** Apple Health's elevation metadata remains
    unwritable through the library (the HealthKit capability ledger, §2.2), and Health
    Connect's `ElevationGainedRecord` would need a new permission; neither is worth it

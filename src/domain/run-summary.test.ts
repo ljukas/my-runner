@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { altitudePressureHpa } from './elevation';
 import { DP_EPSILON_M, MIN_ROUTE_EXTENT_M, type SegmentedFix } from './geo';
 import type { StoredAltitudeSample } from './run-altitude';
 import { deriveRunRoute, deriveRunSummary, type RunSummaryInput } from './run-summary';
@@ -24,15 +25,22 @@ function track(seconds: number, mps: number): SegmentedFix[] {
 function climbing(seconds: number, climbM: number): StoredAltitudeSample[] {
   return Array.from({ length: seconds }, (_, i) => ({
     at: new Date(START_MS + i * 1000).toISOString(),
-    pressureHpa: 1013.25 * (1 - (70 + (climbM * i) / (seconds - 1)) / 44330) ** 5.255,
+    pressureHpa: altitudePressureHpa(70 + (climbM * i) / (seconds - 1)),
   }));
 }
 
-function summaryOf(overrides: Partial<RunSummaryInput> = {}) {
-  const fixes = overrides.fixes ?? track(600, 3);
+type SummaryOverrides = Partial<
+  Omit<RunSummaryInput, 'hasAltitudeSamples' | 'loadAltitudeSamples'>
+> & {
+  altitudeSamples?: StoredAltitudeSample[];
+};
+
+function summaryOf({ altitudeSamples = climbing(600, 20), ...overrides }: SummaryOverrides = {}) {
   return deriveRunSummary({
-    fixes,
-    altitudeSamples: climbing(600, 20),
+    fixes: track(600, 3),
+    hasAltitudeSamples: altitudeSamples.length > 0,
+    loadAltitudeSamples: () => altitudeSamples,
+    pauses: [],
     distanceM: 1800,
     activeDurationS: 600,
     epsilon: DP_EPSILON_M,
@@ -87,7 +95,7 @@ describe('deriveRunSummary', () => {
     expect(summary.elevation).toEqual({ status: 'insufficient' });
   });
 
-  test('an elevation fold that throws keeps the route and the pace line', () => {
+  test('an elevation fold that throws keeps the route and the pace line, and claims no shortfall', () => {
     const poisoned = climbing(600, 20);
     Object.defineProperty(poisoned[10], 'at', {
       get() {
@@ -97,6 +105,47 @@ describe('deriveRunSummary', () => {
     const summary = summaryOf({ altitudeSamples: poisoned });
     expect(summary.route).not.toBeNull();
     expect(summary.profile).not.toBeNull();
+    expect(summary.elevation).toBeNull();
+  });
+
+  test('a route derivation that throws claims no shortfall either', () => {
+    const fixes = track(600, 3);
+    Object.defineProperty(fixes[10], 'lat', {
+      get() {
+        throw new Error('corrupt row');
+      },
+    });
+    const summary = summaryOf({ fixes });
+    expect(summary.route).toBeNull();
+    expect(summary.elevation).toBeNull();
+  });
+
+  test('the samples are read only when there is a route and a measured distance to set them on', () => {
+    let reads = 0;
+    const summary = deriveRunSummary({
+      fixes: track(60, 0),
+      hasAltitudeSamples: true,
+      loadAltitudeSamples: () => {
+        reads += 1;
+        return climbing(60, 0);
+      },
+      pauses: [],
+      distanceM: 0,
+      activeDurationS: 60,
+      epsilon: DP_EPSILON_M,
+    });
+    expect(reads).toBe(0);
     expect(summary.elevation).toEqual({ status: 'insufficient' });
+  });
+
+  test('a climb made while paused is not Elevation Gain', () => {
+    // The whole 20 m climb falls inside one pause.
+    const summary = summaryOf({ pauses: [{ fromMs: START_MS, toMs: START_MS + 600_000 }] });
+    expect(summary.elevation).toEqual({ status: 'insufficient' });
+    const partial = summaryOf({
+      pauses: [{ fromMs: START_MS + 100_000, toMs: START_MS + 500_000 }],
+    });
+    if (partial.elevation?.status !== 'estimated') throw new Error('expected an estimate');
+    expect(partial.elevation.gainM).toBeLessThan(8);
   });
 });

@@ -44,8 +44,8 @@ function distanceAt(walked: readonly Walked[], timestamp: number, from: number):
   return [a.distanceM + (b.distanceM - a.distanceM) * t, j];
 }
 
-// why a mean and not one interpolated value per bucket: every sample counts, and a pause's samples
-// correctly pile into the bucket where the runner stood.
+// why a mean and not one interpolated value per bucket: every sample counts, and the samples of a
+// stretch spent standing still pile into the bucket where the runner stood.
 function elevationBuckets(
   walked: readonly Walked[],
   altitude: readonly TimedAltitude[],

@@ -1,27 +1,8 @@
 import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
+import { activeElapsedMs } from './active-time';
 import type { CompletedSegmentRecord, RunEvent, RunSnapshot } from './types';
-
-/**
- * Active time is derived from the timestamped event log, never accumulated
- * (ADR 0007). If currently paused, elapsed is frozen at the pause timestamp.
- */
-export function activeElapsedMs(events: readonly RunEvent[], now: number): number {
-  if (events.length === 0) return 0;
-  const startAt = events[0].at;
-  let pausedTotal = 0;
-  let pausedAt: number | null = null;
-  for (const event of events) {
-    if (event.type === 'pause' && pausedAt === null) pausedAt = event.at;
-    if (event.type === 'resume' && pausedAt !== null) {
-      pausedTotal += event.at - pausedAt;
-      pausedAt = null;
-    }
-  }
-  const end = pausedAt ?? Math.max(now, events[events.length - 1].at);
-  return Math.max(0, end - startAt - pausedTotal);
-}
 
 /** Active-elapsed seconds at each skip event, measured against the events before it. */
 function skipAtsOf(events: readonly RunEvent[]): number[] {
@@ -39,13 +20,19 @@ function timelineOf(session: PlanSession, events: readonly RunEvent[]): Timeline
  * Whether ending at `elapsed` counts as completing the session (issue #40):
  * inside the final segment when it is a cool-down, or past timeline
  * exhaustion. Every work segment is behind the runner, so the cool-down acts
- * as a flex period for ending early — consistent with skipSegment(), which
- * already completes when the final segment is skipped.
+ * as a flex period for ending early — consistent with the engine's
+ * skipSegment(), which already completes when the final segment is skipped.
+ * `endCountsAsCompleted` below is its snapshot twin: keep the two in sync.
  */
 function endsInFinalCooldown(timeline: TimelineSegment[], elapsed: number): boolean {
   const pos = positionAt(timeline, elapsed);
   if (pos.done) return true;
   return pos.index === timeline.length - 1 && timeline[pos.index].kind === 'cooldown';
+}
+
+/** The UI's twin of `endsInFinalCooldown` over a snapshot — the run screen's End dialog copy. */
+export function endCountsAsCompleted(snapshot: RunSnapshot): boolean {
+  return snapshot.segmentKind === 'cooldown' && snapshot.nextSegment === null;
 }
 
 /**
@@ -79,6 +66,9 @@ export type ModeView = Pick<
   | 'nextSegment'
 >;
 
+/** How a run is being finalized: by the runner, or silently from a stale log at launch. */
+export type FinalizeOrigin = 'runner' | 'abandon';
+
 export interface ModeFinal {
   kind: 'completed' | 'endedEarly';
   elapsedS: number;
@@ -92,11 +82,11 @@ export interface ModeCueState {
 }
 
 /**
- * Every rule of a run that depends on its plan (ADR 0026 §1): position and completion, the elapsed
- * cap, the snapshot's countdown fields, cues, exhaustion and what a finished run saves. The engine
- * owns the rest — the event log, ingest, persistence, sensors.
+ * The plan-relative rules of a run, per ADR 0026 §1. Every method takes the engine's one append-only
+ * event log — implementations may cache on that (`ScriptedMode` does), so never pass another log.
  */
 export interface RunMode {
+  readonly kind: 'scripted';
   readonly key: string;
   position(events: readonly RunEvent[], activeS: number): ModePosition;
   view(events: readonly RunEvent[], activeS: number, now: number): ModeView;
@@ -107,13 +97,14 @@ export interface RunMode {
     events: readonly RunEvent[],
     endAt: number,
     requested: 'completed' | 'endedEarly',
-    promoteInCooldown: boolean,
+    origin: FinalizeOrigin,
   ): ModeFinal;
   cueState(): ModeCueState;
 }
 
 /** A plan session's run: the scripted timeline (ADR 0007). */
 export class ScriptedMode implements RunMode {
+  readonly kind = 'scripted';
   readonly key: string;
   private readonly session: PlanSession;
   private readonly plannedTotalS: number;
@@ -181,9 +172,10 @@ export class ScriptedMode implements RunMode {
 
   /** The transition cue on a derived-segment change, and the halfway milestone once (ADR 0007 §4). */
   takeCues(events: readonly RunEvent[], elapsedS: number): CueId[] {
-    const pos = positionAt(this.timeline(events), elapsedS);
+    const timeline = this.timeline(events);
+    const pos = positionAt(timeline, elapsedS);
     if (pos.done) return [];
-    const kind: SegmentKind = this.timeline(events)[pos.index].kind;
+    const kind: SegmentKind = timeline[pos.index].kind;
     const cues: CueId[] = [];
     if (pos.index !== this.lastAnnouncedIndex) {
       this.lastAnnouncedIndex = pos.index;
@@ -204,7 +196,7 @@ export class ScriptedMode implements RunMode {
     events: readonly RunEvent[],
     endAt: number,
     requested: 'completed' | 'endedEarly',
-    promoteInCooldown: boolean,
+    origin: FinalizeOrigin,
   ): ModeFinal {
     const timeline = this.timeline(events);
     // Completion is capped at timeline exhaustion (ADR 0007).
@@ -212,9 +204,9 @@ export class ScriptedMode implements RunMode {
     // Ending early during the final cool-down — or past exhaustion, before the
     // next heartbeat notices — completes the session (issue #40). Resolved from
     // the recorded end event so the outcome stays derivable from the event log
-    // alone (ADR 0007).
+    // alone (ADR 0007). Only the runner's own end can: an abandoned log never completes.
     const kind =
-      requested === 'endedEarly' && promoteInCooldown && endsInFinalCooldown(timeline, elapsedS)
+      requested === 'endedEarly' && origin === 'runner' && endsInFinalCooldown(timeline, elapsedS)
         ? 'completed'
         : requested;
     return {

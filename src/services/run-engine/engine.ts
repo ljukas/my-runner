@@ -18,7 +18,8 @@ import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
-import { activeElapsedMs, ScriptedMode, type RunMode } from './mode';
+import { activeElapsedMs } from './active-time';
+import { ScriptedMode, type FinalizeOrigin, type RunMode } from './mode';
 import {
   createPointBatchScheduler,
   POINT_FLUSH_MS,
@@ -98,15 +99,7 @@ function isPausedInLog(events: readonly RunEvent[]): boolean {
   return paused;
 }
 
-/**
- * Snapshot twin of `endsInFinalCooldown` for the UI — the run screen's End
- * dialog derives its copy from this. Keep the two rules in sync.
- */
-export function endCountsAsCompleted(snapshot: RunSnapshot): boolean {
-  return snapshot.segmentKind === 'cooldown' && snapshot.nextSegment === null;
-}
-
-export { isTimelineExhausted } from './mode';
+export { endCountsAsCompleted, isTimelineExhausted } from './mode';
 
 export interface RunRestoreInput {
   runId: string;
@@ -311,15 +304,14 @@ export class RunEngine {
   }
 
   /**
-   * Finalize an unresumable in-flight run as `partial` from its log, then return to idle. Never
-   * `completed`, even from the final cool-down: only the runner's own end event can complete a run.
-   * The record ends at `aliveUntil`, not at now: the process was dead after it, so the wall clock in
-   * between belongs to no one — crediting it would bill the run for time nothing was tracked.
+   * Finalize an unresumable in-flight run from its log, silently, then return to idle. The record
+   * ends at `aliveUntil`, not at now: the process was dead after it, so the wall clock in between
+   * belongs to no one — crediting it would bill the run for time nothing was tracked.
    */
   async abandon(input: RunAbandonInput): Promise<void> {
     if (this.status !== 'idle') return;
     if (!this.rebuild({ ...input, points: [] })) return;
-    await this.finalize('endedEarly', false, input.aliveUntil);
+    await this.finalize('endedEarly', 'abandon', input.aliveUntil);
     this.reset();
   }
 
@@ -379,7 +371,7 @@ export class RunEngine {
     const view = this.mode.view(this.events, activeElapsedMs(this.events, now) / 1000, now);
     this.snapshot = {
       ...view,
-      mode: 'scripted',
+      mode: this.mode.kind,
       status: this.status,
       sessionKey: this.mode.key,
       savedRunId: this.savedRunId,
@@ -547,7 +539,7 @@ export class RunEngine {
 
   private async finalize(
     requestedKind: 'completed' | 'endedEarly',
-    promoteInCooldown = true,
+    origin: FinalizeOrigin = 'runner',
     at?: number,
   ): Promise<void> {
     if (!this.mode || this.events.length === 0) return;
@@ -557,7 +549,7 @@ export class RunEngine {
       this.events,
       endAt,
       requestedKind,
-      promoteInCooldown,
+      origin,
     );
 
     const record: CompletedRunRecord = {
@@ -576,8 +568,8 @@ export class RunEngine {
     this.refresh(endAt);
     // A completed run speaks its congratulations, then self-releases the audio
     // session when that utterance finishes — calling release() here would cut it
-    // off. Ending early has no cue, so tear the session down immediately.
-    if (kind === 'completed') this.announce('complete');
+    // off. Ending early — or an abandoned log — has no cue, so tear the session down immediately.
+    if (kind === 'completed' && origin === 'runner') this.announce('complete');
     else this.cue.release();
     this.scheduler.stop();
     // why above tracker.stop(): after that stop the process can be suspended mid-write (ADR 0008).

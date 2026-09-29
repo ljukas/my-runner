@@ -71,6 +71,9 @@ numbers are from `main` at 9625d73.
 `ScriptedMode` holds today's code for each row, verbatim. The engine keeps the event log, active
 time, pause and resume, GPS ingest, flushing, sensors and persistence.
 
+The "Becomes" names are the design; stage 2 shipped them as `position`, `view`, `takeCues`,
+`exhausted`, `finalize(…, origin)` and `cueState`, and its plan lists which rows stage 3 still moves.
+
 **Snapshot.** `RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot`, built on a shared base: `mode`,
 `status`, `sessionKey`, `activeElapsedSeconds`, `distanceM`, `savedRunId`, `saveFailed`. The open
 branch adds `bucket` and `rollingPaceSecPerKm`. `IDLE_SNAPSHOT` is scripted-shaped, with `mode:

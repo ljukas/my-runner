@@ -475,3 +475,24 @@ Where the build refined this ADR or the spec:
   hidden and the gate shut, and a new run would then orphan its row for good.
 - **The summary** without measured distance keeps only Active Time, so the E2E flows anchor on it
   (spec §8 corrected).
+
+## Amendment (2026-09-30): stage 3c — the Run tab
+
+Owner decision after 3b ([plan](../superpowers/plans/2026-09-30-free-run-stage-3c-run-chooser.md)):
+a header icon made the free run a side door, and a tab named "Plan" said it did not belong there.
+This supersedes the entry-point bullet of Decision §6 and the entry bullet of the 3b amendment.
+
+- **The Plan tab is the Run tab.** Its root is a chooser of two cards: Couch to 5K (its body pushes
+  the week list, now `(tabs)/(index)/plan`; an "Up next" button opens the next session's sheet; a
+  finished plan drops the button) and Free run (opens the `/free-run` sheet). The two modes are not
+  mixed on one screen.
+- **The header button is gone**, with `FreeRunHeaderButton` and the Android fork of the stack's
+  layout. The cards are one `RunModeCard` domain component, a pair with identical props
+  ([ADR 0013](0013-component-design-conventions.md)): SwiftUI cards in a `ScrollView` on iOS, not a
+  `List`, where two buttons in one row both fire; Material 3 cards on Android. The chooser route
+  itself is platform-blind, so it is still a pure island ([ADR 0005](0005-system-native-ui-expo-ui.md)).
+- **Every start now waits on the resume gate**: the free-run card, the Up next button and the week
+  list's rows (`useRunEntry`). The 3b amendment's asymmetry — only the free-run entry waited — was
+  invisible with the entry in a header and would be visible with both side by side. Opening the
+  week list only browses and stays open.
+- **The not-saved notice** shows above the chooser's cards, where `leaveToTabs` lands.

@@ -475,3 +475,25 @@ Where the build refined this ADR or the spec:
   hidden and the gate shut, and a new run would then orphan its row for good.
 - **The summary** without measured distance keeps only Active Time, so the E2E flows anchor on it
   (spec §8 corrected).
+
+## Amendment (2026-09-30): stage 5a built
+
+Health Connect segments shipped as stage 5a ([plan](../superpowers/plans/2026-09-30-free-run-stage-5a-health-segments.md)).
+Where the build changed §8 and the Consequences:
+
+- **Pauses are written, as PAUSE segments** (owner decision). §8 said nothing is written for a
+  paused span. Health Connect subtracts PAUSE and REST segments from a session's exercise
+  duration, so an unwritten pause counted as exercise time. A pause the event log ended in runs to
+  the workout's end. Stopped time stays REST, so Health Connect's duration for a free run is its
+  moving time, not the app's active time.
+- **Pauses stay out of the segment list in the domain.** `HealthWorkoutInput` carries `segments`
+  and `pauses` apart, because HealthKit models a pause as a pause/resume event, not a segment
+  (stage 5b); the Health Connect mapper merges them.
+- **Fingerprints (correcting the Consequences):** the patch moves **both**. `@expo/fingerprint`
+  hashes `patches/` for iOS and Android alike; Android also hashes the patched package. iOS went
+  `fd770db…` → `9d09364…` with `patches` as its only new source. Ignoring the directory was offered
+  and declined, so the next iOS release is a store build.
+- **Verified on the emulator:** plan and free runs read back with their walking, running, rest and
+  pause segments intact, and Health Connect's own entry details list them (§6 of the spec had that
+  unconfirmed). That Health Connect's aggregate duration subtracts them is not verified: aggregates
+  need a READ permission the app does not hold.

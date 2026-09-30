@@ -153,11 +153,15 @@ export interface OpenTrackRollup {
   /** Smoothed points for rendering, as `smoothTrack` returns them. */
   points: LatLng[];
   buckets: MotionBucket[];
+  /** The trailing stop's measured active seconds (`OpenTrackState.measuredStop`); 0 when moving. */
+  measuredStopS: number;
 }
 
 export interface OpenTrackStepOptions {
   thresholdMps: number;
   paused: readonly PausedInterval[];
+  /** The run's start: a stop backdated to a fix cached before it is measured from here. */
+  startMs?: number;
 }
 
 export interface OpenTrackOptions extends OpenTrackStepOptions {
@@ -169,6 +173,12 @@ export interface OpenTrackState {
   smoother: SmootherState;
   motion: MotionState;
   previousMs: number | null;
+  /**
+   * The current stop as the fixes measured it — active ms from its start to its latest fix, with
+   * any GPS silence inside it left out — which alone ends or trims a free run (ADR 0026 §6); null
+   * while not stopped. `untilMs` is the latest fix counted.
+   */
+  measuredStop: { ms: number; untilMs: number } | null;
 }
 
 export interface OpenTrackStep {
@@ -181,7 +191,12 @@ export interface OpenTrackStep {
 }
 
 export function createOpenTrackState(): OpenTrackState {
-  return { smoother: createSmootherState(), motion: createMotionState(), previousMs: null };
+  return {
+    smoother: createSmootherState(),
+    motion: createMotionState(),
+    previousMs: null,
+    measuredStop: null,
+  };
 }
 
 function pausedMsWithin(paused: readonly PausedInterval[], fromMs: number, toMs: number): number {
@@ -237,10 +252,30 @@ export function pausePolicy(paused: readonly PausedInterval[]): FixPolicy {
  * after a pause, so ground covered while paused is not counted, as active time excludes the pause;
  * a GPS gap longer than `MAX_GAP_S` of active time is stopped.
  */
+function measureStop(
+  previous: OpenTrackState['measuredStop'],
+  moved: MotionStep,
+  fixMs: number,
+  afterGap: boolean,
+  paused: readonly PausedInterval[],
+  startMs: number,
+): OpenTrackState['measuredStop'] {
+  if (moved.state.kind !== 'stopped') return null;
+  if (moved.transition?.kind === 'stopped' || previous === null) {
+    const from = Math.max(moved.transition?.atMs ?? fixMs, startMs);
+    return { ms: fixMs > from ? activeMs(paused, from, fixMs) : 0, untilMs: fixMs };
+  }
+  if (afterGap || fixMs <= previous.untilMs) {
+    return { ms: previous.ms, untilMs: Math.max(previous.untilMs, fixMs) };
+  }
+  const from = Math.max(previous.untilMs, startMs);
+  return { ms: previous.ms + (fixMs > from ? activeMs(paused, from, fixMs) : 0), untilMs: fixMs };
+}
+
 export function openTrackStep(
   state: OpenTrackState,
   fix: LocationFix,
-  { thresholdMps, paused }: OpenTrackStepOptions,
+  { thresholdMps, paused, startMs = -Infinity }: OpenTrackStepOptions,
 ): OpenTrackStep {
   const previous = state.previousMs;
   const policy = pausePolicy(paused);
@@ -281,6 +316,14 @@ export function openTrackStep(
       smoother: smoothed.state,
       motion: moved.state,
       previousMs: smoothed.state.lastAcceptedTime,
+      measuredStop: measureStop(
+        state.measuredStop,
+        moved,
+        fix.timestamp,
+        afterGap,
+        paused,
+        startMs,
+      ),
     },
     acceptedDeltaMeters: smoothed.acceptedDeltaMeters,
     smoothedPoint: smoothed.smoothedPoint,
@@ -296,8 +339,9 @@ export function openTrackStep(
  */
 export function rollupOpenTrack(
   fixes: readonly LocationFix[],
-  { startMs, endMs, ...stepOptions }: OpenTrackOptions,
+  { endMs, ...stepOptions }: OpenTrackOptions,
 ): OpenTrackRollup {
+  const { startMs } = stepOptions;
   let state = createOpenTrackState();
   const changes: MotionTransition[] = [];
   const deltas: { atMs: number; m: number }[] = [];
@@ -325,6 +369,7 @@ export function rollupOpenTrack(
     distanceM,
     points,
     buckets: toBuckets(changes, deltas, stepOptions.paused, startMs, endMs),
+    measuredStopS: (state.measuredStop?.ms ?? 0) / 1000,
   };
 }
 

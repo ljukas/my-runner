@@ -5,12 +5,7 @@ import { activeElapsedMs, activeMsBetween, wallClockAtActive } from '@/domain/ac
 import { FREE_RUN_KEY, OPEN_LIMITS, type RunPlan } from '@/domain/free-run';
 import { createSmootherState, smoothFix, type LocationFix, type SmootherState } from '@/domain/geo';
 import { pausedIntervals, type PausedInterval } from '@/domain/run-altitude';
-import {
-  createOpenTrackState,
-  openTrackStep,
-  silentSince,
-  type OpenTrackState,
-} from '@/domain/run-motion';
+import { createOpenTrackState, openTrackStep, type OpenTrackState } from '@/domain/run-motion';
 import { paceSecPerKm } from '@/domain/run-stats';
 import { isFieldTestRun } from '@/services/field-test';
 import { RESUME_GRACE_MS } from './resumable';
@@ -388,7 +383,6 @@ export class OpenMode implements RunMode {
   private latestFedMs: number | null = null;
   private lastSpeedMs: number | null = null;
   private moving: { atMs: number; speedMps: number }[] = [];
-  private stoppedSinceMs: number | null = null;
   private pausedCache: { count: number; paused: PausedInterval[] } | null = null;
 
   constructor(thresholdMps: number) {
@@ -415,14 +409,10 @@ export class OpenMode implements RunMode {
     const step = openTrackStep(this.track, fix, {
       thresholdMps: this.thresholdMps,
       paused: this.paused(events),
+      startMs: events[0].at,
     });
     this.track = step.state;
     this.latestFedMs = Math.max(this.latestFedMs ?? fix.timestamp, fix.timestamp);
-    for (const change of step.changes) {
-      // why `??=`: a gap while stopped re-announces the stop, which must not restart its clock
-      if (change.kind === 'stopped') this.stoppedSinceMs ??= change.atMs;
-      else this.stoppedSinceMs = null;
-    }
     const lastMs = this.track.previousMs ?? fix.timestamp;
     if (step.smoothedSpeedMps !== null) this.lastSpeedMs = lastMs;
     if (step.smoothedSpeedMps !== null && this.track.motion.kind !== 'stopped') {
@@ -441,19 +431,9 @@ export class OpenMode implements RunMode {
     return Math.round(Math.min(fixMs, nowMs));
   }
 
-  /** Active ms spent stopped up to `now`, by the fold's own rules: a GPS silence is stopped time. */
-  private stoppedMs(events: readonly RunEvent[], now: number): number {
-    const since =
-      this.track.motion.kind === 'stopped'
-        ? this.stoppedSinceMs
-        : silentSince(this.paused(events), this.track.previousMs, now);
-    // why the clamp: a stop backdated to a fix cached before the start began no earlier than the run
-    return since === null ? 0 : activeMsBetween(events, Math.max(since, events[0].at), now);
-  }
-
-  position(events: readonly RunEvent[], activeS: number, now: number): ModePosition {
+  position(events: readonly RunEvent[], activeS: number): ModePosition {
     if (activeS >= OPEN_LIMITS.capActiveS) return { done: true, origin: 'limit' };
-    if (this.stoppedMs(events, now) >= OPEN_LIMITS.stoppedLimitS * 1000) {
+    if ((this.track.measuredStop?.ms ?? 0) >= OPEN_LIMITS.stoppedLimitS * 1000) {
       return { done: true, origin: 'limit' };
     }
     return { done: false, segmentSeq: 0 };

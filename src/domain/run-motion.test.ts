@@ -356,6 +356,59 @@ describe('openTrackStep — the live half of the fold', () => {
   });
 });
 
+describe('rollupOpenTrack — the measured stop the 30-minute limit reads (ADR 0026 §6)', () => {
+  test('is the trailing stop the fixes measured', () => {
+    const fixes = track([
+      { seconds: 120, mps: 2.6 },
+      { seconds: 1900, mps: 0 },
+    ]);
+    const { measuredStopS } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    expect(measuredStopS).toBeGreaterThan(1890);
+    expect(measuredStopS).toBeLessThan(1915);
+  });
+
+  test('counts no GPS silence, trailing or inside the stop', () => {
+    const silentTail = track([{ seconds: 300, mps: 2.6 }]);
+    const tail = rollupOpenTrack(silentTail, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: 300_000 + 40 * 60_000,
+    });
+    expect(tail.buckets.at(-1)?.kind).toBe('stopped');
+    expect(tail.measuredStopS).toBe(0);
+
+    const gapped = track([
+      { seconds: 120, mps: 2.6 },
+      { seconds: 600, mps: 0, gapAfterS: 300 },
+      { seconds: 600, mps: 0 },
+    ]);
+    const inside = rollupOpenTrack(gapped, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(gapped),
+    });
+    expect(inside.buckets.at(-1)?.kind).toBe('stopped');
+    expect(inside.measuredStopS).toBeLessThan(1220);
+    expect(inside.measuredStopS).toBeGreaterThan(1190);
+  });
+
+  test('is 0 once the runner moves again', () => {
+    const fixes = track([
+      { seconds: 120, mps: 0 },
+      { seconds: 120, mps: 2.6 },
+    ]);
+    const options = { thresholdMps: T, paused: [], startMs: 0, endMs: endOf(fixes) };
+    expect(rollupOpenTrack(fixes, options).measuredStopS).toBe(0);
+  });
+});
+
 describe('rollupOpenTrack — durations and bounds', () => {
   test('integer bucket durations sum to the rounded active time', () => {
     const fixes = track([

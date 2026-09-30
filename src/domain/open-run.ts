@@ -55,7 +55,7 @@ export function deriveOpenRun({ events, fixes, thresholdMps }: OpenRunInput): De
 
   let rollup = fold(log, fixes, thresholdMps);
   const last = rollup.buckets.at(-1);
-  if (last?.kind === 'stopped' && last.activeS >= OPEN_LIMITS.stoppedLimitS) {
+  if (last?.kind === 'stopped' && rollup.measuredStopS >= OPEN_LIMITS.stoppedLimitS) {
     log = cutAt(log, last.startMs);
     rollup = fold(log, fixes, thresholdMps);
   }

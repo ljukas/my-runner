@@ -65,13 +65,18 @@ describe('deriveOpenRun', () => {
     expect(derived.activeDurationS).toBe(Math.round(derived.endMs / 1000));
   });
 
-  test('trims a trailing GPS silence of 30 minutes or more, as the live engine ends on it', () => {
-    // 300 s running, then no fix at all for 31 min before the end
+  test('keeps a trailing GPS silence of any length as stopped time: only a measured stop is trimmed', () => {
+    // 300 s running, then no fix at all for 31 min before the end (a treadmill, a lost signal)
     const fixes = track([[300, 2.6]]);
     const derived = deriveOpenRun({ events: run(300_000 + 31 * 60_000), fixes, thresholdMps: T });
-    expect(derived.outcome).toBe('save');
-    expect(derived.endMs).toBe(300_000);
-    expect(derived.buckets.map((b) => b.kind)).toEqual(['run']);
+    expect(derived).toMatchObject({ outcome: 'save', endMs: 300_000 + 31 * 60_000 });
+    expect(derived.buckets.map((b) => b.kind)).toEqual(['run', 'stopped']);
+  });
+
+  test('saves a run whose GPS fell silent after two fixes in full, never as too short', () => {
+    const fixes = track([[2, 2.6]]);
+    const derived = deriveOpenRun({ events: run(40 * 60_000), fixes, thresholdMps: T });
+    expect(derived).toMatchObject({ outcome: 'save', activeDurationS: 2400 });
   });
 
   test('keeps a trailing GPS silence shorter than 30 minutes, as stopped time', () => {

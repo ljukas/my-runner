@@ -82,17 +82,36 @@ describe('OpenMode — the rules a free run lives by', () => {
       [120, 2.6],
       [1900, 0],
     ]);
-    feed(mode, fixes);
     // the stop is confirmed and backdated to ~120 s
+    feed(
+      mode,
+      fixes.filter((f) => f.timestamp <= 1_900_000),
+    );
     expect(mode.position(START, 1_900, 1_900_000).done).toBe(false);
+    feed(
+      mode,
+      fixes.filter((f) => f.timestamp > 1_900_000),
+    );
     expect(mode.position(START, 2_020, 2_020_000)).toEqual({ done: true, origin: 'limit' });
   });
 
-  test('counts a GPS loss as stopped time', () => {
+  test('a GPS loss alone never ends the run: only a stop the fixes measured does', () => {
     const mode = openMode();
     feed(mode, track([[120, 2.6]]));
-    expect(mode.position(START, 1_800, 1_800_000).done).toBe(false);
-    expect(mode.position(START, 1_925, 1_925_000)).toEqual({ done: true, origin: 'limit' });
+    expect(mode.position(START, 3_600, 3_600_000).done).toBe(false);
+    const once = openMode();
+    feed(once, track([[1, 2.6]]));
+    expect(once.position(START, 1_802, 1_802_000).done).toBe(false);
+  });
+
+  test('sparse fixes while standing still add up to no measured stop', () => {
+    const mode = openMode();
+    const sparse = Array.from(
+      { length: 53 },
+      (_, i) => track([[1, 0]], 300_000 + i * 45_000, 780)[0],
+    );
+    feed(mode, [...track([[300, 2.6]]), ...sparse]);
+    expect(mode.position(START, 2_700, 2_700_000).done).toBe(false);
   });
 
   test('does not count paused time as stopped', () => {
@@ -124,8 +143,8 @@ describe('OpenMode — the rules a free run lives by', () => {
       // 2 minutes with no fix, still standing where the run stopped
       ...track([[1260, 0]], 840_000, 120 * 2.6),
     ]);
-    // stopped since ~120 s: 30 minutes of it by ~1 920 s, gap or no gap
-    expect(mode.position(START, 1_950, 1_950_000)).toEqual({ done: true, origin: 'limit' });
+    // measured: ~600 s before the gap and 1 260 s after it — the gap itself is not counted
+    expect(mode.position(START, 2_100, 2_100_000)).toEqual({ done: true, origin: 'limit' });
   });
 
   test('counts no stopped time from before the run began', () => {

@@ -40,7 +40,7 @@ function RunModeCardList({ children }: { children: ReactNode }) {
         fillMaxSize(),
         background(colors.background),
         verticalScroll(),
-        padding(16, 8, 16, 24),
+        padding(16, 16, 16, 24),
       ]}
     >
       {children}

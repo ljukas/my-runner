@@ -1,17 +1,18 @@
-import { DashPathEffect, matchFont } from '@shopify/react-native-skia';
+import { DashPathEffect, matchFont, Rect } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
 import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
 import { SKIA_FONT_FAMILY } from '@/constants/skia-font';
 import { distanceParts, paceParts } from '@/domain/format';
+import type { ProfileBands } from '@/domain/profile-bands';
 import {
   elevationChartDomain,
   paceChartDomain,
   type ProfilePoint,
   type ProfileSeriesKey,
 } from '@/domain/run-profile';
-import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
+import { useChartGridColor, useSegmentColors, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
 // why 160 and not the former 200: the x axis spends ~30 pt on its tick row and unit, leaving a
@@ -68,12 +69,25 @@ const Y_AXIS_TICK_COUNT = 3;
 // gap to read as dotted rather than dashed at chart scale.
 const Y_GRID_DASH_INTERVALS = [1, 3];
 
+// why a strip along the axis rather than tinted columns: shading the plot competes with the pace and
+// elevation lines, and the owner chose the strip (ADR 0026 §5, stage 4)
+const BAND_STRIP_HEIGHT = 4;
+const STOP_MARKER_WIDTH = 2;
+
 /**
  * Pace, and relative elevation when the run carries it, against distance (spec §7.2). The only file importing victory-native — if it is ever
  * swapped for hand-drawn Skia, nothing outside this file changes.
  */
-export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
+export function RunProfileChart({
+  points,
+  bands = null,
+}: {
+  points: ProfilePoint[];
+  /** A free run's buckets, drawn as a run/walk strip and a hairline per stop. */
+  bands?: ProfileBands | null;
+}) {
   const stat = useStatColors();
+  const segment = useSegmentColors();
   // why every axis color is passed: victory's defaults are hardcoded black (`axisDefaults.ts`),
   // latent only for as long as no axis rendered at all.
   const colors = useTheme();
@@ -143,8 +157,36 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
         xAxis={xAxis}
         yAxis={yAxis}
       >
-        {({ points: rendered }) => (
+        {({ points: rendered, xScale, chartBounds }) => (
           <>
+            {bands?.runWalk.map((band, index) => (
+              <Rect
+                key={`band-${index}`}
+                x={xScale(band.fromM)}
+                y={chartBounds.bottom - BAND_STRIP_HEIGHT}
+                width={xScale(band.toM) - xScale(band.fromM)}
+                height={BAND_STRIP_HEIGHT}
+                color={segment[band.kind]}
+              />
+            ))}
+            {bands?.stopsAtM.map((atM, index) => (
+              <Rect
+                key={`stop-${index}`}
+                // why clamped: points sit at bucket centres, so the axis starts half a bucket in and
+                // a stop at 0 m would fall wholly outside the clipped plot
+                x={
+                  Math.min(
+                    Math.max(xScale(atM), chartBounds.left + STOP_MARKER_WIDTH / 2),
+                    chartBounds.right - STOP_MARKER_WIDTH / 2,
+                  ) -
+                  STOP_MARKER_WIDTH / 2
+                }
+                y={chartBounds.top}
+                width={STOP_MARKER_WIDTH}
+                height={chartBounds.bottom - chartBounds.top}
+                color={segment.stopped}
+              />
+            ))}
             {/* Drawn first so pace, the run's primary measure, stays on top. */}
             {elevationDomain ? (
               <Line

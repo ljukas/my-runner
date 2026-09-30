@@ -389,7 +389,6 @@ export class OpenMode implements RunMode {
   private moving: { atMs: number; speedMps: number }[] = [];
   private distanceM = 0;
   private reachedKm = 0;
-  private announcedKm = 0;
   /** Moving metres and active ms since the last kilometre crossed (ADR 0026 §7). */
   private sinceKm = { m: 0, ms: 0 };
   private crossing: { km: number; paceSecPerKm: number | null } | null = null;
@@ -492,20 +491,19 @@ export class OpenMode implements RunMode {
     const km = Math.floor(this.distanceM / 1000);
     if (km <= this.reachedKm) return;
     this.reachedKm = km;
+    // why overwritten: two crossings before one refresh speak the latest kilometre, not a backlog
     this.crossing = { km, paceSecPerKm: paceSecPerKm(this.sinceKm.m, this.sinceKm.ms / 1000) };
     this.sinceKm = { m: 0, ms: 0 };
   }
 
   takeCues(): ModeCue[] {
-    if (!this.crossing || this.crossing.km <= this.announcedKm) return [];
+    if (!this.crossing) return [];
     const data = this.crossing;
-    this.announcedKm = data.km;
     this.crossing = null;
     return [{ cue: 'kilometre', data }];
   }
 
   caughtUp(): void {
-    this.announcedKm = this.reachedKm;
     this.crossing = null;
   }
 

@@ -89,7 +89,6 @@ export function kilometrePhrase({ km, paceSecPerKm }: KilometreCueData): string 
   return `${head} ${plural(minutes, 'minute')}${seconds === 0 ? '' : ` ${seconds}`} per kilometre.`;
 }
 
-/** The sentence an adapter speaks for a cue. */
 export function cuePhrase(cue: CueId, data?: CueData): string {
   return cue === 'kilometre' && data ? kilometrePhrase(data) : CUE_PHRASE[cue];
 }

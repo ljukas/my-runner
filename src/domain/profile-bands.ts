@@ -10,7 +10,8 @@ export interface ProfileBand {
 
 /** A free run's buckets on the pace chart's distance axis (ADR 0026 §5). */
 export interface ProfileBands {
-  /** Consecutive buckets of one kind merged; stops leave no band of their own. */
+  /** Consecutive buckets of one kind merged; a stop's few metres go to the band before it, so the
+   *  bands tile the axis without a gap. */
   runWalk: ProfileBand[];
   /** One per stopped bucket, in order, at the distance it began; duplicates are kept. */
   stopsAtM: number[];
@@ -19,9 +20,8 @@ export interface ProfileBands {
 type SegmentRow = { seq: number; kind: StoredSegmentKind };
 
 /**
- * Spans (from `foldRunProfile`) and the run's segment rows → its bands. A span matching no row is
- * `walk`, as on the route (ADR 0021 §4). A stop the GPS never saw — a silence — has no span, so it
- * sits where the span before it ended.
+ * A span matching no row is `walk`, as on the route (ADR 0021 §4). A stop the GPS never saw — a
+ * silence — has no span, so it sits where the span before it ended.
  */
 export function toProfileBands(
   spans: readonly ProfileSpan[],
@@ -34,8 +34,9 @@ export function toProfileBands(
     if (kind === 'stopped') continue;
     const band = kind === 'run' ? 'run' : 'walk';
     const last = runWalk.at(-1);
+    if (last) last.toM = span.fromM;
     if (last?.kind === band) last.toM = span.toM;
-    else runWalk.push({ kind: band, fromM: span.fromM, toM: span.toM });
+    else runWalk.push({ kind: band, fromM: last?.toM ?? span.fromM, toM: span.toM });
   }
 
   const spanBySeq = new Map(spans.map((span) => [span.segmentSeq, span]));
@@ -47,6 +48,13 @@ export function toProfileBands(
     if (span) reachedM = span.toM;
   }
   return { runWalk, stopsAtM };
+}
+
+/** Metres the strip shows as running and as walking. */
+export function bandDistances({ runWalk }: ProfileBands): { runM: number; walkM: number } {
+  const total = (kind: ProfileBand['kind']) =>
+    runWalk.filter((band) => band.kind === kind).reduce((sum, b) => sum + b.toM - b.fromM, 0);
+  return { runM: total('run'), walkM: total('walk') };
 }
 
 /** A free run's bands; null for a plan run, whose chart stays as it was (spec §5.3). */

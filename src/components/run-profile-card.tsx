@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
 import { formatDistanceKm, formatElevation, formatPace, paceParts } from '@/domain/format';
+import { bandDistances } from '@/domain/profile-bands';
 import { isDrawableElevation, paceRange } from '@/domain/run-profile';
 import type { RunTrack } from '@/hooks/use-run-track';
 import { useStatColors } from '@/hooks/use-theme';
@@ -22,6 +23,8 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
   const elevation =
     withElevation && track.elevation?.status === 'estimated' ? track.elevation : null;
   const range = paceRange(track.profile);
+  const moved = track.bands && bandDistances(track.bands);
+  const stops = track.bands?.stopsAtM.length ?? 0;
   const label = [
     `${withElevation ? 'Pace and elevation' : 'Pace'} profile over ${formatDistanceKm(run.distanceM)}.`,
     range &&
@@ -36,10 +39,9 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
     elevation &&
       `Estimated elevation gain ${formatElevation(elevation.gainM)}, ` +
         `loss ${formatElevation(elevation.lossM)}.`,
-    track.bands && 'A strip along the bottom marks running and walking.',
-    track.bands &&
-      track.bands.stopsAtM.length > 0 &&
-      `Stopped ${track.bands.stopsAtM.length} ${track.bands.stopsAtM.length === 1 ? 'time' : 'times'}.`,
+    moved &&
+      `Running ${formatDistanceKm(moved.runM)}, walking ${formatDistanceKm(moved.walkM)}` +
+        (stops > 0 ? `, stopped ${stops} ${stops === 1 ? 'time' : 'times'}.` : '.'),
   ]
     .filter(Boolean)
     .join(' ');

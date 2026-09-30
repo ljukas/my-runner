@@ -114,7 +114,7 @@ describe('the kilometre cue (ADR 0026 §7)', () => {
     [1, 65, '1 kilometre. 1 minute 5 per kilometre.'],
     [4, 359.6, '4 kilometres. 6 minutes per kilometre.'],
     [4, 359.4, '4 kilometres. 5 minutes 59 per kilometre.'],
-  ])('%i km at %d s/km reads "%s"', (km, pace, phrase) => {
+  ])('%i km at %p s/km reads "%s"', (km, pace, phrase) => {
     expect(kilometrePhrase({ km, paceSecPerKm: pace })).toBe(phrase);
   });
 

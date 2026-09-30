@@ -460,10 +460,9 @@ export class RunEngine {
   // either way (spec §6, §8.0).
   private announce(cue: CueId, data?: CueData): void {
     const suppressed = this.mode?.cuesSuppressed ?? false;
-    this.note('cue', data ? { cue, suppressed, data } : { cue, suppressed });
+    this.note('cue', { cue, suppressed, data });
     if (suppressed) return;
-    if (data) this.cue.announce(cue, data);
-    else this.cue.announce(cue);
+    this.cue.announce(cue, data);
   }
 
   private resetIngestState(): void {

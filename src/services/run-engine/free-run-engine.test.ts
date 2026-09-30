@@ -834,6 +834,9 @@ describe('the kilometre cue (ADR 0026 §7)', () => {
     before.feed(fixes.slice(0, 450));
     before.fireFlush();
     await settled();
+    // why asserted: one flush persists at most MAX_FLUSH_POINTS, and a partial spine would pass
+    // for the wrong reason
+    expect(pointsOf(before)).toHaveLength(450);
 
     const after = makeFreeRunEngine();
     after.setNow(fixes[449].timestamp);

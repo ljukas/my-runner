@@ -188,7 +188,6 @@ interface ProfileOptions {
   policy?: FixPolicy;
 }
 
-/** `foldRunProfile`'s points alone. */
 export function toRunProfile(
   fixes: readonly LocationFix[],
   options: ProfileOptions = {},

@@ -69,9 +69,13 @@ const Y_AXIS_TICK_COUNT = 3;
 // gap to read as dotted rather than dashed at chart scale.
 const Y_GRID_DASH_INTERVALS = [1, 3];
 
-// why a strip along the axis rather than tinted columns: shading the plot competes with the pace and
-// elevation lines, and the owner chose the strip (ADR 0026 §5, stage 4)
-const BAND_STRIP_HEIGHT = 4;
+// why a strip under the axis rather than tinted columns: shading the plot competes with the pace and
+// elevation lines, and the owner chose the strip (ADR 0026 §5, stage 4). Why below the plot and not
+// inside it: the pace domain puts the slowest pace on the plot's bottom edge, which is exactly where
+// a walk is drawn. Why two heights: run and walk must not differ by hue alone (spec §7.3).
+const BAND_STRIP_HEIGHT = { run: 4, walk: 2 } as const;
+// victory's default x `labelOffset` (`axisDefaults.ts`), plus room for the strip above the labels
+const X_LABEL_OFFSET_WITH_BANDS = 2 + BAND_STRIP_HEIGHT.run + 2;
 const STOP_MARKER_WIDTH = 2;
 
 /**
@@ -99,6 +103,7 @@ export function RunProfileChart({
     [fontScale],
   );
 
+  const banded = bands !== null;
   const xAxis = useMemo(
     () => ({
       font,
@@ -107,8 +112,9 @@ export function RunProfileChart({
       formatXLabel: formatDistanceTick,
       title: X_AXIS_TITLE,
       tickCount: Math.max(2, Math.round(DEFAULT_TICK_COUNT / fontScale)),
+      ...(banded ? { labelOffset: X_LABEL_OFFSET_WITH_BANDS } : null),
     }),
-    [font, colors.textSecondary, grid, fontScale],
+    [font, colors.textSecondary, grid, fontScale, banded],
   );
 
   const paceDomain = useMemo(() => paceChartDomain(points), [points]);
@@ -156,19 +162,26 @@ export function RunProfileChart({
         yKeys={elevationDomain ? ALL_KEYS : PACE_KEYS}
         xAxis={xAxis}
         yAxis={yAxis}
+        // why outside: this layer is not clipped to the plot, so the strip can hang under its axis
+        renderOutside={({ xScale, chartBounds }) =>
+          bands?.runWalk.map((band, index) => {
+            const from = Math.max(xScale(band.fromM), chartBounds.left);
+            const to = Math.min(xScale(band.toM), chartBounds.right);
+            return (
+              <Rect
+                key={`band-${index}`}
+                x={from}
+                y={chartBounds.bottom}
+                width={Math.max(0, to - from)}
+                height={BAND_STRIP_HEIGHT[band.kind]}
+                color={segment[band.kind]}
+              />
+            );
+          })
+        }
       >
         {({ points: rendered, xScale, chartBounds }) => (
           <>
-            {bands?.runWalk.map((band, index) => (
-              <Rect
-                key={`band-${index}`}
-                x={xScale(band.fromM)}
-                y={chartBounds.bottom - BAND_STRIP_HEIGHT}
-                width={xScale(band.toM) - xScale(band.fromM)}
-                height={BAND_STRIP_HEIGHT}
-                color={segment[band.kind]}
-              />
-            ))}
             {bands?.stopsAtM.map((atM, index) => (
               <Rect
                 key={`stop-${index}`}

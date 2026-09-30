@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { FREE_RUN_KEY } from './free-run';
 import { EARTH_RADIUS_M, type SegmentedFix } from './geo';
-import { bandsFor, toProfileBands } from './profile-bands';
+import { bandDistances, bandsFor, toProfileBands } from './profile-bands';
 import { foldRunProfile, toRunProfile } from './run-profile';
 import type { StoredSegmentKind } from './run-motion';
 
@@ -22,6 +22,17 @@ describe('toProfileBands', () => {
       ],
       stopsAtM: [400],
     });
+  });
+
+  test('bridges a stop between two kinds, so the strip has no gap', () => {
+    const bands = toProfileBands(
+      [span(0, 0, 839), span(1, 839, 846), span(2, 846, 1200)],
+      rows('run', 'stopped', 'walk'),
+    );
+    expect(bands.runWalk).toEqual([
+      { kind: 'run', fromM: 0, toM: 846 },
+      { kind: 'walk', fromM: 846, toM: 1200 },
+    ]);
   });
 
   test('keeps stops at the very start and the very end', () => {
@@ -55,6 +66,14 @@ describe('toProfileBands', () => {
       { kind: 'walk', fromM: 0, toM: 500 },
     ]);
   });
+});
+
+test('bandDistances sums the strip by kind', () => {
+  const bands = toProfileBands(
+    [span(0, 0, 400), span(1, 400, 700), span(2, 700, 1000)],
+    rows('run', 'walk', 'run'),
+  );
+  expect(bandDistances(bands)).toEqual({ runM: 700, walkM: 300 });
 });
 
 describe('bandsFor', () => {

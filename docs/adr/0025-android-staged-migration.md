@@ -4,7 +4,7 @@ Date: 2026-09-20
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge. **Supersedes
+Accepted (2026-09-28, on merge of #61); stages 2–7 have since merged (#62–#69). **Supersedes
 [ADR 0020](0020-ios-only-android-deferred.md).** This ADR is the living record of
 the migration: the stage table under Decision item 1 is amended (dated) as each
 stage ships.

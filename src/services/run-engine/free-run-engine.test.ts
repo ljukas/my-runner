@@ -723,6 +723,43 @@ describe('a plan run and a fix delivered late', () => {
   });
 });
 
+describe('a plan run whose taps land behind the derived instant', () => {
+  const TWO = scriptedPlan({
+    key: 'w1d1',
+    week: 1,
+    day: 1,
+    segments: [
+      { kind: 'warmup', seconds: 60 },
+      { kind: 'run', seconds: 60 },
+    ],
+  });
+
+  test('a pause just after a boundary heartbeat that ran early repeats no cue on resume', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(TWO);
+    h.setNow(START_MS + 59_850);
+    h.engine.heartbeat(START_MS + 60_000); // the screen's boundary tick, a little ahead of the clock
+    h.setNow(START_MS + 59_950);
+    h.engine.pause();
+    h.setNow(START_MS + 62_000);
+    h.engine.resume();
+    h.at(START_MS + 63_000);
+    expect(h.cues).toEqual(['warmupStart', 'lastRun', 'halfway', 'paused', 'resumed']);
+  });
+
+  test('after the device clock steps back, pausing and resuming repeat no cue', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(TWO);
+    h.at(START_MS + 70_000);
+    h.setNow(START_MS + 10_000); // the wall clock jumps back a minute
+    h.engine.pause();
+    h.setNow(START_MS + 12_000);
+    h.engine.resume();
+    h.at(START_MS + 13_000);
+    expect(h.cues).toEqual(['warmupStart', 'lastRun', 'halfway', 'paused', 'resumed']);
+  });
+});
+
 describe('what a free run cannot do, and what a plan run cannot', () => {
   test('a free run has nothing to skip', () => {
     const h = makeFreeRunEngine();

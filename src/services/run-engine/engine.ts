@@ -308,6 +308,11 @@ export class RunEngine {
     this.armFlush();
   }
 
+  /** The wall clock, never behind what a heartbeat already derived: a tap acts on the shown run. */
+  private derivationClock(): number {
+    return Math.max(this.clock(), this.derivedAt);
+  }
+
   private positionAt(at: number) {
     return this.mode!.position(this.events, activeElapsedMs(this.events, at) / 1000, at);
   }
@@ -416,10 +421,13 @@ export class RunEngine {
   private append(type: RunEvent['type'], at?: number): void {
     const last = this.events[this.events.length - 1];
     const floor = type === 'end' ? null : this.mode?.eventFloorMs();
-    this.events.push({ type, at: Math.max(at ?? this.clock(), last?.at ?? 0, floor ?? 0) });
+    this.events.push({
+      type,
+      at: Math.max(at ?? this.derivationClock(), last?.at ?? 0, floor ?? 0),
+    });
   }
 
-  private refresh(now: number = this.clock()): void {
+  private refresh(now: number = this.derivationClock()): void {
     if (!this.mode) return;
     const activeMs = activeElapsedMs(this.events, now);
     const { sampleSegmentSeq, ...view } = this.mode.view(this.events, activeMs / 1000, now);
@@ -606,7 +614,7 @@ export class RunEngine {
     const rowId = this.rowId;
     // why the mode is asked before `end` is appended: it decides where the run ends.
     const requestedEnd = Math.max(
-      at ?? this.clock(),
+      at ?? this.derivationClock(),
       this.events[this.events.length - 1].at,
       this.mode.eventFloorMs() ?? 0,
     );

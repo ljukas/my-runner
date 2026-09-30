@@ -1,14 +1,13 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Plan list → w1d1 running. Onboarding is already done and the caller has stubbed the
-# location answer on its own launchApp.
-# "Day 1" repeats in every week section — the first match is Week 1's.
-- scrollUntilVisible:
-    element:
-      text: "Day 1"
-      index: 0
-- tapOn:
-    text: "Day 1"
-    index: 0
+# The Run tab's chooser → w1d1 running. Onboarding is already done and the caller has stubbed the
+# location answer on its own launchApp. The button stays disabled until the launch-time resume check
+# settles, so wait for it to be enabled rather than tap it early.
+- extendedWaitUntil:
+    visible:
+      text: "Up next: Week 1 · Day 1"
+      enabled: true
+    timeout: 15000
+- tapOn: "Up next: Week 1 · Day 1"
 - assertVisible: "Week 1 · Day 1"
 - tapOn: "Start Session"

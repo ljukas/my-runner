@@ -24,7 +24,7 @@ tags:
     maxRetries: 3
     commands:
       - tapOn: "Not Now"
-      - assertVisible: "Week 1 ·.*" # skipping advances into the app
+      - runFlow: ../helpers/assert-run-home.yaml # skipping advances into the app
 - tapOn: "Settings"
 # LabeledContent merges label and value into one element ("Access, <value>"), so match the value
 # as a suffix — Maestro anchors text as a full match (ADR 0016).

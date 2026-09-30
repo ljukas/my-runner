@@ -1,0 +1,5 @@
+appId: se.lukaslindqvist.runbro.e2e
+---
+# The Run tab's chooser is showing. The card title is the anchor because it reads the same in every
+# plan state; a suffix match, since iOS merges the card's title and detail into one element.
+- assertVisible: "Couch to 5K.*"

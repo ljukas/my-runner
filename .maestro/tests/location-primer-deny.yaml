@@ -20,7 +20,7 @@ tags:
     maxRetries: 3
     commands:
       - tapOn: "Not Now"
-      - assertVisible: "Week 1 ·.*"
+      - runFlow: ../helpers/assert-run-home.yaml
 - tapOn: "Settings"
 - scrollUntilVisible:
     element:

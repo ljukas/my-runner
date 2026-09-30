@@ -17,6 +17,10 @@ const config = {
     SourceSkips.ExpoConfigVersions |
     SourceSkips.ExpoConfigRuntimeVersionIfString |
     SourceSkips.PackageJsonAndroidAndIosScriptsIfNotContainRun,
+  // Appended to the defaults, which ignore Gradle output only under `android/`: react-native-health-connect
+  // keeps its Expo module in `android-expo/`, so a local Gradle build's output there moved the Android
+  // hash off the EAS worker's clean install and failed the runtime-version check.
+  ignorePaths: ['**/android-expo/build/**/*'],
   // A local Gradle build (AGP 8's namespace migration) deletes the legacy `package="…"` attribute
   // from any dependency manifest that still carries one, inside node_modules — and the whole
   // package directory is an iOS fingerprint source, so `eas build --local -p ios` after

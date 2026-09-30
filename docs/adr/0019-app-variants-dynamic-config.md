@@ -4,7 +4,7 @@ Date: 2026-07-15
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge.
+Accepted (2026-07-16, on merge of #35). Implemented.
 
 Full design and verification plan:
 [`docs/superpowers/specs/2026-07-15-app-variants-design.md`](../superpowers/specs/2026-07-15-app-variants-design.md).

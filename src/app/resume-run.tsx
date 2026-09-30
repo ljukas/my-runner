@@ -30,7 +30,7 @@ export default function ResumeRunScreen() {
     // A false resume means the run expired between detection and the tap, so finalizing is the only
     // outcome left; show the saved run rather than returning silently. `celebrate` because this is a
     // fresh finish either way — the same acknowledgement an ended-early run gets.
-    // A free run under a minute is deleted, not saved: there is no summary to show.
+    // Nothing saved to show: a free run under a minute is deleted, and a failed save retries at launch.
     if (!(await declineResumableRun(candidate))) {
       router.replace('/');
       return;

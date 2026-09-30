@@ -130,3 +130,8 @@ Rule consequences for #79's outdoor capture to settle: a stop needs 30 uninterru
 stopped classification, so a phone with ≥ 4 m of standing jitter at 1 Hz may never auto-end, and
 fixes more than 30 s apart never measure a stop at all. The End dialog can say "saves" for up to
 a second before the limit discards the run.
+
+For 3b, from the review of the resume-screen change: a runner who taps "Save Run" on an offered free
+run under a minute returns home with the run deleted and nothing saying why; 3b's notice for
+`lastOutcome` should cover that case too (an abandon leaves no outcome today, so the resume sheet
+has to say it).

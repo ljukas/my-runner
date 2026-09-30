@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import * as Battery from 'expo-battery';
 import { useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
@@ -6,6 +6,7 @@ import { AppState } from 'react-native';
 import { findActiveRun } from '@/db/active-run';
 import { db } from '@/db/client';
 import { loadLearnedThreshold } from '@/db/motion-threshold';
+import { runIsResult } from '@/db/queries';
 import { loadLogResumeWatermarks } from '@/db/run-log';
 import { loadBufferedRunPoints } from '@/db/run-points';
 import { dbRunPersistence } from '@/db/save-run';
@@ -234,17 +235,22 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
 
 /**
  * Declining an offered run still finalizes it, so its track stays reachable from the Log. False
- * when that finalize deleted it instead: a free run under a minute (ADR 0026 §6).
+ * when there is no saved run to show: a free run under a minute is deleted (ADR 0026 §6), and a
+ * finalize that failed leaves the row `'active'` for the next launch. Never throws.
  */
 export async function declineResumableRun(candidate: ResumableRun): Promise<boolean> {
   try {
     await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
+    const saved = db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.id, candidate.runId), runIsResult))
+      .get();
+    return saved !== undefined;
   } catch (error) {
     console.warn('[run-engine] declining the resume failed', error);
+    return false;
   }
-  return (
-    db.select({ id: runs.id }).from(runs).where(eq(runs.id, candidate.runId)).get() !== undefined
-  );
 }
 
 /** Re-arms tracking after location is granted mid-run: this run's start() bailed out while the

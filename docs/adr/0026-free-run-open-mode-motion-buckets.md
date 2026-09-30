@@ -396,6 +396,12 @@ refined this ADR:
   finalize. A treadmill run or a lost signal therefore runs to End or the cap and is saved in full,
   its silence as stopped time. The measured stop is part of the step both the live engine and the
   fold take, so the live limit and the finalize trim read one value by construction.
+- **§3's classifier asserts no kind without evidence** (round-3 review). The first kind needs the
+  same 8 s dwell as any change, since a first sample comes off a fresh smoother; a gap forgets the
+  kind rather than re-asserting the one before it, so a stop right after a silence joins it (and is
+  trimmed through it) instead of leaving a phantom walk between them, while a stop that continues
+  across a gap keeps its measured time; and a silence before the first fix is stopped time, like
+  any other. Held-out agreement over the 8 plan-run captures is unchanged at 97.3%.
 - **A timer-only free run has no buckets.** With no speed ever measured, the fold confirms no kind,
   so no `run_segments` rows are written; the duration comes from the event log and the points keep
   `segment_seq` 0.

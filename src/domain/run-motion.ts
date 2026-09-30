@@ -101,14 +101,8 @@ export function motionStep(
   const candidate = sample.afterPause ? null : state.candidate;
   if (sample.speedMps === null) return { state: { ...state, candidate }, transition: null };
 
+  // why no shortcut for an unknown kind: a first sample comes off a fresh smoother, pure jitter
   const target = targetKind(state.kind, sample.speedMps, thresholdMps);
-  if (state.kind === null) {
-    return {
-      state: { kind: target, candidate: null },
-      transition: { kind: target, atMs: sample.atMs },
-    };
-  }
-
   if (target === state.kind) {
     if (!candidate) return { state: { kind: state.kind, candidate: null }, transition: null };
     const seen = candidate.seen + 1;
@@ -250,18 +244,19 @@ function measureStop(
   previous: OpenTrackState['measuredStop'],
   moved: MotionStep,
   fixMs: number,
-  afterGap: boolean,
   paused: readonly PausedInterval[],
   startMs: number,
 ): OpenTrackState['measuredStop'] {
-  if (moved.state.kind !== 'stopped') return null;
+  const { kind } = moved.state;
+  if (kind === 'walk' || kind === 'run') return null;
+  // why kept while unknown: after a gap the kind is forgotten, and a stop confirmed again continues it
+  if (kind === null) return previous;
   if (moved.transition?.kind === 'stopped' || previous === null) {
     const from = Math.max(moved.transition?.atMs ?? fixMs, startMs);
-    return { ms: fixMs > from ? activeMs(paused, from, fixMs) : 0, untilMs: fixMs };
+    const measured = fixMs > from ? activeMs(paused, from, fixMs) : 0;
+    return { ms: (previous?.ms ?? 0) + measured, untilMs: fixMs };
   }
-  if (afterGap || fixMs <= previous.untilMs) {
-    return { ms: previous.ms, untilMs: Math.max(previous.untilMs, fixMs) };
-  }
+  if (fixMs <= previous.untilMs) return previous;
   const from = Math.max(previous.untilMs, startMs);
   return { ms: previous.ms + (fixMs > from ? activeMs(paused, from, fixMs) : 0), untilMs: fixMs };
 }
@@ -291,15 +286,13 @@ export function openTrackStep(
   const afterGap = silentSince(paused, previous, fix.timestamp) !== null;
 
   const smoothed = smoothFix(afterPause ? createSmootherState() : state.smoother, fix);
+  // why the kind is forgotten across a gap: nothing says the runner resumed what they were doing
   const changes: MotionTransition[] =
     afterGap && previous !== null && state.motion.kind !== null
-      ? [
-          { kind: 'stopped', atMs: previous },
-          { kind: state.motion.kind, atMs: fix.timestamp },
-        ]
+      ? [{ kind: 'stopped', atMs: previous }]
       : [];
   const moved = motionStep(
-    state.motion,
+    afterGap ? createMotionState() : state.motion,
     {
       atMs: fix.timestamp,
       speedMps: smoothed.smoothedSpeedMps,
@@ -315,14 +308,7 @@ export function openTrackStep(
       smoother: smoothed.state,
       motion: moved.state,
       previousMs: smoothed.state.lastAcceptedTime,
-      measuredStop: measureStop(
-        state.measuredStop,
-        moved,
-        fix.timestamp,
-        afterGap,
-        paused,
-        startMs,
-      ),
+      measuredStop: measureStop(state.measuredStop, moved, fix.timestamp, paused, startMs),
     },
     acceptedDeltaMeters: smoothed.acceptedDeltaMeters,
     smoothedPoint: smoothed.smoothedPoint,
@@ -347,18 +333,23 @@ export function rollupOpenTrack(
   const points: LatLng[] = [];
   let distanceM = 0;
 
+  let firstFixMs: number | null = null;
   for (const fix of fixes) {
     // why only the end is cut: the engine ingests a fix stamped just before the start (a cached
     // first fix), so dropping it would make the saved distance differ from the live one.
     if (fix.timestamp > endMs) continue;
     const step = openTrackStep(state, fix, stepOptions);
     state = step.state;
+    firstFixMs ??= state.previousMs;
     distanceM += step.acceptedDeltaMeters;
     if (step.acceptedDeltaMeters > 0) {
       deltas.push({ atMs: fix.timestamp, m: step.acceptedDeltaMeters });
     }
     if (step.smoothedPoint) points.push(step.smoothedPoint);
     changes.push(...step.changes);
+  }
+  if (firstFixMs !== null && silentSince(stepOptions.paused, startMs, firstFixMs) !== null) {
+    changes.unshift({ kind: 'stopped', atMs: startMs });
   }
   const silent = silentSince(stepOptions.paused, state.previousMs, endMs);
   if (silent !== null && state.motion.kind !== null)

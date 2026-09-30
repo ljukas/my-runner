@@ -49,9 +49,15 @@ function transitionsOf(
 }
 
 describe('motionStep', () => {
-  test('the first sample with a speed sets the kind at once, ignoring earlier nulls', () => {
-    expect(transitionsOf(samplesAt([null, null, 1.5, 1.5]))).toEqual([
-      { index: 2, transition: { kind: 'walk', atMs: 2000 } },
+  test('the first kind needs the same 8 s dwell, backdated to its first sample with a speed', () => {
+    expect(transitionsOf(samplesAt([null, null, ...repeat(1.5, 12)]))).toEqual([
+      { index: 10, transition: { kind: 'walk', atMs: 2000 } },
+    ]);
+  });
+
+  test('one jittery first sample does not decide the first kind', () => {
+    expect(transitionsOf(samplesAt([3.2, ...repeat(0.1, 12)]))).toEqual([
+      { index: 8, transition: { kind: 'stopped', atMs: 0 } },
     ]);
   });
 
@@ -288,11 +294,55 @@ describe('rollupOpenTrack', () => {
       endMs: endOf(fixes),
     });
     expect(buckets.map((b) => b.kind)).toEqual(['run', 'stopped', 'run']);
-    expect(buckets[1]).toMatchObject({
-      startMs: 60_000,
-      endMs: 60_000 + (gapS + 1) * 1000,
-      distanceM: 0,
+    expect(buckets[1].startMs).toBe(60_000);
+    // the run after the gap is confirmed anew, from its first sample with a speed: at most the one
+    // leg before that sample falls in the stopped bucket
+    expect(buckets[1].distanceM).toBeLessThan(3);
+    expect(buckets[1].endMs - (60_000 + (gapS + 1) * 1000)).toBeGreaterThanOrEqual(0);
+    expect(buckets[1].endMs - (60_000 + (gapS + 1) * 1000)).toBeLessThanOrEqual(2000);
+  });
+
+  test('after a gap the kind is unknown until confirmed, so a stop right after one joins it', () => {
+    const fixes = track([
+      { seconds: 300, mps: 1.5, gapAfterS: 600 },
+      { seconds: 600, mps: 0 },
+    ]);
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
     });
+    expect(buckets.map((b) => b.kind)).toEqual(['walk', 'stopped']);
+  });
+
+  test('a silence before the first fix is stopped time, like a silence anywhere else', () => {
+    const fixes = track([{ seconds: 600, mps: 0 }]).map((f) => ({
+      ...f,
+      timestamp: f.timestamp + 300_000,
+    }));
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    expect(buckets.map((b) => b.kind)).toEqual(['stopped']);
+  });
+
+  test('a run whose GPS locks late starts with the silence as stopped, not as running', () => {
+    const fixes = track([{ seconds: 300, mps: 2.6 }]).map((f) => ({
+      ...f,
+      timestamp: f.timestamp + 300_000,
+    }));
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    expect(buckets.map((b) => b.kind)).toEqual(['stopped', 'run']);
+    expect(buckets[0].startMs).toBe(0);
   });
 });
 

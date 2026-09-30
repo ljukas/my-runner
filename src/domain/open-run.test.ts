@@ -73,6 +73,24 @@ describe('deriveOpenRun', () => {
     expect(derived.buckets.map((b) => b.kind)).toEqual(['run', 'stopped']);
   });
 
+  test('a measured stop right after a silence trims the silence with it', () => {
+    // walk 300 s, GPS lost for 10 min, then standing where it came back for 32 min
+    const walk = track([[300, 1.5]]);
+    const northM = 300 * 1.5;
+    const standing = Array.from({ length: 1920 }, (_, i) => ({
+      ...walk[0],
+      timestamp: 900_000 + (i + 1) * 1000,
+      lat: 59 + northM * DEG_PER_M,
+    }));
+    const derived = deriveOpenRun({
+      events: run(900_000 + 1920 * 1000),
+      fixes: [...walk, ...standing],
+      thresholdMps: T,
+    });
+    expect(derived.buckets.map((b) => b.kind)).toEqual(['walk']);
+    expect(derived.endMs).toBe(300_000);
+  });
+
   test('saves a run whose GPS fell silent after two fixes in full, never as too short', () => {
     const fixes = track([[2, 2.6]]);
     const derived = deriveOpenRun({ events: run(40 * 60_000), fixes, thresholdMps: T });

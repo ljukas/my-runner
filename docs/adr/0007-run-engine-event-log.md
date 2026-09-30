@@ -132,7 +132,7 @@ single time source.
 
 ## Amendment (2026-09-29): an open-ended run mode (ADR 0026)
 
-A free run has no timeline and can outlive its process by hours, so four of this ADR's rules apply
+A free run has no timeline and can outlive its process by hours, so five of this ADR's rules apply
 to it differently (stage 3a of the free run, `src/services/run-engine/mode.ts`):
 
 - **§3's forward-clock bound.** A scripted run's elapsed time is capped at timeline exhaustion; an
@@ -150,6 +150,9 @@ to it differently (stage 3a of the free run, `src/services/run-engine/mode.ts`):
   limit's `end` land after the latest fix it was fed, because the fold drops a fix inside a pause or
   after the end; the cap's `end` sits at the 4-hour instant instead. Its fixes are stored at
   `min(fix time, wall clock)`, so the floor never runs ahead of the clock.
+- **§5's announced-cue watermark** (2026-09-30, stage 4). An open run persists none for its
+  kilometre cue: a resume re-derives it from the re-folded points (`RunMode.caughtUp`), so a
+  kilometre crossed in the unflushed tail may be spoken again (ADR 0026 §7).
 
 Everything else holds unchanged: state is still derived from the event log alone, the mode is asked
 before the `end` event is appended (it decides where the run ends), and every plan-run rule lives,

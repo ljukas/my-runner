@@ -8,6 +8,8 @@ Date: 2026-07-11
 
 Accepted (Decision 7's *mechanism* amended 2026-07-28 — a per-run run lock
 replaced the persisted screen-awake toggle; the decision itself is unchanged).
+Decision 1 amended 2026-09-30: a cue may carry typed data (see the amendment
+at the end).
 
 ## Context
 
@@ -248,3 +250,20 @@ and one measured on the emulator (Pixel 9 Pro API 36, Google TTS):
   cold relaunch, were clean. The emulator was under heavy load at the time
   (another dev client was ANR-ing). If it recurs on a device, the scheduler's
   documented scope-out (no per-utterance watchdog) is the place to revisit.
+
+## Amendment (2026-09-30): typed cue data (ADR 0026 stage 4)
+
+The free run's kilometre cue has to say numbers, which a fixed ID cannot
+([ADR 0026](0026-free-run-open-mode-motion-buckets.md) §7). Decision 1 now reads:
+
+- **The port speaks IDs, plus typed data for a cue that needs it.**
+  `CueService.announce(cue: CueId, data?: CueData)`. Today only `kilometre` carries data,
+  `{ km, paceSecPerKm }`. The phrase is still built in `domain/cues.ts` (`cuePhrase`,
+  `kilometrePhrase`), so a string never crosses the port and the engine never formats speech.
+- **The fallback's rule for data.** The pre-recorded adapter stays one asset per `CueId` and ignores
+  `data`. For `kilometre` that asset is the fixed `CUE_PHRASE.kilometre`, "Kilometre.", with no
+  numbers: a clip per distance and pace is out of scope, and losing the numbers is the fallback's
+  stated cost. No pre-recorded adapter exists yet (Decision 6: built only if triggered).
+- **Gating is unchanged.** `kilometre` is a milestone cue; the composition seam passes `data` through
+  with the resolved cue.
+- **Haptic.** `CUE_HAPTIC.kilometre` is Pulsar's `bellToll`, a marker that recurs through the run.

@@ -14,6 +14,7 @@ import {
   formatRunDate,
   paceParts,
   sessionSummary,
+  runTitle,
   sessionTitle,
 } from './format';
 import { NHS_PLAN, getSession } from './plan';
@@ -64,6 +65,13 @@ describe('sessionTitle', () => {
   test('formats plan keys and falls back to the raw key', () => {
     expect(sessionTitle('w1d2')).toBe('Week 1 · Day 2');
     expect(sessionTitle('unknown')).toBe('unknown');
+  });
+});
+
+describe('runTitle', () => {
+  test('titles a free run as one, and a plan run by its day', () => {
+    expect(runTitle('free-run')).toBe('Free run');
+    expect(runTitle('w3d2')).toBe('Week 3 · Day 2');
   });
 });
 

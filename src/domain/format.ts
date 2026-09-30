@@ -1,3 +1,4 @@
+import { isFreeRun } from './free-run';
 import { parseSessionKey, type PlanSession } from './plan';
 import type { StoredSegmentKind } from './run-motion';
 
@@ -38,6 +39,11 @@ export function formatMinutes(totalSeconds: number): string {
 export function sessionTitle(key: string): string {
   const parsed = parseSessionKey(key);
   return parsed ? `Week ${parsed.week} · Day ${parsed.day}` : key;
+}
+
+/** A stored run's title: a free run has no plan day (spec §5.3). */
+export function runTitle(sessionKey: string): string {
+  return isFreeRun(sessionKey) ? 'Free run' : sessionTitle(sessionKey);
 }
 
 /** Human words for a segment length: whole minutes as "N-minute", otherwise "N-second". */

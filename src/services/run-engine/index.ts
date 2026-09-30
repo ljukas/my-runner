@@ -232,13 +232,19 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
   }
 }
 
-/** Declining an offered run still finalizes it, so its track stays reachable from the Log. */
-export async function declineResumableRun(candidate: ResumableRun): Promise<void> {
+/**
+ * Declining an offered run still finalizes it, so its track stays reachable from the Log. False
+ * when that finalize deleted it instead: a free run under a minute (ADR 0026 §6).
+ */
+export async function declineResumableRun(candidate: ResumableRun): Promise<boolean> {
   try {
     await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
   } catch (error) {
     console.warn('[run-engine] declining the resume failed', error);
   }
+  return (
+    db.select({ id: runs.id }).from(runs).where(eq(runs.id, candidate.runId)).get() !== undefined
+  );
 }
 
 /** Re-arms tracking after location is granted mid-run: this run's start() bailed out while the

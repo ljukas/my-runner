@@ -32,14 +32,14 @@ import {
   formatClock,
   formatDistanceKm,
   formatRunDate,
-  sessionTitle,
+  runTitle,
 } from '@/domain/format';
 import { isFieldTestRun } from '@/services/field-test';
 
-/** The Log's title for a row — distinct from `sessionTitle`'s plan-day format so a field-test
+/** The Log's title for a row — distinct from `runTitle`'s plan-day format so a field-test
  * capture (spec §8.0) can never be misread as training. */
 function rowTitle(sessionKey: string): string {
-  return isFieldTestRun(sessionKey) ? 'Field test' : sessionTitle(sessionKey);
+  return isFieldTestRun(sessionKey) ? 'Field test' : runTitle(sessionKey);
 }
 
 /**

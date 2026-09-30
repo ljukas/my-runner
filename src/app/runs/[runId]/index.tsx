@@ -17,7 +17,7 @@ import { UNSAVED_RUN_ID } from '@/constants/routes';
 import { db } from '@/db/client';
 import { runNotDeleted } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
-import { sessionTitle } from '@/domain/format';
+import { runTitle } from '@/domain/format';
 import { useRunTrack } from '@/hooks/use-run-track';
 
 /**
@@ -72,7 +72,7 @@ export default function RunSummaryScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: run ? sessionTitle(run.sessionKey) : '' }} />
+      <Stack.Screen options={{ title: run ? runTitle(run.sessionKey) : '' }} />
 
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"

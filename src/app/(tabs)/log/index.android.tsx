@@ -11,13 +11,13 @@ import { Text as RNText } from '@/components/ui/text';
 import { db } from '@/db/client';
 import { runIsResult } from '@/db/queries';
 import { runs } from '@/db/schema';
-import { formatClock, formatDistanceKm, formatRunDate, sessionTitle } from '@/domain/format';
+import { formatClock, formatDistanceKm, formatRunDate, runTitle } from '@/domain/format';
 import { useTheme } from '@/hooks/use-theme';
 import { isFieldTestRun } from '@/services/field-test';
 
 /** See the iOS Log for why a field-test capture never reads as training. */
 function rowTitle(sessionKey: string): string {
-  return isFieldTestRun(sessionKey) ? 'Field test' : sessionTitle(sessionKey);
+  return isFieldTestRun(sessionKey) ? 'Field test' : runTitle(sessionKey);
 }
 
 export default function LogScreen() {

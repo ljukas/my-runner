@@ -57,7 +57,7 @@ export default function SettingsScreen() {
         />
         <SettingsToggle
           label="Milestone cues"
-          description="Milestone cues add motivational spots — halfway, your last run, and finishing. A gentle vibration accompanies each cue while the screen is on."
+          description="Milestone cues add motivational spots — halfway, your last run, each kilometre of a free run, and finishing. A gentle vibration accompanies each cue while the screen is on."
           settingKey="milestoneCuesEnabled"
         />
 

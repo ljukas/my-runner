@@ -18,6 +18,7 @@ export const CUE_IDS = [
   'paused',
   'resumed',
   'resuming',
+  'kilometre',
 ] as const;
 
 export type CueId = (typeof CUE_IDS)[number];
@@ -37,6 +38,7 @@ export const CUE_CATEGORY: Record<CueId, CueCategory> = {
   paused: 'interval',
   resumed: 'interval',
   resuming: 'interval',
+  kilometre: 'milestone',
 };
 
 /** English cue script (spec §6). Warm-up and cool-down name the walk so the
@@ -52,7 +54,45 @@ export const CUE_PHRASE: Record<CueId, string> = {
   paused: 'Paused.',
   resumed: 'Resumed.',
   resuming: 'Resuming your workout.',
+  // why no numbers: this is also the pre-recorded fallback's one fixed clip (ADR 0009 amendment)
+  kilometre: 'Kilometre.',
 };
+
+/** A free run's kilometre cue: the kilometre just reached and the moving pace over it, if known. */
+export interface KilometreCueData {
+  km: number;
+  paceSecPerKm: number | null;
+}
+
+export type CueData = KilometreCueData;
+
+/** What a run mode asks to be announced; `data` is typed, never a phrase (ADR 0026 §7). */
+export interface ModeCue {
+  cue: CueId;
+  data?: CueData;
+}
+
+const plural = (count: number, unit: string) => `${count} ${unit}${count === 1 ? '' : 's'}`;
+
+// why a floor: a pace under a minute per kilometre is a GPS artefact, not something to read aloud
+const MIN_SPOKEN_PACE_S = 60;
+
+/** "2 kilometres. 6 minutes 40 per kilometre." — the pace is dropped when unknown. */
+export function kilometrePhrase({ km, paceSecPerKm }: KilometreCueData): string {
+  const head = `${plural(km, 'kilometre')}.`;
+  if (paceSecPerKm === null || !Number.isFinite(paceSecPerKm)) return head;
+  // why rounded before splitting: 359.6 s must read "6 minutes", never "5 minutes 60"
+  const total = Math.round(paceSecPerKm);
+  if (total < MIN_SPOKEN_PACE_S) return head;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${head} ${plural(minutes, 'minute')}${seconds === 0 ? '' : ` ${seconds}`} per kilometre.`;
+}
+
+/** The sentence an adapter speaks for a cue. */
+export function cuePhrase(cue: CueId, data?: CueData): string {
+  return cue === 'kilometre' && data ? kilometrePhrase(data) : CUE_PHRASE[cue];
+}
 
 /** Which cue announces entry into a segment of a given kind (except the final
  * run, which the engine announces as `lastRun`). */

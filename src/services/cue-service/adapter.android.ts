@@ -2,7 +2,7 @@ import { setAudioModeAsync } from 'expo-audio';
 import * as Speech from 'expo-speech';
 import { AppState } from 'react-native';
 
-import { CUE_PHRASE, type CueId } from '@/domain/cues';
+import { cuePhrase, type CueData, type CueId } from '@/domain/cues';
 import { AudioFocus } from '@/modules/audio-focus';
 import { CUE_HAPTIC } from './cue-haptics';
 import type { CueService } from './port';
@@ -53,7 +53,7 @@ export const cueService: CueService = {
     void Speech.isSpeakingAsync().catch(warn('warm-up'));
   },
 
-  announce(cue: CueId) {
+  announce(cue: CueId, data?: CueData) {
     releaseScheduler.begin();
     try {
       if (!AudioFocus.request()) warn('focus')('not granted');
@@ -61,7 +61,7 @@ export const cueService: CueService = {
       warn('focus')(error);
     }
     try {
-      Speech.speak(CUE_PHRASE[cue], {
+      Speech.speak(cuePhrase(cue, data), {
         language: SPEECH_LANGUAGE,
         onDone: () => releaseScheduler.end(),
         onError: () => releaseScheduler.end(),

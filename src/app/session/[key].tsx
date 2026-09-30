@@ -22,6 +22,7 @@ import {
   sessionTotalSeconds,
   sessionWalkSeconds,
 } from '@/domain/plan';
+import { useRunEntry } from '@/hooks/use-run-entry';
 import { useStartRun } from '@/hooks/use-start-run';
 import { useTheme } from '@/hooks/use-theme';
 import { useActivePlan } from '@/services/active-plan';
@@ -32,6 +33,7 @@ export default function SessionSheet() {
   const plan = useActivePlan();
   const session = getSession(plan, key);
   const start = useStartRun();
+  const entry = useRunEntry();
   const { data: attempts, updatedAt } = useLiveQuery(
     db
       .select({ id: runs.id })
@@ -68,7 +70,12 @@ export default function SessionSheet() {
         </StatList>
       </Card>
 
-      <Island.Button fill label="Start Session" onPress={() => void start(scriptedPlan(session))} />
+      <Island.Button
+        fill
+        label="Start Session"
+        disabled={entry.disabled}
+        onPress={() => void start(scriptedPlan(session))}
+      />
     </View>
   );
 }

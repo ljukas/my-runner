@@ -49,7 +49,11 @@ keeps `figure.run` / `directions_run`, the cards get `calendar` / `calendar_mont
   `RunModeCard`), so `index.android.tsx` is gone; the week list is `plan.tsx` + `plan.android.tsx`
   (moved), titled "Couch to 5K"; one `_layout.tsx` serves both platforms. `tsconfig.android.json`
   excludes `plan.tsx` instead of `index.tsx`.
-- `RunNoticeRow` on iOS is a plain `Island.Text` now that it sits in a `VStack`, not a `List`.
+- `RunNoticeRow` on iOS is a plain `Island.Text` now that it sits in a `VStack`, not a `List`; the
+  week list shows it too, in its own `Section` (iOS) or as the first `LazyColumn` item (Android).
+- Review round, owner answers: `useStartRun` returns early while the resume gate is not clear and
+  both sheets disable Start with it; the Run stack anchors on `index`; every `router.push` in the
+  app became `router.navigate` (AGENTS.md now says so: `push` only where a duplicate must stack).
 
 ## E2E
 

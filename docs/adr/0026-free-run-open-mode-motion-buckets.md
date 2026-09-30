@@ -492,7 +492,12 @@ This supersedes the entry-point bullet of Decision §6 and the entry bullet of t
   `List`, where two buttons in one row both fire; Material 3 cards on Android. The chooser route
   itself is platform-blind, so it is still a pure island ([ADR 0005](0005-system-native-ui-expo-ui.md)).
 - **Every start now waits on the resume gate**: the free-run card, the Up next button and the week
-  list's rows (`useRunEntry`). The 3b amendment's asymmetry — only the free-run entry waited — was
-  invisible with the entry in a header and would be visible with both side by side. Opening the
-  week list only browses and stays open.
-- **The not-saved notice** shows above the chooser's cards, where `leaveToTabs` lands.
+  list's rows (`useRunEntry`), the two sheets' Start buttons, and `useStartRun` itself, so a sheet
+  reached by a deep link during the check cannot start a run beside the one it may offer. The 3b
+  amendment's asymmetry — only the free-run entry waited — was invisible with the entry in a header
+  and would be visible with both side by side. Opening the week list only browses and stays open.
+- **The not-saved notice** shows above the chooser's cards and at the top of the week list: a
+  resume sheet can open over the list, and `leaveToTabs` then lands there, not on the chooser.
+- **The Run stack anchors on the chooser** (`unstable_settings.anchor`), so a deep link to the week
+  list keeps its way back, and the entries use `router.navigate`: a double tap unwinds to the screen
+  it already opened instead of stacking a second one.

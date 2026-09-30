@@ -4,6 +4,7 @@ import { useRef } from 'react';
 import type { RunPlan } from '@/domain/free-run';
 import { locationTracker } from '@/services/location-tracker';
 import { runEngine } from '@/services/run-engine';
+import { getResumeGate } from '@/services/run-engine/resume-offer';
 import { runNotices } from '@/services/run-notice/store';
 
 /** A start sheet's one action: ask for location if never asked, start the run, open the run screen. */
@@ -12,8 +13,9 @@ export function useStartRun(): (plan: RunPlan) => Promise<void> {
   const starting = useRef(false);
 
   return async (plan) => {
-    // The handler is async, so a second tap could start the run twice.
-    if (starting.current) return;
+    // The handler is async, so a second tap could start the run twice. A sheet reached by a deep
+    // link can be open before the launch-time resume check settles, beside the run it may offer.
+    if (starting.current || getResumeGate() !== 'clear') return;
     starting.current = true;
     try {
       // The just-in-time ask, reached only when the primer was skipped — the prompt is never cold

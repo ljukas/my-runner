@@ -6,5 +6,5 @@ export const RUN_NOTICE_TEXT: Record<RunNotice, string> = {
   tooShort: 'Too short to save — under a minute',
 };
 
-/** How long the notice stays: a few seconds, with margin for a test's polling. */
+/** Counted from when the Plan tab first shows it (`useRunNotice`). */
 export const NOTICE_TTL_MS = 6000;

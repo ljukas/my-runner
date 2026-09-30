@@ -21,11 +21,12 @@ function fakeTimers() {
 }
 
 describe('the run notice', () => {
-  test('shows what was posted, then expires on its own', () => {
+  test('shows what was posted, then expires on its own once seen', () => {
     const t = fakeTimers();
     const notices = createRunNotices(6000, t.timers);
     notices.post('discarded');
     expect(notices.getSnapshot()).toBe('discarded');
+    notices.shown();
     t.fire();
     expect(notices.getSnapshot()).toBeNull();
   });
@@ -34,8 +35,11 @@ describe('the run notice', () => {
     const t = fakeTimers();
     const notices = createRunNotices(6000, t.timers);
     notices.post('discarded');
+    notices.shown();
     notices.post('tooShort');
     expect(notices.getSnapshot()).toBe('tooShort');
+    expect(t.armed()).toBe(false);
+    notices.shown();
     t.fire();
     expect(notices.getSnapshot()).toBeNull();
   });
@@ -44,9 +48,36 @@ describe('the run notice', () => {
     const t = fakeTimers();
     const notices = createRunNotices(6000, t.timers);
     notices.post('tooShort');
+    notices.shown();
     notices.dismiss();
     expect(notices.getSnapshot()).toBeNull();
     expect(t.armed()).toBe(false);
+  });
+
+  test('its time starts when it is first shown, not when it is posted', () => {
+    const t = fakeTimers();
+    const notices = createRunNotices(6000, t.timers);
+    notices.post('discarded');
+    expect(t.armed()).toBe(false);
+    notices.shown();
+    expect(t.armed()).toBe(true);
+    t.fire();
+    notices.shown();
+    expect(t.armed()).toBe(false);
+    expect(notices.getSnapshot()).toBeNull();
+  });
+
+  test('showing it again does not restart its time', () => {
+    const t = fakeTimers();
+    let sets = 0;
+    const notices = createRunNotices(6000, {
+      ...t.timers,
+      set: (fn: () => void) => ((sets += 1), t.timers.set(fn)),
+    });
+    notices.post('tooShort');
+    notices.shown();
+    notices.shown();
+    expect(sets).toBe(1);
   });
 
   test('subscribers hear each change once', () => {

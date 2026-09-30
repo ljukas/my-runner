@@ -443,3 +443,27 @@ refined this ADR:
   (`figure.stand` / `accessibility_new`) wherever a stored kind is looked up — moved from 3b into 3a,
   because the widened type would not compile without them. Nothing can create a stopped row until
   3b adds the entry point.
+
+## Amendment (2026-09-30): stage 3b built
+
+The surfaces shipped as stage 3b ([plan](../superpowers/plans/2026-09-30-free-run-stage-3b-surfaces.md)).
+Where the build refined this ADR or the spec:
+
+- **The entry** is a "New free run" button on the Plan header: an iOS `Stack.Toolbar` button, and on
+  Android a header view in a fork of the Plan stack's layout. It is disabled while the launch-time
+  resume is looked for or decided; the resume gate became an observable store for it, and fails
+  closed. The `/free-run` sheet shares the session sheet's start action (`useStartRun`).
+- **The run screen's phase** reads Running, Walking or Stopped in the bucket's colour, and "Waiting
+  for GPS" or "Timer only" in a neutral grey with their own symbols, so a run without GPS never
+  reads as stopped. The rolling pace shows only for a confirmed run or walk.
+- **End** uses one `end` variant on `RunTransport` (a plan run's dialog is word for word as before;
+  a free run's offers Save Run and Discard, with Discard in the Android dialog's body). Under a
+  minute, End takes the save path, which the mode turns into a "too short" discard, so only the
+  dialog's Discard reads as "discarded".
+- **The not-saved notice** is a store with a TTL, fed once per outcome by a module-scope bridge from
+  the engine's idle snapshot (deduped by snapshot identity, so a remount never repeats it) and by a
+  declined resume whose free run was deleted; the Plan list shows it as its first row. A free run
+  that leaves no summary dismisses the run modal back to the tabs, where a `<Redirect>` had pushed
+  a second copy of them.
+- **The summary** without measured distance keeps only Active Time, so the E2E flows anchor on it
+  (spec §8 corrected).

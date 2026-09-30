@@ -72,3 +72,18 @@ notice and the summary.
 - On device: the iOS simulator and the Android emulator through argent, with a GPS drive through
   run, walk and stop; light and dark; Android screens scrolled to the bottom.
 - Adversarial review before the PR.
+
+## Found on device (2026-09-30)
+
+Verified on the iOS 27 simulator and the Android emulator (API 37) through argent, with GPS driven
+through run, walk and stop, in light and dark. Fixed on the way:
+
+- The rolling pace showed while the label still read "Waiting for GPS" (before the first kind's
+  8 s dwell).
+- A discarded or too-short free run's idle `<Redirect href="/">` pushed a second copy of the tabs
+  over the first; the run screen now dismisses back to them.
+
+Noted, not changed: the Skia digits always draw two minute digits ("05:00"), as the plan countdown
+already does; the pace chart's tail dives where a run slows into a stop until stage 4's bands; the
+dev client can crash natively (`ExpoFabricView.injectInitializer`) when a bundle is opened from its
+launcher menu after a relaunch — a cold `open-url` straight to Metro does not.

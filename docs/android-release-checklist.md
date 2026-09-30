@@ -36,7 +36,7 @@ Steps 1–3 do not need the Play account.
       ```
       Answer yes to "Generate a new Android Keystore?". Keep the resulting AAB; it
       is the manual upload in step 6.
-- [ ] **3. Upload key SHA-1 on the Maps key.** `bunx eas-cli credentials -p android`
+- [x] **3. Upload key SHA-1 on the Maps key.** `bunx eas-cli credentials -p android`
       → `production` → shows the keystore's SHA-1. Add it (package
       `se.lukaslindqvist.runbro`) to the key's Android restriction in Google Cloud,
       beside the existing debug-keystore entry. Internal `preview` APKs are signed
@@ -55,10 +55,12 @@ Developer account id `8846992213517983364`.
       **Play App Signing** when asked (Google holds the app-signing key; the EAS key
       from step 2 becomes the upload key). Google's API cannot create an app's first
       release, which is why EAS Submit cannot do this step.
-- [x] **7. App-signing SHA-1 on the Maps key.** Test and release → App integrity →
-      App signing → copy the **app signing key** SHA-1 and add it to the Maps key's
-      restriction. Store-installed builds are re-signed with this key; without the
-      entry their maps are blank.
+- [x] **7. App-signing SHA-1 on the Maps key.** Protected with Play → Play Store
+      Protection → Protection → Manage Play App Signing → **App signing key** →
+      *Classical key* → copy its SHA-1 (not the post-quantum key's, and not the
+      *Upload key certificate* further down, which is step 3's) and add it to the
+      Maps key's restriction. Store-installed builds are re-signed with this key;
+      without the entry their maps are blank.
 - [x] **8. Service account for EAS Submit.** Follow <https://expo.fyi/creating-google-service-account>:
       Google Cloud service account + JSON key, invited in Play Console → Users and
       permissions with release permissions for this app. Upload the JSON on

@@ -1,4 +1,5 @@
 import type { SegmentKind } from '@/domain/plan';
+import type { RunNotice } from '@/domain/run-notice';
 import type { MotionKind } from '@/domain/run-motion';
 
 /** Wall-clock time source, epoch milliseconds (ADR 0007: wall clock only). */
@@ -25,7 +26,7 @@ interface RunSnapshotBase {
   /** Epoch ms the active clock counts up from while running (now − active time); null otherwise. */
   elapsedAnchorMs: number | null;
   /** Why the last run left no summary (a free run, ADR 0026 §6); null otherwise, and once a run starts. */
-  lastOutcome: 'discarded' | 'tooShort' | null;
+  lastOutcome: RunNotice | null;
 }
 
 export interface ScriptedRunSnapshot extends RunSnapshotBase {

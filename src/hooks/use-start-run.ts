@@ -4,6 +4,7 @@ import { useRef } from 'react';
 import type { RunPlan } from '@/domain/free-run';
 import { locationTracker } from '@/services/location-tracker';
 import { runEngine } from '@/services/run-engine';
+import { runNotices } from '@/services/run-notice/store';
 
 /** A start sheet's one action: ask for location if never asked, start the run, open the run screen. */
 export function useStartRun(): (plan: RunPlan) => Promise<void> {
@@ -26,6 +27,7 @@ export function useStartRun(): (plan: RunPlan) => Promise<void> {
     // The engine's start() no-ops unless idle, so reset any prior finished run
     // here (its state lingers harmlessly until now — no screen reads it between
     // runs). This is why the summary no longer needs to reset the engine when it's dismissed.
+    runNotices.dismiss();
     runEngine.reset();
     runEngine.start(plan);
     // Replace, not push: the run screen is a full-screen modal, so the start sheet

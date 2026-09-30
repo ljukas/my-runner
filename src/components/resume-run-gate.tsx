@@ -3,10 +3,11 @@ import { useEffect } from 'react';
 
 import { onboarding } from '@/services/onboarding-store';
 import { detectResumableRun, runEngine } from '@/services/run-engine';
-import { setResumeOffer } from '@/services/run-engine/resume-offer';
-
-// Module scope, so a StrictMode double-mount cannot offer the same run twice.
-let offered = false;
+import {
+  beginResumeCheck,
+  setResumeOffer,
+  settleResumeCheck,
+} from '@/services/run-engine/resume-offer';
 
 /** Offers the run a crash or force-quit interrupted, at most once per launch. Detection reads the
  *  database, so it must sit behind the migrations gate. */
@@ -15,17 +16,20 @@ export function ResumeRunGate() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (offered) return;
-    // A live in-process run already owns the engine, and a pending onboarding step would strand the
-    // sheet under the onboarding modal — pathname re-runs this once that modal closes.
-    if (runEngine.getSnapshot().status !== 'idle') return;
+    // A live in-process run already owns the engine: nothing to offer while it runs.
+    if (runEngine.getSnapshot().status !== 'idle') return settleResumeCheck();
+    // A pending onboarding step would strand the sheet under the onboarding modal — pathname re-runs
+    // this once that modal closes.
     if (onboarding.pendingSteps().length > 0) return;
-    offered = true;
-    void detectResumableRun().then((found) => {
-      if (!found) return;
-      setResumeOffer(found);
-      router.push('/resume-run');
-    });
+    // Module scope, so a StrictMode double-mount cannot offer the same run twice.
+    if (!beginResumeCheck()) return;
+    void detectResumableRun()
+      .then((found) => {
+        if (!found) return settleResumeCheck();
+        setResumeOffer(found);
+        router.push('/resume-run');
+      })
+      .catch(() => settleResumeCheck());
   }, [router, pathname]);
 
   return null;

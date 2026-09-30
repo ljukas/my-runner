@@ -21,6 +21,8 @@ import { syncRunToHealth, withHealthSync } from '@/services/health';
 import { locationTracker } from '@/services/location-tracker';
 import { dbRunStore } from '@/services/run-store';
 import type { RunSnapshotState } from '@/services/run-store/port';
+import { bridgeEngineNotices } from '@/services/run-notice/bridge';
+import { runNotices } from '@/services/run-notice/store';
 import { stepCounterSource } from '@/services/step-counter';
 import { RunEngine, type RunRestoreInput } from './engine';
 import { isExhaustedOnResume, modeFor } from './mode';
@@ -97,6 +99,10 @@ locationTracker.onFix((fix) => {
   // finalize rollup never emits, silently dropping that distance from the per-segment split (ADR 0021 §4).
   runEngine.heartbeat(Math.min(fix.timestamp, Date.now()), fix);
 });
+
+// why module scope: a screen that read the idle snapshot on mount would repeat its notice on every
+// remount; the bridge posts each outcome once (ADR 0026 §6).
+bridgeEngineNotices(runEngine, runNotices);
 
 try {
   AppState.addEventListener('change', (state) => {
@@ -246,7 +252,12 @@ export async function declineResumableRun(candidate: ResumableRun): Promise<bool
       .from(runs)
       .where(and(eq(runs.id, candidate.runId), runIsResult))
       .get();
-    return saved !== undefined;
+    if (saved !== undefined) return true;
+    // An abandon leaves no outcome on the engine, so the deleted free run is announced here; a row
+    // still there is a failed save the next launch retries, which is no reason to say "too short".
+    const gone = db.select({ id: runs.id }).from(runs).where(eq(runs.id, candidate.runId)).get();
+    if (gone === undefined && candidate.plan.mode === 'open') runNotices.post('tooShort');
+    return false;
   } catch (error) {
     console.warn('[run-engine] declining the resume failed', error);
     return false;

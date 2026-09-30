@@ -46,7 +46,10 @@ export function freeRunLocationLine(location: LocationState): string {
   return 'Location is off: this run will be timer only.';
 }
 
-export const FREE_RUN_ENTRY_LABEL = 'New free run';
+export const FREE_RUN_CARD = {
+  title: 'Free run',
+  detail: 'Run, walk or stop as you like — no plan.',
+} as const;
 
 export const FREE_RUN_END_DIALOG = {
   title: 'End this run?',

@@ -9,11 +9,10 @@ or the store declarations. This checklist is that gap ([ADR 0025](adr/0025-andro
 stage 7). Work through it once, in order; the numbered steps depend on each other.
 
 Until step 2 is done, `build_android` **fails** in every release run: the workflow
-is non-interactive and cannot create the upload keystore. Until the whole checklist
-is done (steps 1–8 and the store declarations), **do not approve**
-`approve_android_submission` — `submit_android` cannot succeed before Play has seen
-one manual upload, has a service account to accept uploads from, and has its
-declarations. The iOS jobs in the same run are independent and ship regardless.
+is non-interactive and cannot create the upload keystore. Until steps 1–8 are
+done, **do not approve** `approve_android_submission` — `submit_android` cannot
+succeed before Play has seen one manual upload and has a service account to accept
+uploads from. The iOS jobs in the same run are independent and ship regardless.
 Steps 1–3 do not need the Play account.
 
 ## Before the Play account is verified
@@ -70,7 +69,9 @@ Developer account id `8846992213517983364`.
 
 ## Store declarations (App content)
 
-Play blocks releases, internal ones included, until these are complete.
+Internal testing does not need these: build 3 was published to internal testers
+(2026-09-30) with none of them done, and `submit_android` only ever creates internal
+drafts. Complete them before the first closed, open or production release.
 
 - [ ] **Privacy policy URL.** Must be a public web page (the in-app `privacy`
       route from stage 5 does not count). It needs to cover location, Health

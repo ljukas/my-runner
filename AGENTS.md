@@ -79,8 +79,7 @@ Releases are automated per [ADR 0012](docs/adr/0012-release-please-fingerprint-g
 
 E2E tests are Maestro flows in `.maestro/tests/`, run **locally against the
 `e2e-simulator` build** and enforced in CI by `.github/workflows/e2e.yml` (the
-required `e2e-ios` check; `e2e-android` runs beside it and becomes required after
-its first green run) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
+required `e2e-ios` and `e2e-android` checks) — see [ADR 0001](docs/adr/0001-local-first-maestro-e2e-testing.md).
 
 - **The app runs on the UIScene lifecycle** (`expo-build-properties`' `ios.enableSceneSupport` in `app.json`, which needs `expo` ≥ 57.0.23; expo/expo#46664). Built with Xcode 27, iOS 27 requires it — without it the app crashed at launch (`EXC_BREAKPOINT` in `_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`). SDK 58's template adopts scenes itself: drop the flag in that upgrade (prebuild warns that it is redundant). Pass `--device <udid>` to Maestro whenever an Android emulator is up, or it picks the emulator.
 - **Prerequisites:** Maestro CLI installed, a booted iOS simulator, and the E2E

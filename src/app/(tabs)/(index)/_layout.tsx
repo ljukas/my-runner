@@ -1,5 +1,8 @@
 import { Stack } from 'expo-router';
 
+// why: a deep link straight to the week list still gets a back button to the chooser
+export const unstable_settings = { anchor: 'index' };
+
 export default function RunLayout() {
   return (
     <Stack>

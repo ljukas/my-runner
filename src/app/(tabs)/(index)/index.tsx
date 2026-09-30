@@ -24,7 +24,6 @@ export default function RunScreen() {
           detail={planCardDetail(progress)}
           symbol={{ ios: 'calendar', android: 'calendar_month' }}
           progress={progress.done / progress.total}
-          hint="Opens the week list"
           onPress={entry.openPlan}
           action={
             next && nextLabel
@@ -40,7 +39,6 @@ export default function RunScreen() {
           title={FREE_RUN_CARD.title}
           detail={FREE_RUN_CARD.detail}
           symbol={{ ios: 'figure.run', android: 'directions_run' }}
-          hint="Opens the free-run sheet"
           disabled={entry.disabled}
           onPress={entry.openFreeRun}
         />

@@ -5,7 +5,7 @@ interface Timers<H> {
   clear: (handle: H) => void;
 }
 
-/** The one notice the Run tab shows after a free run left no summary; it expires `ttlMs` after it is first shown. */
+/** The one notice shown after a free run left no summary; it expires `ttlMs` after it is first shown. */
 export function createRunNotices<H>(ttlMs: number, timers: Timers<H>) {
   let notice: RunNotice | null = null;
   let timer: H | null = null;

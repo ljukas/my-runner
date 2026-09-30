@@ -1,6 +1,5 @@
 import { Button, HStack, Image, ProgressView, ScrollView, Spacer, VStack } from '@expo/ui/swift-ui';
 import {
-  accessibilityHint,
   accessibilityLabel,
   background,
   buttonStyle,
@@ -45,7 +44,6 @@ function RunModeCardRoot({
   symbol,
   featured = false,
   progress,
-  hint,
   disabled = false,
   onPress,
   action,
@@ -56,7 +54,6 @@ function RunModeCardRoot({
   featured?: boolean;
   /** 0–1. */
   progress?: number;
-  hint?: string;
   disabled?: boolean;
   onPress: () => void;
   action?: { label: string; disabled?: boolean; onPress: () => void };
@@ -84,7 +81,6 @@ function RunModeCardRoot({
           buttonStyle('plain'),
           disabledModifier(disabled),
           accessibilityLabel(`${title}, ${detail}`),
-          ...(hint ? [accessibilityHint(hint)] : []),
         ]}
       >
         <HStack spacing={14} modifiers={[contentShape(shapes.rectangle())]}>

@@ -1,4 +1,4 @@
-/** Why a free run left no summary (ADR 0026 §6): the one thing the Run tab says after it. */
+/** Why a free run left no summary (ADR 0026 §6). */
 export type RunNotice = 'discarded' | 'tooShort';
 
 export const RUN_NOTICE_TEXT: Record<RunNotice, string> = {
@@ -6,5 +6,5 @@ export const RUN_NOTICE_TEXT: Record<RunNotice, string> = {
   tooShort: 'Too short to save — under a minute',
 };
 
-/** Counted from when the Run tab first shows it (`useRunNotice`). */
+/** Counted from when it is first shown (`useRunNotice`). */
 export const NOTICE_TTL_MS = 6000;

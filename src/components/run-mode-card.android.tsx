@@ -68,22 +68,40 @@ function RunModeCardRoot({
   featured?: boolean;
   /** 0–1. */
   progress?: number;
-  hint?: string;
   disabled?: boolean;
   onPress: () => void;
   action?: { label: string; disabled?: boolean; onPress: () => void };
 }) {
   const m = useMaterialColors();
-  const content = featured ? m.onPrimaryContainer : m.onSurface;
-  const secondary = featured ? m.onPrimaryContainer : m.onSurfaceVariant;
-  const heroSide = Math.round(HERO_SIDE * Math.min(PixelRatio.getFontScale(), 1.5));
+  const tone = featured
+    ? {
+        container: m.primaryContainer,
+        content: m.onPrimaryContainer,
+        secondary: m.onPrimaryContainer,
+        heroShape: Shapes.Material.Cookie6Sided,
+        hero: m.primary,
+        onHero: m.onPrimary,
+        progress: m.primary,
+        track: m.surfaceContainerHighest,
+      }
+    : {
+        container: m.surfaceContainerHigh,
+        content: m.onSurface,
+        secondary: m.onSurfaceVariant,
+        heroShape: Shapes.Material.Clover4Leaf,
+        hero: m.tertiaryContainer,
+        onHero: m.onTertiaryContainer,
+        progress: m.secondary,
+        track: m.secondaryContainer,
+      };
+  const heroSide = Math.round(HERO_SIDE * Math.min(PixelRatio.getFontScale(), 1.6));
   const footer = progress !== undefined || action !== undefined;
 
   return (
     <Card
       colors={{
-        containerColor: featured ? m.primaryContainer : m.surfaceContainerHigh,
-        contentColor: content,
+        containerColor: tone.container,
+        contentColor: tone.content,
       }}
       modifiers={[fillMaxWidth()]}
     >
@@ -98,30 +116,22 @@ function RunModeCardRoot({
       >
         <Box
           contentAlignment="center"
-          modifiers={[
-            size(heroSide, heroSide),
-            clip(featured ? Shapes.Material.Cookie6Sided : Shapes.Material.Clover4Leaf),
-            background(featured ? m.primary : m.tertiaryContainer),
-          ]}
+          modifiers={[size(heroSide, heroSide), clip(tone.heroShape), background(tone.hero)]}
         >
-          <ComposeSymbol
-            name={symbol}
-            size={Math.round(heroSide * 0.5)}
-            tint={featured ? m.onPrimary : m.onTertiaryContainer}
-          />
+          <ComposeSymbol name={symbol} size={Math.round(heroSide * 0.5)} tint={tone.onHero} />
         </Box>
         <Column modifiers={[weight(1)]}>
-          <Text color={content} style={{ typography: 'titleLarge' }}>
+          <Text color={tone.content} style={{ typography: 'titleLarge' }}>
             {title}
           </Text>
-          <Text color={secondary} style={{ typography: 'bodyMedium' }}>
+          <Text color={tone.secondary} style={{ typography: 'bodyMedium' }}>
             {detail}
           </Text>
         </Column>
         <ComposeSymbol
           name={{ ios: 'chevron.right', android: 'chevron_right' }}
           size={24}
-          tint={secondary}
+          tint={tone.secondary}
         />
       </Row>
       {footer ? (
@@ -132,8 +142,8 @@ function RunModeCardRoot({
           {progress === undefined ? null : (
             <LinearProgressIndicator
               progress={progress}
-              color={featured ? m.primary : m.secondary}
-              trackColor={featured ? m.surfaceContainerHighest : m.secondaryContainer}
+              color={tone.progress}
+              trackColor={tone.track}
               modifiers={[fillMaxWidth()]}
             />
           )}

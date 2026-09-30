@@ -236,3 +236,10 @@ kv-store preference.** Accepted to fix the shape; built when the feature ships.
 - **Do nothing — keep completion = runs only.** Viable; this ADR fixes *how* the two
   features are built if built, not *that* they must be. But the migration case the owner
   raised cannot be served without a second completion source.
+
+## Amendment (2026-09-30): where the set is built now
+
+The completed set this ADR's Context finds inline in `(tabs)/(index)/index.tsx` is now built once in
+`src/hooks/use-plan-progress.ts` and handed to `planProgress` (`src/domain/plan-progress.ts`), which
+the Run tab's chooser and the week list both read (ADR 0026's stage-3c amendment). That hook is where
+`completedSessionKeys` plugs in; nothing else re-derives "done".

@@ -1,4 +1,3 @@
-// What the Run tab says about the plan (stage 3c), kept out of the platform forks so it exists once.
 import { sessionTitle } from './format';
 import { nextSessionKey, type PlanSession } from './plan';
 

@@ -58,8 +58,9 @@ New helpers: `assert-run-home` (the landing anchor `Couch to 5K.*`, the same in 
 `open-plan`. `start-w1d1` taps "Up next: Week 1 · Day 1" once it is enabled; `start-free-run`
 retries its tap on "Free run.*", because a disabled Compose card drops its click handler rather
 than reporting disabled. The `Week 1 ·.*` landing assertions in `complete-onboarding`,
-`onboarding`, `location-primer-allow`/`-deny`, `health-primer-skip`, `run-lock` and `run-abandon`
-become `assert-run-home`; `complete-session` checks "Up next: Week 1 · Day 2" on the chooser and
+`onboarding`, `location-primer-allow`/`-deny`, `health-primer-skip` and `run-lock` become
+`assert-run-home`, and `run-abandon`'s relaunch wait anchors on `Couch to 5K.*` directly;
+`location-jit-ask` reaches the chooser through `open-run-tab`; `complete-session` checks "Up next: Week 1 · Day 2" on the chooser and
 keeps `plan-next-w1d2` on the list; `free-run` checks "Week 1 · 0/3" through `open-plan`.
 
 ## Verified on device (2026-09-30)

@@ -158,8 +158,9 @@ The overlap between walking and running moves with the day. On `2d8d4091` (w4d1)
   - A GPS gap longer than `MAX_GAP_S` becomes stopped time.
   - Each committed delta goes to the bucket of the fix that ends it, so the buckets' distances sum to
     `distanceM`.
-  - Each bucket's `durationS` is its active seconds rounded by largest remainder, so they sum to the
-    run's rounded active time (`activeDurationS`).
+  - Each bucket's `durationS` is its active seconds rounded by running total (ADR 0026's stage-5a
+    amendment; largest remainder before), so they sum to the run's rounded active time
+    (`activeDurationS`) and every boundary stays within half a second.
   - **Stage 3 must restart every other re-fold at resumes too.** `smoothTrackBySegment`,
     `smoothTrackForRender` and `toRunProfile` do not restart at a pause, so over a free run with a
     pause shorter than `MAX_GAP_S` they would count the chord this fold excludes. Finalize uses this

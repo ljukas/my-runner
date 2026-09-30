@@ -47,8 +47,9 @@ workout until stage 5b's spike.
 - **Health Connect** (`health-connect.ts`): `toExerciseSegments` merges both lists in time order
   as RUNNING 46 / WALKING 64 / REST 44 / PAUSE 39 with `repetitions: 0`, the numbers restated like
   the existing three; the session omits the key when empty. `insertExerciseSession(insert, record)`
-  inserts once more without `segments` if the insert with them rejects, within the same save (no
-  silent retry, ADR 0011 §4); the adapter passes `insertRecords` in.
+  inserts once more without `segments` if the insert with them is refused as invalid
+  (`ARGUMENT_VALIDATION_ERROR`), within the same save (no silent retry, ADR 0011's Consequences);
+  the adapter passes `insertRecords` in.
 - **The patch** (`patches/react-native-health-connect@4.1.3.patch`, via `bun patch`): two keys in
   `ReactExerciseSessionRecord.parseWriteRecord`.
 
@@ -61,8 +62,9 @@ workout until stage 5b's spike.
 ## Verification
 
 - `bun test`, both typechecks, lint.
-- Fingerprints before/after: iOS `fd770db…` → `9d09364…` (only the `patches` source is new),
-  Android `f1019d0…` → `6bb185f…` (the package's sources and `patches`).
+- Fingerprints before/after: iOS `fd770db…` → `9d09364…` unset, `bcd744b…` → `4cf7631…`
+  `development`, `aca9e74…` → `9419024…` `e2e` (only the `patches` source is new); Android unset
+  `f1019d0…` → `6bb185f…` (the package's sources and `patches`).
 - On the emulator (Pixel 10 Pro, API 37, platform Health Connect), with an arm64 Gradle build and a
   temporary readback in the adapter (`readRecords('ExerciseSession', { dataOriginFilter: [own
 package] })` — no READ permission needed for the app's own records).
@@ -85,3 +87,27 @@ package] })` — no READ permission needed for the app's own records).
   segments. An aggregate filtered to the app's own package returned 0 s with no data origins —
   aggregates apparently need the READ permission this app does not hold. The subtraction rests on
   AOSP, as cited in #277.
+
+## Found in review (2026-09-30)
+
+Four reviewers (correctness with a shell, ADR compliance, comment density, simplicity). No Critical
+or Major. The correctness review read androidx `connect-client` 1.1.0's validation from its
+bytecode and fuzzed 400k inputs (pauses, skips, a log ending paused, clock skew, rows short, over
+or unsorted) through `toExerciseSegments` against it: nothing the engine can produce is rejected.
+Fixed:
+
+- **The fallback retried on any failure,** so a transient one followed by a successful retry lost
+  valid segments for good; it now retries only on `ARGUMENT_VALIDATION_ERROR`.
+- **A segment read that threw failed the whole save** (iOS included, which ignores segments); it
+  now costs only the segments.
+- **Bucket durations drifted from their boundaries** under largest-remainder rounding (median
+  0.7 s over 10 buckets, 2.5 s over 120); stage 1's `toBuckets` now rounds by running total, every
+  boundary within half a second (ADR 0026's stage-5a amendment).
+- Docs: ADR 0011's moved facts (the builder's third argument, four files referencing the library,
+  seven restated constants), the upstream step (a #277 comment, not a PR), the unverified duration
+  subtraction hedged in the ADR and the mapper's JSDoc, per-variant fingerprints; `SegmentRow`
+  extends `RunStatsSegment`; a stale type comment.
+
+Not changed: a defensive merge in the mapper for inputs the engine cannot produce (backwards
+clocks, sub-millisecond instants), and the non-finite-duration guard, dropped because
+`actual_duration_s` is `integer().notNull()`.

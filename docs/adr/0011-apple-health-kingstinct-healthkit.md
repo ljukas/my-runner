@@ -345,8 +345,15 @@ verified on the emulator (Pixel 10 Pro, API 37) the same day.
    `pauses`, both wall-clock and derived in `domain/health-segments.ts`. Only the Health Connect
    mapper turns pauses into PAUSE segments; the iOS adapter ignores both until stage 5b.
 3. **A rejected segment list costs the segments, not the save.** Health Connect validates segments
-   in the session constructor (inside the session, not overlapping, a type the exercise allows);
-   if the insert with segments rejects, the same save inserts the session again without them and
-   warns. This is a degrade within one call, not a retry: item 4's no-silent-retry rule holds, and
-   a second rejection fails the save as before.
+   in the session constructor (inside the session, not overlapping, a type the exercise allows)
+   and throws `IllegalArgumentException`, which the library rejects as `ARGUMENT_VALIDATION_ERROR`.
+   On that code alone, the same save inserts the session again without segments and warns; any
+   other failure (unavailable service, permissions) is rethrown at once, so a transient error
+   never costs valid segments on a run then marked saved. This is a degrade within one call, not a
+   retry, so the Consequences' "no silent retries" holds, and a second rejection fails the save as
+   before. Likewise, segment rows that cannot be read cost the segments, not the save.
 4. **Item 7's single distance sample is unchanged**; segments carry no distance.
+5. **Facts elsewhere in this ADR that moved:** Decision item 1's builder is now
+   `toHealthWorkout(run, fixes, segmentRows)`; the Android amendment's "three files reference the
+   library" is four, the fourth a type-only import in `health-connect.test.ts`; and the mapper
+   restates seven of its numeric constants, not three (the four segment types).

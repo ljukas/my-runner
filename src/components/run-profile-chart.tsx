@@ -77,6 +77,15 @@ const BAND_STRIP_HEIGHT = { run: 4, walk: 2 } as const;
 // victory's default x `labelOffset` (`axisDefaults.ts`), plus room for the strip above the labels
 const X_LABEL_OFFSET_WITH_BANDS = 2 + BAND_STRIP_HEIGHT.run + 2;
 const STOP_MARKER_WIDTH = 2;
+// why a fixed width: a GPS silence covers no distance, so it has none of its own on this axis
+const SILENCE_ZONE_WIDTH = 10;
+const SILENCE_ZONE_OPACITY = 0.18;
+
+// why clamped: points sit at bucket centres, so the axis starts half a bucket in and a marker at
+// 0 m would fall wholly outside the clipped plot
+function markerLeft(centre: number, width: number, bounds: { left: number; right: number }) {
+  return Math.min(Math.max(centre, bounds.left + width / 2), bounds.right - width / 2) - width / 2;
+}
 
 /**
  * Pace, and relative elevation when the run carries it, against distance (spec §7.2). The only file importing victory-native — if it is ever
@@ -182,18 +191,21 @@ export function RunProfileChart({
       >
         {({ points: rendered, xScale, chartBounds }) => (
           <>
+            {bands?.silencesAtM.map((atM, index) => (
+              <Rect
+                key={`silence-${index}`}
+                x={markerLeft(xScale(atM), SILENCE_ZONE_WIDTH, chartBounds)}
+                y={chartBounds.top}
+                width={SILENCE_ZONE_WIDTH}
+                height={chartBounds.bottom - chartBounds.top}
+                color={colors.textSecondary}
+                opacity={SILENCE_ZONE_OPACITY}
+              />
+            ))}
             {bands?.stopsAtM.map((atM, index) => (
               <Rect
                 key={`stop-${index}`}
-                // why clamped: points sit at bucket centres, so the axis starts half a bucket in and
-                // a stop at 0 m would fall wholly outside the clipped plot
-                x={
-                  Math.min(
-                    Math.max(xScale(atM), chartBounds.left + STOP_MARKER_WIDTH / 2),
-                    chartBounds.right - STOP_MARKER_WIDTH / 2,
-                  ) -
-                  STOP_MARKER_WIDTH / 2
-                }
+                x={markerLeft(xScale(atM), STOP_MARKER_WIDTH, chartBounds)}
                 y={chartBounds.top}
                 width={STOP_MARKER_WIDTH}
                 height={chartBounds.bottom - chartBounds.top}

@@ -18,6 +18,9 @@ stop with nothing to say why (3b plan), and a free run was silent between Start 
   tinted full-height columns, and not stop ticks inside the strip.
 - **Every stop** gets a hairline, the ~8 s crossing waits included, so the chart agrees with the
   bucket timeline below it.
+- **GPS silences** (after review): drawn differently from stops, "like a grayed out zone" — a stopped
+  bucket the GPS measured less than half of is a translucent grey zone, not a stop hairline, and
+  the label counts it apart.
 - **Wording**: the spec's — "2 kilometres. 6 minutes 40 per kilometre."; a whole minute drops the
   seconds ("6 minutes per kilometre"), an unknown pace drops the pace ("2 kilometres.").
 
@@ -94,5 +97,6 @@ ADR 0026 amendment (the multi-kilometre case), the checklist's K4 and ADR 0007 �
 **Minor, accepted and documented:** a crossing lives one heartbeat before it is spoken, so a pause
 inside that second defers it to the resume and an End drops it (ADR 0026 amendment).
 
-**For the owner:** a GPS silence is stopped time (3a), so a tunnel or a slow first fix draws a
-hairline and counts as a stop in the label, though the runner never stood.
+**Put to the owner, and built:** a GPS silence is stopped time (3a), so a tunnel or a slow first fix
+drew a hairline and counted as a stop though the runner never stood. It is now a grey zone and
+"GPS lost N times" (see Owner decisions).

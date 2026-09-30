@@ -522,6 +522,13 @@ The chart and the kilometre cue shipped as stage 4
     gaps.
   - **The card's label** reads the strip as distances: "Running 1.21 km, walking 0.21 km, stopped
     1 time."
+- **A GPS silence is drawn apart from a stop** (owner decision after review). A stopped bucket the
+  GPS measured less than half of — a tunnel, a slow first fix, a phone that lost its signal — is
+  a translucent grey zone of fixed width (a silence covers no distance, so it has none on this
+  axis), not a brown hairline, and the label counts it as "GPS lost N times", not as a stop. The
+  measured share is the fold's own: seconds between fixes under `MAX_GAP_S`, none across a pause
+  (`ProfileSpan.measuredS`). The bucket itself stays stopped time (the 3a amendment); only the
+  chart tells the two apart.
 - **One fold draws both.** `foldRunProfile` returns the chart's points and, from the same smoother
   and pause policy, the span each `segment_seq` covered, so the strip tiles exactly the axis the
   pace line is drawn on (ADR 0021 §3). A stop the GPS never saw — a silence — has no fixes and so

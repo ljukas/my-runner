@@ -2,12 +2,19 @@ import { describe, expect, test } from 'bun:test';
 
 import { FREE_RUN_KEY } from './free-run';
 import { EARTH_RADIUS_M, type SegmentedFix } from './geo';
-import { bandDistances, bandsFor, toProfileBands } from './profile-bands';
+import { bandsFor, bandsLabel, toProfileBands } from './profile-bands';
 import { foldRunProfile, toRunProfile } from './run-profile';
 import type { StoredSegmentKind } from './run-motion';
 
-const span = (segmentSeq: number, fromM: number, toM: number) => ({ segmentSeq, fromM, toM });
-const rows = (...kinds: StoredSegmentKind[]) => kinds.map((kind, seq) => ({ seq, kind }));
+// why 60 s each: every span fully measured, every row as long, unless a test says otherwise
+const span = (segmentSeq: number, fromM: number, toM: number, measuredS = 60) => ({
+  segmentSeq,
+  fromM,
+  toM,
+  measuredS,
+});
+const rows = (...kinds: StoredSegmentKind[]) =>
+  kinds.map((kind, seq) => ({ seq, kind, actualDurationS: 60 }));
 
 describe('toProfileBands', () => {
   test('merges consecutive buckets of one kind, and a stop leaves a marker, not a band', () => {
@@ -21,6 +28,7 @@ describe('toProfileBands', () => {
         { kind: 'walk', fromM: 900, toM: 1100 },
       ],
       stopsAtM: [400],
+      silencesAtM: [],
     });
   });
 
@@ -44,13 +52,33 @@ describe('toProfileBands', () => {
     expect(bands.runWalk).toEqual([{ kind: 'walk', fromM: 1, toM: 500 }]);
   });
 
-  test('places a stop the GPS never saw where the span before it ended', () => {
+  test('marks a stop the GPS never saw as a silence, where the span before it ended', () => {
     const bands = toProfileBands(
       [span(0, 0, 600), span(2, 600, 1200)],
       rows('run', 'stopped', 'run'),
     );
-    expect(bands.stopsAtM).toEqual([600]);
+    expect(bands.stopsAtM).toEqual([]);
+    expect(bands.silencesAtM).toEqual([600]);
     expect(bands.runWalk).toEqual([{ kind: 'run', fromM: 0, toM: 1200 }]);
+  });
+
+  test('tells a silence from a stop by what the GPS measured; a bucket with both gets both', () => {
+    const spans = [
+      span(0, 0, 500),
+      span(1, 500, 502, 1), // a tunnel: only the leg that closed the silence
+      span(2, 502, 900),
+      span(3, 900, 903, 44), // stood 44 s, then the signal dropped for 61 s
+      span(4, 903, 1200),
+      span(5, 1200, 1201, 10), // a crossing
+    ];
+    const durations = [60, 62, 60, 105, 60, 10];
+    const segments = rows('run', 'stopped', 'run', 'stopped', 'run', 'stopped').map((row) => ({
+      ...row,
+      actualDurationS: durations[row.seq],
+    }));
+    const bands = toProfileBands(spans, segments);
+    expect(bands.stopsAtM).toEqual([900, 1200]);
+    expect(bands.silencesAtM).toEqual([500, 900]);
   });
 
   test('keeps every stop, even two at one distance', () => {
@@ -68,12 +96,19 @@ describe('toProfileBands', () => {
   });
 });
 
-test('bandDistances sums the strip by kind', () => {
-  const bands = toProfileBands(
-    [span(0, 0, 400), span(1, 400, 700), span(2, 700, 1000)],
-    rows('run', 'walk', 'run'),
-  );
-  expect(bandDistances(bands)).toEqual({ runM: 700, walkM: 300 });
+describe('bandsLabel', () => {
+  test('reads the strip as distances and counts the stops', () => {
+    const bands = toProfileBands(
+      [span(0, 0, 400), span(1, 400, 401), span(2, 401, 700), span(3, 700, 1000)],
+      rows('run', 'stopped', 'walk', 'run'),
+    );
+    expect(bandsLabel(bands)).toBe('Running 0.70 km, walking 0.30 km, stopped 1 time.');
+  });
+
+  test('leaves out what did not happen, and counts silences apart', () => {
+    const bands = toProfileBands([span(0, 0, 670), span(2, 670, 670)], rows('run', 'stopped'));
+    expect(bandsLabel(bands)).toBe('Running 0.67 km. GPS lost 1 time.');
+  });
 });
 
 describe('bandsFor', () => {
@@ -127,6 +162,16 @@ describe('foldRunProfile spans', () => {
     for (let i = 1; i < spans.length; i += 1) expect(spans[i].fromM).toBe(spans[i - 1].toM);
     const width = points[1].distanceM - points[0].distanceM;
     expect(spans.at(-1)!.toM).toBeCloseTo(points.at(-1)!.distanceM + width / 2, 6);
+  });
+
+  test('count only the seconds the GPS measured: a silence adds none', () => {
+    const fixes = track([
+      [100, 2.6, 0],
+      [100, 2.6, 1],
+    ]).filter((fix) => fix.timestamp <= 120_000 || fix.timestamp > 180_000);
+    const { spans } = foldRunProfile(fixes);
+    expect(spans[0].measuredS).toBe(99);
+    expect(spans[1].measuredS).toBe(100 - 61); // its 100 s less the 61 s leg across the gap
   });
 
   test('leave the points exactly as toRunProfile draws them', () => {

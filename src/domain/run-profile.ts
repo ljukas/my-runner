@@ -23,6 +23,8 @@ export interface ProfileSpan {
   segmentSeq: number;
   fromM: number;
   toM: number;
+  /** Seconds between its fixes that the GPS measured: legs under `MAX_GAP_S`, none across a pause. */
+  measuredS: number;
 }
 
 export interface RunProfileFold {
@@ -50,6 +52,7 @@ interface Walked {
   distanceM: number;
   timestamp: number;
   restarted?: boolean;
+  span: ProfileSpan;
 }
 
 // why interpolated between fixes and clamped at the ends: samples arrive ~1 Hz on their own clock,
@@ -114,14 +117,15 @@ export function foldRunProfile(
     cumulative += step.acceptedDeltaMeters;
     // why the end fix's seq: a leg's metres belong to the fix that ends it, as the saved buckets'
     const segmentSeq = fix.segmentSeq ?? 0;
-    const open = spans.at(-1);
-    if (open?.segmentSeq === segmentSeq) open.toM = cumulative;
-    else spans.push({ segmentSeq, fromM, toM: cumulative });
+    let span = spans.at(-1);
+    if (span?.segmentSeq === segmentSeq) span.toM = cumulative;
+    else spans.push((span = { segmentSeq, fromM, toM: cumulative, measuredS: 0 }));
     // why a restart is marked: the leg into it spans a pause, which is no time spent covering ground
     walked.push({
       distanceM: cumulative,
       timestamp: fix.timestamp,
       restarted: policy !== undefined && step.restarted,
+      span,
     });
   }
 
@@ -149,6 +153,7 @@ export function foldRunProfile(
       continue;
     }
     if (legSeconds <= 0) continue;
+    to.span.measuredS += legSeconds;
 
     const legMeters = to.distanceM - from.distanceM;
     if (legMeters <= 0) {

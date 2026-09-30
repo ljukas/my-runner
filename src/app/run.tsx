@@ -1,4 +1,4 @@
-import { Redirect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,7 +49,15 @@ export default function RunScreen() {
     void retryTracking().catch((error) => console.warn('[run] tracking restart failed', error));
   }, [locationStatus]);
 
-  if (snapshot.status === 'idle') return <Redirect href="/" />;
+  useEffect(() => {
+    if (snapshot.status !== 'idle') return;
+    // why dismiss, not a Redirect: this modal sits on the tabs, and redirecting to "/" pushed a second
+    // copy of them over the first (a discarded free run is the one way here from a live run)
+    if (router.canDismiss()) router.dismissAll();
+    else router.replace('/');
+  }, [snapshot.status, router]);
+
+  if (snapshot.status === 'idle') return null;
 
   return (
     <View

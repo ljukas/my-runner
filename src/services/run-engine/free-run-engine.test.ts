@@ -699,6 +699,67 @@ describe('an interrupted free run', () => {
   });
 });
 
+describe('a plan run and a fix delivered late', () => {
+  test('a fix stamped before a segment boundary but delivered after it repeats no cue', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(
+      scriptedPlan({
+        key: 'w1d1',
+        week: 1,
+        day: 1,
+        segments: [
+          { kind: 'warmup', seconds: 60 },
+          { kind: 'run', seconds: 60 },
+        ],
+      }),
+    );
+    h.at(START_MS + 60_200); // the 1 Hz tick crosses into the run
+    const [late] = track([[1, 2.6]]);
+    h.setNow(START_MS + 60_400);
+    h.engine.heartbeat(START_MS + 59_700, { ...late, timestamp: START_MS + 59_700 });
+    expect(h.engine.getSnapshot()).toMatchObject({ mode: 'scripted', segmentIndex: 1 });
+    h.at(START_MS + 61_200);
+    expect(h.cues).toEqual(['warmupStart', 'lastRun', 'halfway']);
+  });
+});
+
+describe('a plan run whose taps land behind the derived instant', () => {
+  const TWO = scriptedPlan({
+    key: 'w1d1',
+    week: 1,
+    day: 1,
+    segments: [
+      { kind: 'warmup', seconds: 60 },
+      { kind: 'run', seconds: 60 },
+    ],
+  });
+
+  test('a pause just after a boundary heartbeat that ran early repeats no cue on resume', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(TWO);
+    h.setNow(START_MS + 59_850);
+    h.engine.heartbeat(START_MS + 60_000); // the screen's boundary tick, a little ahead of the clock
+    h.setNow(START_MS + 59_950);
+    h.engine.pause();
+    h.setNow(START_MS + 62_000);
+    h.engine.resume();
+    h.at(START_MS + 63_000);
+    expect(h.cues).toEqual(['warmupStart', 'lastRun', 'halfway', 'paused', 'resumed']);
+  });
+
+  test('after the device clock steps back, pausing and resuming repeat no cue', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(TWO);
+    h.at(START_MS + 70_000);
+    h.setNow(START_MS + 10_000); // the wall clock jumps back a minute
+    h.engine.pause();
+    h.setNow(START_MS + 12_000);
+    h.engine.resume();
+    h.at(START_MS + 13_000);
+    expect(h.cues).toEqual(['warmupStart', 'lastRun', 'halfway', 'paused', 'resumed']);
+  });
+});
+
 describe('what a free run cannot do, and what a plan run cannot', () => {
   test('a free run has nothing to skip', () => {
     const h = makeFreeRunEngine();

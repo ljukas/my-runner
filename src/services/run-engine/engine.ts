@@ -158,6 +158,8 @@ export class RunEngine {
   private status: EngineStatus = 'idle';
   private savedRunId: string | null = null;
   private saveFailed = false;
+  /** The latest instant a heartbeat derived the run at; cleared per run. */
+  private derivedAt = 0;
   /** Set while a discard deletes the run: no flush may write it back (ADR 0026 §6). */
   private discarding = false;
   /** Bumped whenever a run begins or ends (start, rebuild, reset), so a superseded run's ending never touches a later one. */
@@ -288,15 +290,31 @@ export class RunEngine {
 
   heartbeat(now: number = this.clock(), fix?: LocationFix): void {
     if (!this.mode || (this.status !== 'running' && this.status !== 'paused')) return;
-    const pos = this.mode.position(this.events, activeElapsedMs(this.events, now) / 1000, now);
+    // why never backwards: a fix delivered late carries an earlier `now`, and re-deriving there
+    // steps back a segment and repeats its cue; the fix itself is still tagged by its own time
+    const at = Math.max(now, this.derivedAt);
+    this.derivedAt = at;
+    const pos = this.positionAt(at);
     if (pos.done) {
       void this.finalize('completed', pos.origin);
       return;
     }
     // Timing/cues derive first; GPS ingestion can neither stall nor throw out of them.
-    this.refresh(now);
-    if (this.status === 'running' && fix) this.ingestFix(fix, pos.segmentSeq, now);
+    this.refresh(at);
+    if (this.status === 'running' && fix) {
+      const tag = at === now ? pos : this.positionAt(now);
+      this.ingestFix(fix, tag.done ? pos.segmentSeq : tag.segmentSeq, at);
+    }
     this.armFlush();
+  }
+
+  /** The wall clock, never behind what a heartbeat already derived: a tap acts on the shown run. */
+  private derivationClock(): number {
+    return Math.max(this.clock(), this.derivedAt);
+  }
+
+  private positionAt(at: number) {
+    return this.mode!.position(this.events, activeElapsedMs(this.events, at) / 1000, at);
   }
 
   /**
@@ -403,10 +421,13 @@ export class RunEngine {
   private append(type: RunEvent['type'], at?: number): void {
     const last = this.events[this.events.length - 1];
     const floor = type === 'end' ? null : this.mode?.eventFloorMs();
-    this.events.push({ type, at: Math.max(at ?? this.clock(), last?.at ?? 0, floor ?? 0) });
+    this.events.push({
+      type,
+      at: Math.max(at ?? this.derivationClock(), last?.at ?? 0, floor ?? 0),
+    });
   }
 
-  private refresh(now: number = this.clock()): void {
+  private refresh(now: number = this.derivationClock()): void {
     if (!this.mode) return;
     const activeMs = activeElapsedMs(this.events, now);
     const { sampleSegmentSeq, ...view } = this.mode.view(this.events, activeMs / 1000, now);
@@ -445,6 +466,7 @@ export class RunEngine {
   }
 
   private resetIngestState(): void {
+    this.derivedAt = 0;
     this.distanceM = 0;
     this.pendingPoints = [];
     this.nextSeq = 0;
@@ -592,7 +614,7 @@ export class RunEngine {
     const rowId = this.rowId;
     // why the mode is asked before `end` is appended: it decides where the run ends.
     const requestedEnd = Math.max(
-      at ?? this.clock(),
+      at ?? this.derivationClock(),
       this.events[this.events.length - 1].at,
       this.mode.eventFloorMs() ?? 0,
     );

@@ -39,7 +39,7 @@ export function ScriptedRunView({
         totalSeconds={snapshot.segmentSecondsTotal}
         color={segmentColors[kind]}
       />
-      <RunTransport paused={paused} locked={locked} endsAsCompleted={endsAsCompleted} />
+      <RunTransport paused={paused} locked={locked} end={{ mode: 'scripted', endsAsCompleted }} />
       <Text tone="secondary">
         {snapshot.nextSegment
           ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`

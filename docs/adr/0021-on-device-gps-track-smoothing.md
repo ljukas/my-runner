@@ -220,7 +220,9 @@ reader that joins on `segment_seq` — route colouring, splits, the export — f
 under its buckets; what those readers show for a bucket (its kind's label, colour, symbol) is stage
 3b's work.
 
-§3's invariant (live == finalize == every re-fold) extends to free runs through one shared rule,
+§3's invariant (live == finalize == every re-fold) extends to free runs — up to where finalize
+trims a trailing stop or caps the run at 4 h, since the fixes past the saved end are then dropped
+and their points and barometer samples deleted — through one shared rule,
 `FixPolicy` / `pausePolicy` in `src/domain/geo.ts` and `run-motion.ts`: a fix at or before the last
 accepted one, or inside a pause, is ignored, and the smoother restarts at the first fix after a pause.
 The live fold, the resume re-fold, the finalize fold, the route render and the pace chart all use it

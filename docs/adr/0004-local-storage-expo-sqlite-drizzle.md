@@ -133,7 +133,7 @@ only results; the training plan remains static TypeScript data (spec §3).
   an official drop-in on the engine we already ship, so a second storage
   dependency buys nothing.
 
-## Amendment (2026-09-29): the first hard delete (ADR 0026)
+## Amendment (2026-09-29): the first run deleted outright (ADR 0026)
 
 Decision 5's soft delete is for rows a user can see and remove. A **discarded free run** is removed
 outright instead — the run and its children, children first, since the foreign keys do not cascade

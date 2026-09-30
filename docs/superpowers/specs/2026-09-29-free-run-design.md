@@ -30,7 +30,7 @@ recorded here so implementation does not reopen them.
 | Chart | Distance axis with run/walk bands; **stops drawn as minimum-width markers**. *(Clarified after review.)* |
 | Run screen | Count-up clock, current bucket, distance, rolling pace. No progress bar and no Skip. |
 | Ending | Saved as `completed`, including a crashed run that is not resumed. |
-| Safeguards | **Save / Discard on End; auto-discard under 1 min; auto-end after 30 min stopped; hard cap at 4 h.** *(Added after review.)* |
+| Safeguards | **Save / Discard on End; auto-discard under 1 min; auto-end after 30 min stopped; hard cap at 4 h.** *(Added after review.)* Only a stop the GPS measured counts toward the 30 min; a GPS silence is stopped time but never ends or trims a run *(owner decision, 2026-09-30)*. |
 | No location | Allowed, timer-only. |
 | Cues | Paused/resumed, plus a per-kilometre cue for free runs only. |
 | Health | Run/walk segments for free and plan runs. **Android via a patched library; iOS only if a device spike meets its criteria.** *(Revised after review.)* |
@@ -60,7 +60,7 @@ numbers are from `main` at 9625d73.
 | `endCountsAsCompleted` (`:154`, `run.tsx:71`) | reads countdown fields | scripted view only |
 | `finalize` (`:674-713`) | caps elapsed at the total; `promoteInCooldown`; segments from the timeline; `complete` cue whenever completed | `mode.finalElapsed`, `mode.finalStatus(requested, finalElapsed, origin)`, `mode.finalSegments`; `complete` spoken only for origin `runner` / `limit` |
 | `abandon` (`:398-403`) | `finalize('endedEarly', false, aliveUntil)` | `finalize(..., origin: 'abandon')`: silent, saved per mode |
-| `isTimelineExhausted` (`:163`; `restore` `:378`; `index.ts:192`) | timeline-relative | `mode.exhausted(events, now)`; open is false |
+| `isTimelineExhausted` (`:163`; `restore` `:378`; `index.ts:192`) | timeline-relative | `mode.exhausted(events, now)`, via `isExhaustedOnResume`; open is the 4 h cap, judged at `aliveUntil` |
 | `isSnapshotFresh` (`resumable.ts:87-91`; `index.ts:193`) | plan length + 30 min | `mode.resumeWindowMs()`; open is 4 h |
 | `resumeDispositionOf` (`field-test.ts:40`) | field test `offerable: false` | `planOf(key) → { plan, offerable }`, same rule |
 | `rebuild` key check (`:634`) | `state.sessionKey !== session.key` | `keyOf(plan)`: `session.key`, or `'free-run'` |

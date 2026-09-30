@@ -142,11 +142,14 @@ to it differently (stage 3a of the free run, `src/services/run-engine/mode.ts`):
 - **§5's stale snapshot.** A stale scripted snapshot is finalized `partial`; a stale open one is
   finalized `completed`, silently — "partial" means falling short of a plan, and a free run has none.
   A free run under a minute is deleted instead of saved.
-- **§5's resume.** A resumed open run records the time its process was dead as a `pause` at its last
-  known-alive instant and a `resume` at now, so the gap is in the log rather than billed as active
-  time; exhaustion is judged at the alive instant. A scripted run resumes as before.
-- **§3's non-decreasing clamp** gains a floor for an open run: its `pause`, `resume` and `end` land
-  after the latest fix it was fed, because the fold drops a fix inside a pause or after the end.
+- **§5's resume.** A resumed open run that was not paused records the time its process was dead as
+  a `pause` at its last known-alive instant (or the floor below, if later) and a `resume` at now, so
+  the gap is in the log rather than billed as active time; exhaustion is judged at the alive
+  instant. A scripted run resumes as before.
+- **§3's non-decreasing clamp** gains a floor for an open run: its `pause`, `resume` and a runner's or
+  limit's `end` land after the latest fix it was fed, because the fold drops a fix inside a pause or
+  after the end; the cap's `end` sits at the 4-hour instant instead. Its fixes are stored at
+  `min(fix time, wall clock)`, so the floor never runs ahead of the clock.
 
 Everything else holds unchanged: state is still derived from the event log alone, the mode is asked
 before the `end` event is appended (it decides where the run ends), and every plan-run rule lives,

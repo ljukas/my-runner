@@ -88,3 +88,28 @@ to fix all of them before the PR, and to close the engine gaps 3b would otherwis
   after the save kept the run; the discard guard; the live stopped clock follows the fold.
 - **3b fields:** `gpsStale`, `endDiscards`, `elapsedAnchorMs`, `lastOutcome`, and a discard shows
   as ended at once.
+
+## Review round 2 (2026-09-30)
+
+Five lensed reviewers (engine races, live == saved, API and persistence, ADR compliance, comment
+density) re-reviewed the fixes. Fixed:
+
+- **Races:** an ending run captures its generation and row id first, so a `reset()`/`start()` can
+  no longer skip a discard's delete, land an old record on a new row, speak `complete` mid-run or
+  stop the next run's sensors; `abandon()` no longer resets a run started while it finished.
+- **Clock skew:** a free run's fixes are stored at `min(fix time, wall clock)`.
+- **The 30-minute limit counts only a measured stop** (owner decision): silence is stopped time
+  but never ends or trims a run. One value in `openTrackStep`'s state serves the live limit and the
+  finalize trim, which closes the sparse-fix, single-fix and lock-time mismatches.
+- `endDiscards` applies the floor; the count-up anchor ignores a stale cached fix; `saveDerivedRun`
+  keeps the live distance; comments, the `declineResumableRun` rename and the ADRs match the code.
+
+For 3b: `abandon()` returns nothing, so the resume screen cannot tell that a declined free run was
+deleted (under a minute) and would open a missing summary; `sessionTitle('free-run')` needs
+`runTitle`.
+
+Accepted, not fixed: a crash in the moment between asking for a discard and its mark landing
+offers the run for resume; a failed delete followed by a new run in the same process orphans the
+row (as a failed plan-run finalize already does); a free run past its measured-stop limit at its
+last flush is offered for resume and then ends at once (reachability unproven). Outside this
+stage: a late fix stamped before a segment boundary can repeat a plan run's segment cue.

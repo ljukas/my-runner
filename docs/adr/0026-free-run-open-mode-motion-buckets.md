@@ -388,29 +388,51 @@ refined this ADR:
   points in memory. It applies the 4 h cap, trims a trailing stop of 30 min or more, cuts the event
   log with it, and discards what is left under a minute. `OpenMode` also treats an ending under a
   minute as a discard, rounding as the saved duration does; and because the trim can still leave a
-  run under a minute, the engine speaks a free run's `complete` only once its save kept it. A
-  trailing GPS silence is stopped time by the same rule as a gap between fixes (`silentSince`), so
-  a run whose fixes stop long before its end is trimmed like one that recorded the stop.
+  run under a minute, the engine speaks a free run's `complete` only once its save kept it.
+- **§6's 30-minute limit counts only a measured stop** (owner decision, 2026-09-30). A GPS silence
+  is stopped time in the buckets — a gap between fixes and a trailing silence alike (`silentSince`)
+  — but only the part of a stop the fixes measured (`OpenTrackState.measuredStop`: active time from
+  the stop's start to its latest fix, less any silence inside it) ends a run live or trims it at
+  finalize. A treadmill run or a lost signal therefore runs to End or the cap and is saved in full,
+  its silence as stopped time. The measured stop is part of the step both the live engine and the
+  fold take, so the live limit and the finalize trim read one value by construction.
+- **A timer-only free run has no buckets.** With no speed ever measured, the fold confirms no kind,
+  so no `run_segments` rows are written; the duration comes from the event log and the points keep
+  `segment_seq` 0.
 - **§6's discard** stops the scheduler, drains the flush chain, marks the snapshot `discarding` and
   then deletes the run and its children (no FK cascade); a launch that finds the mark finishes the
   delete. While it runs, no flush may write the run back — including the one a late `startRun`
   would queue. A failed mark still deletes, and the snapshot is cleared only once the delete has
-  landed. Nothing in the app deleted runs before (ADR 0004's 2026-09-29 amendment).
+  landed. The delete never waits on the run still being current: a `reset()` or `start()` during it
+  skips only the mark and the clear, whose snapshot row is then the next run's. Nothing in the app
+  deleted a run before (ADR 0004's 2026-09-29 amendment).
+- **Every ending survives being overtaken.** A finalize captures its run's generation and row id
+  before its first await; overtaken by `reset()` or `start()`, it still saves on its own row and
+  touches nothing the next run owns (its status, cues, sensors or snapshot). This holds for plan
+  runs too, and so does `abandon()`, which no longer resets a run started while it finished.
 - **§5's resume** treats the time the process was dead as a pause: restoring an open run appends a
   pause at its last known-alive instant and a resume at now, so a long downtime neither ends it as
   stopped time nor spends its 4-hour cap, and its exhaustion is judged at that instant too. A plan
   run resumes as before.
 - **The fold's pause rule needs a floor.** It drops a fix stamped inside a pause or after the end,
-  and a fix can be stamped ahead of the wall clock; so an open run's pause, resume and end land at
-  least 1 ms after the latest fix it was fed (`RunMode.eventFloorMs`), and the saved distance keeps
-  every fix the live one counted.
+  so an open run's pause, resume and end land at least 1 ms after the latest fix it was fed
+  (`RunMode.eventFloorMs`), and the saved distance keeps every fix the live one counted. A fix is
+  stored at `min(fix time, wall clock)` (`RunMode.fixTimeMs`), so one dated ahead cannot drag the
+  floor, and the run, out to its time. The one end not floored is the cap's, which is placed at the
+  4-hour instant; with fixes clamped, none the run counted lies past it.
 - **One entry point,** `start(plan: RunPlan)`: the mode, not the engine, knows what a free run adds
   (its threshold, its start note, its opaque `modeState`).
 - **The snapshot's 3b fields** are in the engine already: `gpsStale` (no speed for 10 s) in place of
   a has-fix flag, `endDiscards` for the End dialog, `elapsedAnchorMs` for the count-up clock, and
   `lastOutcome` (`discarded` / `tooShort`) on the idle snapshot a free run leaves without a summary.
-- **A free run whose `startRun` failed** is saved through `saveRun`, which derives it the same way
-  and returns null when it was too short to keep.
+- **A free run whose `startRun` failed** is saved through `saveRun`, which derives it from its log
+  (no points could be written, so it has no buckets or route, but keeps its live distance) and
+  returns null when it was too short to keep.
+- **§4 as built.** The `segment_seq` rewrite is by timestamp with the fold's `(start, end]` rule,
+  not by fix `seq`, and a trimmed or capped end also deletes the points and barometer samples past
+  it — both exceptions to their rows being append-only. A derived finalize folds with the pause rule
+  itself and never calls `smoothTrackBySegment` or its `__DEV__` sum check, which have no pause rule
+  and would disagree with a free run's saved distance.
 - **The kind enum** gained `'stopped'` with a label, colour (`systemBrown`) and symbol
   (`figure.stand` / `accessibility_new`) wherever a stored kind is looked up — moved from 3b into 3a,
   because the widened type would not compile without them. Nothing can create a stopped row until

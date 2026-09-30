@@ -1,5 +1,4 @@
 import type { LocationFix } from '@/domain/geo';
-import { sessionTotalSeconds, type PlanSession } from '@/domain/plan';
 import type { RunSnapshotState } from '@/services/run-store/port';
 import type { RunEvent } from './types';
 
@@ -76,6 +75,8 @@ export function parseSnapshotState(value: unknown): RunSnapshotState | null {
     halfwayFired: state.halfwayFired,
     lastAcceptedFix: parseFix(state.lastAcceptedFix),
     logSeq: parseLogSeq(state.logSeq),
+    ...(state.modeState !== undefined && { modeState: state.modeState }),
+    ...(state.discarding === true && { discarding: true }),
   };
 }
 
@@ -84,11 +85,11 @@ export function parseSnapshotState(value: unknown): RunSnapshotState | null {
  * why the `age >= 0` floor: a backwards device-clock jump would otherwise make an arbitrarily
  * old snapshot look fresh.
  */
-export function isSnapshotFresh(updatedAt: string, session: PlanSession, now: number): boolean {
+export function isSnapshotFresh(updatedAt: string, windowMs: number, now: number): boolean {
   const stampedAt = Date.parse(updatedAt);
   if (Number.isNaN(stampedAt)) return false;
   const age = now - stampedAt;
-  return age >= 0 && age < sessionTotalSeconds(session) * 1000 + RESUME_GRACE_MS;
+  return age >= 0 && age < windowMs;
 }
 
 /**

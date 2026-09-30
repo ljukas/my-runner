@@ -14,6 +14,7 @@ import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
 import { runs } from '@/db/schema';
 import { formatMinutes, sessionSummary, sessionTitle } from '@/domain/format';
+import { scriptedPlan } from '@/domain/free-run';
 import {
   getSession,
   sessionRunSeconds,
@@ -59,7 +60,7 @@ export default function SessionSheet() {
     // here (its state lingers harmlessly until now — no screen reads it between
     // runs). This is why the summary no longer needs to reset the engine when it's dismissed.
     runEngine.reset();
-    runEngine.start(session);
+    runEngine.start(scriptedPlan(session));
     // Replace, not push: the run screen is a full-screen modal, so the session
     // sheet must leave the stack — otherwise the lingering formSheet bleeds into
     // the accessibility tree behind the run/summary modals and occludes their

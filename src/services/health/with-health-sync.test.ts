@@ -17,7 +17,8 @@ function fakeBase(overrides: Partial<RunLifecyclePersistence> = {}): RunLifecycl
   return {
     saveRun: async () => 'saved-id',
     startRun: async () => 'active-id',
-    finalizeRun: async () => {},
+    finalizeRun: async () => 'saved',
+    discardRun: async () => {},
     ...overrides,
   };
 }
@@ -51,6 +52,38 @@ describe('withHealthSync', () => {
     expect(synced).toEqual(['saved-id']);
   });
 
+  test('never syncs a run its finalize discarded', async () => {
+    const synced: string[] = [];
+    const outcome = await withHealthSync(
+      fakeBase({ finalizeRun: async () => 'discarded' }),
+      (runId) => {
+        synced.push(runId);
+      },
+    ).finalizeRun('run-7', record);
+    await flushMacrotasks();
+    expect(outcome).toBe('discarded');
+    expect(synced).toEqual([]);
+  });
+
+  test('never syncs a run saveRun found too short to keep', async () => {
+    const synced: string[] = [];
+    const id = await withHealthSync(fakeBase({ saveRun: async () => null }), (runId) => {
+      synced.push(runId);
+    }).saveRun(record);
+    await flushMacrotasks();
+    expect(id).toBeNull();
+    expect(synced).toEqual([]);
+  });
+
+  test('never syncs a discard', async () => {
+    const synced: string[] = [];
+    await withHealthSync(fakeBase(), (runId) => {
+      synced.push(runId);
+    }).discardRun('run-7');
+    await flushMacrotasks();
+    expect(synced).toEqual([]);
+  });
+
   test('syncs the finalized run', async () => {
     const synced: string[] = [];
     await withHealthSync(fakeBase(), (runId) => {
@@ -66,6 +99,7 @@ describe('withHealthSync', () => {
       finalizeRun: async () => {
         await Promise.resolve();
         order.push('local');
+        return 'saved' as const;
       },
     });
     await withHealthSync(base, () => {
@@ -134,7 +168,7 @@ describe('withHealthSync', () => {
       throw new Error('sync boom');
     });
     const warnings = await withCapturedWarnings(async () => {
-      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
+      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBe('saved');
       await flushMacrotasks();
     });
     expect(warnings.length).toBe(1);
@@ -147,7 +181,7 @@ describe('withHealthSync', () => {
 
     const wrapped = withHealthSync(fakeBase(), () => Promise.reject(new Error('health down')));
     const warnings = await withCapturedWarnings(async () => {
-      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
+      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBe('saved');
       // let fireSync's deferred call run, then its rejected promise's own catch settle.
       await flushMacrotasks();
     });
@@ -172,7 +206,7 @@ describe('withHealthSync', () => {
     const wrapped = withHealthSync(fakeBase(), rejectingSync);
 
     const warnings = await withCapturedWarnings(async () => {
-      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBeUndefined();
+      await expect(wrapped.finalizeRun('run-7', record)).resolves.toBe('saved');
       await flushMacrotasks();
     });
 

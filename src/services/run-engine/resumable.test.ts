@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { PlanSession } from '@/domain/plan';
 import type { RunSnapshotState } from '@/services/run-store/port';
 import {
   isSnapshotFresh,
@@ -8,16 +7,6 @@ import {
   RESUME_GRACE_MS,
   snapshotAliveUntil,
 } from './resumable';
-
-const SESSION: PlanSession = {
-  key: 'w1d1',
-  week: 1,
-  day: 1,
-  segments: [
-    { kind: 'warmup', seconds: 300 },
-    { kind: 'run', seconds: 300 },
-  ], // total 600s
-};
 
 const STATE: RunSnapshotState = {
   sessionKey: 'w1d1',
@@ -110,26 +99,46 @@ describe('parseSnapshotState', () => {
   });
 });
 
+describe("parseSnapshotState — a free run's fields (ADR 0026)", () => {
+  test("keeps a free run's threshold, which it must resume under", () => {
+    const raw = { ...STATE, sessionKey: 'free-run', modeState: { thresholdMps: 2.04 } };
+    expect(parseSnapshotState(JSON.parse(JSON.stringify(raw)))?.modeState).toEqual({
+      thresholdMps: 2.04,
+    });
+  });
+
+  test("passes a mode's state through untouched: only the mode parses it", () => {
+    const parsed = parseSnapshotState({ ...STATE, modeState: { thresholdMps: 'fast' } });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.modeState).toEqual({ thresholdMps: 'fast' });
+  });
+
+  test('keeps the flag of a discard that has not finished', () => {
+    expect(parseSnapshotState({ ...STATE, discarding: true })?.discarding).toBe(true);
+    expect(parseSnapshotState(STATE)?.discarding).toBeUndefined();
+  });
+});
+
 describe('isSnapshotFresh', () => {
   const stampedAt = 2_000_000_000_000;
   const stamped = new Date(stampedAt).toISOString();
   const limit = 600 * 1000 + RESUME_GRACE_MS;
 
   test('is fresh just inside the planned length + grace window', () => {
-    expect(isSnapshotFresh(stamped, SESSION, stampedAt + limit - 1)).toBe(true);
+    expect(isSnapshotFresh(stamped, limit, stampedAt + limit - 1)).toBe(true);
   });
 
   test('is stale at and past the window', () => {
-    expect(isSnapshotFresh(stamped, SESSION, stampedAt + limit)).toBe(false);
-    expect(isSnapshotFresh(stamped, SESSION, stampedAt + limit + 60_000)).toBe(false);
+    expect(isSnapshotFresh(stamped, limit, stampedAt + limit)).toBe(false);
+    expect(isSnapshotFresh(stamped, limit, stampedAt + limit + 60_000)).toBe(false);
   });
 
   test('a stamp in the future is never fresh (backwards device clock)', () => {
-    expect(isSnapshotFresh(stamped, SESSION, stampedAt - 1)).toBe(false);
+    expect(isSnapshotFresh(stamped, limit, stampedAt - 1)).toBe(false);
   });
 
   test('an unparseable timestamp is never fresh', () => {
-    expect(isSnapshotFresh('not-a-date', SESSION, stampedAt)).toBe(false);
+    expect(isSnapshotFresh('not-a-date', limit, stampedAt)).toBe(false);
   });
 });
 

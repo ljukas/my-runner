@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 
 import { Island } from '@/components/island';
+import { scriptedPlan } from '@/domain/free-run';
 import { elevationSource } from '@/services/elevation';
 import { fieldTestSession } from '@/services/field-test';
 import { runEngine } from '@/services/run-engine';
@@ -64,7 +65,7 @@ export function FieldTestRow() {
           console.warn('[field-test] motion permission ask failed', error);
         }
         runEngine.reset();
-        runEngine.start(fieldTestSession());
+        runEngine.start(scriptedPlan(fieldTestSession()));
         // why push and not replace (which session/[key].tsx uses): that screen is itself a modal
         // over the tabs, so replacing it keeps the tabs underneath. Replacing from a tab screen
         // takes the tabs out of the stack instead, and the summary's dismiss then has nothing to

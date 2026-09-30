@@ -46,8 +46,16 @@ export interface RunSnapshotState {
   lastAcceptedFix: LocationFix | null;
   /** Watermarks so a resumed run's instrumentation `seq` continues instead of restarting (spec §5.1). Absent in snapshots written before this slice. */
   logSeq?: { sampleSeq: number; entrySeq: number };
+  /** The run mode's own state, opaque here: a free run keeps its threshold in it (ADR 0026 §3). */
+  modeState?: unknown;
+  /** Set before a discard's delete: a launch that finds it finishes the delete (ADR 0026 §6). */
+  discarding?: boolean;
 }
 
+/**
+ * Each write takes effect when it is called, in call order, even though it resolves later: the
+ * engine orders an ending run's writes against the next run's by call order (ADR 0026 amendment).
+ */
 export interface RunStore {
   /**
    * Persist one cadence atomically: batch-insert `points`, `samples`, and `entries`, and upsert

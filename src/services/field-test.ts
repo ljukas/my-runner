@@ -1,3 +1,4 @@
+import { FREE_RUN_PLAN, isFreeRun, scriptedPlan, type RunPlan } from '@/domain/free-run';
 import type { PlanSession } from '@/domain/plan';
 
 /**
@@ -32,18 +33,21 @@ export function fieldTestSession(): PlanSession {
 
 /**
  * How an interrupted run's snapshot is settled at launch; null when it names nothing settleable, so
- * the caller discards it. A capture resolves here rather than through the plan (spec §8.0) because
+ * the caller clears it. A capture resolves here rather than through the plan (spec §8.0) because
  * otherwise nothing would ever close its `'active'` row. `offerable: false` means finalize as
  * `partial` without asking: a capture spliced across two sensor epochs is not the continuous
- * measurement the protocol wants.
+ * measurement the protocol wants. A free run resolves to the open plan (ADR 0026 §1).
  */
-export function resumeDispositionOf(
+export function planOf(
   sessionKey: string,
   planSession: (key: string) => PlanSession | undefined,
-): { session: PlanSession; offerable: boolean } | null {
-  if (isFieldTestRun(sessionKey)) return { session: fieldTestSession(), offerable: false };
+): { plan: RunPlan; offerable: boolean } | null {
+  if (isFreeRun(sessionKey)) return { plan: FREE_RUN_PLAN, offerable: true };
+  if (isFieldTestRun(sessionKey)) {
+    return { plan: scriptedPlan(fieldTestSession()), offerable: false };
+  }
   const session = planSession(sessionKey);
-  return session ? { session, offerable: true } : null;
+  return session ? { plan: scriptedPlan(session), offerable: true } : null;
 }
 
 /**

@@ -1,12 +1,7 @@
 import type { CueId } from '@/domain/cues';
-import {
-  accuracyFilter,
-  createSmootherState,
-  smoothFix,
-  type LocationFix,
-  type SmootherState,
-} from '@/domain/geo';
-import type { PlanSession } from '@/domain/plan';
+import { accuracyFilter, type LocationFix } from '@/domain/geo';
+import { keyOf, type RunPlan } from '@/domain/free-run';
+import { MOTION } from '@/domain/run-motion';
 import { paceSecPerKm } from '@/domain/run-stats';
 import type { CueService } from '@/services/cue-service/port';
 import type {
@@ -14,12 +9,18 @@ import type {
   ElevationSource,
   MotionPermissionStatus,
 } from '@/services/elevation';
-import { isFieldTestRun } from '@/services/field-test';
 import type { LocationTracker } from '@/services/location-tracker/port';
 import type { StepCounterSource } from '@/services/step-counter/port';
 import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/port';
-import { activeElapsedMs } from './active-time';
-import { ScriptedMode, type FinalizeOrigin, type RunMode } from './mode';
+import { activeElapsedMs } from '@/domain/active-time';
+import {
+  isExhaustedOnResume,
+  modeFor,
+  type FinalizeIntent,
+  type FinalizeOrigin,
+  type ModeDeps,
+  type RunMode,
+} from './mode';
 import {
   createPointBatchScheduler,
   POINT_FLUSH_MS,
@@ -52,6 +53,8 @@ const IDLE_SNAPSHOT: RunSnapshot = {
   paceSecPerKm: null,
   savedRunId: null,
   saveFailed: false,
+  elapsedAnchorMs: null,
+  lastOutcome: null,
 };
 
 // why: SQLite caps a statement at 32,766 bind parameters and each point binds 8 — an unbounded
@@ -103,10 +106,12 @@ export { endCountsAsCompleted, isTimelineExhausted } from './mode';
 
 export interface RunRestoreInput {
   runId: string;
-  session: PlanSession;
+  plan: RunPlan;
   state: RunSnapshotState;
   /** The run's persisted `run_points`, in `seq` order. */
   points: readonly BufferedRunPoint[];
+  /** The run's last known-alive instant (`snapshotAliveUntil`); a mode that `bridgesDowntime` pauses from it. */
+  aliveUntil?: number;
   /**
    * This run's already-stored instrumentation watermarks (spec §5.1). `epochBase` is always used;
    * the two `next*` counters only stand in for a snapshot written before `logSeq` existed, and
@@ -145,6 +150,7 @@ export class RunEngine {
   private readonly elevation: ElevationSource;
   private readonly stepCounter: StepCounterSource;
   private readonly nativeTimeoutMs: number;
+  private readonly modeDeps: ModeDeps;
   private readonly scheduler: PointBatchScheduler;
 
   private mode: RunMode | null = null;
@@ -152,13 +158,14 @@ export class RunEngine {
   private status: EngineStatus = 'idle';
   private savedRunId: string | null = null;
   private saveFailed = false;
-  /** Bumped by start()/reset() so a slow save from a superseded run can never stamp a later one. */
+  /** Set while a discard deletes the run: no flush may write it back (ADR 0026 §6). */
+  private discarding = false;
+  /** Bumped whenever a run begins or ends (start, rebuild, reset), so a superseded run's ending never touches a later one. */
   private runGeneration = 0;
   private snapshot: RunSnapshot = IDLE_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
 
-  // GPS ingest state (ADR 0021 §3): folded live so the snapshot distance equals the finalize re-fold; cleared per run.
-  private smootherState: SmootherState = createSmootherState();
+  // GPS ingest state, cleared per run.
   private distanceM = 0;
   private pendingPoints: BufferedRunPoint[] = [];
   private nextSeq = 0;
@@ -168,12 +175,14 @@ export class RunEngine {
   private log = new RunLog();
   /** Offsets the adapter's per-process epoch past what this run already stored (spec §4.2). */
   private elevationEpochBase = 0;
-  /** A field-test capture must not coach (spec §8.0); set from the session key in start()/rebuild(). */
-  private cuesSuppressed = false;
+  /** The segment a barometer sample taken now belongs to; refreshed with the snapshot. */
+  private sampleSegmentSeq = -1;
 
   // `run_points` FK-references the `'active'` row, so nothing can be written before startRun resolves.
   private runId: string | null = null;
   private startRunPromise: Promise<string | null> | null = null;
+  /** This run's row id whether or not a later run has superseded it: what an ending run writes to. */
+  private rowId: Promise<string | null> = Promise.resolve(null);
   // why: flushes are chained, never overlapped — the pre-finalize flush must queue behind an
   // in-flight cadence flush instead of being dropped, or the run's tail is lost.
   private flushChain: Promise<boolean> = Promise.resolve(true);
@@ -199,6 +208,8 @@ export class RunEngine {
     // A test seam like createScheduler: the suite cannot afford real multi-second waits to prove
     // these bounds, and there is nothing else in the engine to fake a native stall with.
     nativeTimeoutMs?: number;
+    /** The run/walk threshold a free run starts with; read from the runner's plan runs (ADR 0026 §3). */
+    thresholdMps?: () => number;
   }) {
     this.persistence = deps.persistence;
     this.cue = deps.cue;
@@ -207,6 +218,7 @@ export class RunEngine {
     this.elevation = deps.elevation;
     this.stepCounter = deps.stepCounter;
     this.nativeTimeoutMs = deps.nativeTimeoutMs ?? NATIVE_TIMEOUT_MS;
+    this.modeDeps = { thresholdMps: deps.thresholdMps ?? (() => MOTION.fallbackThresholdMps) };
     this.clock = deps.clock ?? Date.now;
     const createScheduler =
       deps.createScheduler ??
@@ -221,18 +233,20 @@ export class RunEngine {
     }
   }
 
-  start(session: PlanSession): void {
+  start(plan: RunPlan): void {
     if (this.status !== 'idle') return;
-    this.mode = new ScriptedMode(session);
+    this.mode = modeFor(plan, this.modeDeps);
     this.events = [{ type: 'start', at: this.clock() }];
     this.status = 'running';
     this.savedRunId = null;
     this.saveFailed = false;
+    this.discarding = false;
     this.runGeneration += 1;
-    this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = 0;
     this.resetIngestState();
-    this.openRunRow(session.key, this.events[0].at);
+    const startNote = this.mode.startNote();
+    if (startNote) this.note(startNote.kind, startNote.detail);
+    this.openRunRow(keyOf(plan), this.events[0].at);
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
     this.queueSensors('start');
@@ -260,37 +274,51 @@ export class RunEngine {
 
   skipSegment(): void {
     if (this.status !== 'running' && this.status !== 'paused') return;
+    if (!this.mode?.canSkip) return;
     this.append('skip');
     this.heartbeat(); // completes the session if the skipped segment was the last
   }
 
-  endEarly(): void {
+  /** Ends the run by the runner's hand; a `'discard'` deletes it, where the mode allows that. */
+  endEarly(intent: FinalizeIntent = 'save'): void {
     if (this.status !== 'running' && this.status !== 'paused') return;
-    void this.finalize('endedEarly');
+    if (intent === 'discard' && !this.mode?.canDiscard) return;
+    void this.finalize('endedEarly', 'runner', undefined, intent);
   }
 
   heartbeat(now: number = this.clock(), fix?: LocationFix): void {
     if (!this.mode || (this.status !== 'running' && this.status !== 'paused')) return;
-    const pos = this.mode.position(this.events, activeElapsedMs(this.events, now) / 1000);
+    const pos = this.mode.position(this.events, activeElapsedMs(this.events, now) / 1000, now);
     if (pos.done) {
-      void this.finalize('completed');
+      void this.finalize('completed', pos.origin);
       return;
     }
     // Timing/cues derive first; GPS ingestion can neither stall nor throw out of them.
     this.refresh(now);
-    if (this.status === 'running' && fix) this.ingestFix(fix, pos.segmentSeq);
+    if (this.status === 'running' && fix) this.ingestFix(fix, pos.segmentSeq, now);
     this.armFlush();
   }
 
   /**
    * Rebuild an interrupted run in place (crash recovery), continuing its existing `'active'` row.
    * False — leaving the engine untouched — when a run is already live, when the log cannot be
-   * replayed, or when its timeline already expired (`abandon` is that run's only outcome).
+   * replayed, or when it is already past resuming (`isExhaustedOnResume`; `abandon` is its outcome).
    */
   restore(input: RunRestoreInput): boolean {
     if (this.status !== 'idle') return false;
-    if (new ScriptedMode(input.session).exhausted(input.state.events, this.clock())) return false;
+    const probe = modeFor(input.plan, this.modeDeps, input.state);
+    if (isExhaustedOnResume(probe, input.state.events, input.aliveUntil, this.clock()))
+      return false;
     if (!this.rebuild(input)) return false;
+    if (
+      this.mode?.bridgesDowntime &&
+      input.aliveUntil !== undefined &&
+      !isPausedInLog(this.events)
+    ) {
+      // why: a free run can outlive the process by hours; that dead time is neither running nor stopped
+      this.append('pause', input.aliveUntil);
+      this.append('resume');
+    }
     this.cue.prepare();
     this.queueTracker(() => this.tracker.start(), 'start');
     this.queueSensors('start');
@@ -311,22 +339,30 @@ export class RunEngine {
   async abandon(input: RunAbandonInput): Promise<void> {
     if (this.status !== 'idle') return;
     if (!this.rebuild({ ...input, points: [] })) return;
+    const generation = this.runGeneration;
     await this.finalize('endedEarly', 'abandon', input.aliveUntil);
-    this.reset();
+    if (generation === this.runGeneration) this.reset();
   }
 
   reset(): void {
+    this.resetTo(null);
+  }
+
+  private resetTo(lastOutcome: RunSnapshot['lastOutcome']): void {
     this.mode = null;
     this.events = [];
     this.status = 'idle';
     this.savedRunId = null;
     this.saveFailed = false;
+    this.discarding = false;
     this.runGeneration += 1;
     this.runId = null;
     this.startRunPromise = null;
+    this.rowId = Promise.resolve(null);
     this.scheduler.stop();
     this.resetIngestState();
-    this.snapshot = IDLE_SNAPSHOT;
+    this.snapshot = lastOutcome === null ? IDLE_SNAPSHOT : { ...IDLE_SNAPSHOT, lastOutcome };
+    this.sampleSegmentSeq = -1;
     this.cue.release();
     this.queueTracker(() => this.tracker.stop(), 'stop');
     // why here too: a path to idle that skips finalize would otherwise leave CMAltimeter running
@@ -360,22 +396,32 @@ export class RunEngine {
 
   // --- derivation ---
 
-  /** Event timestamps are clamped non-decreasing so elapsed can never go negative (ADR 0007). */
+  /**
+   * Event timestamps are clamped non-decreasing so elapsed can never go negative (ADR 0007), and
+   * past the mode's floor; an `end` is placed by the mode's finalize, which already applied it.
+   */
   private append(type: RunEvent['type'], at?: number): void {
     const last = this.events[this.events.length - 1];
-    this.events.push({ type, at: Math.max(at ?? this.clock(), last?.at ?? 0) });
+    const floor = type === 'end' ? null : this.mode?.eventFloorMs();
+    this.events.push({ type, at: Math.max(at ?? this.clock(), last?.at ?? 0, floor ?? 0) });
   }
 
   private refresh(now: number = this.clock()): void {
     if (!this.mode) return;
-    const view = this.mode.view(this.events, activeElapsedMs(this.events, now) / 1000, now);
+    const activeMs = activeElapsedMs(this.events, now);
+    const { sampleSegmentSeq, ...view } = this.mode.view(this.events, activeMs / 1000, now);
+    this.sampleSegmentSeq = sampleSegmentSeq;
     this.snapshot = {
       ...view,
-      mode: this.mode.kind,
       status: this.status,
       sessionKey: this.mode.key,
       savedRunId: this.savedRunId,
       saveFailed: this.saveFailed,
+      elapsedAnchorMs:
+        this.status === 'running'
+          ? Math.max(now, this.events[this.events.length - 1].at) - activeMs
+          : null,
+      lastOutcome: null,
       distanceM: this.distanceM,
       paceSecPerKm: paceSecPerKm(this.distanceM, view.activeElapsedSeconds),
     };
@@ -392,13 +438,13 @@ export class RunEngine {
   // why a seam: one flag can silence a whole run, and the log records what it would have said
   // either way (spec §6, §8.0).
   private announce(cue: CueId): void {
-    this.note('cue', { cue, suppressed: this.cuesSuppressed });
-    if (this.cuesSuppressed) return;
+    const suppressed = this.mode?.cuesSuppressed ?? false;
+    this.note('cue', { cue, suppressed });
+    if (suppressed) return;
     this.cue.announce(cue);
   }
 
   private resetIngestState(): void {
-    this.smootherState = createSmootherState();
     this.distanceM = 0;
     this.pendingPoints = [];
     this.nextSeq = 0;
@@ -409,7 +455,7 @@ export class RunEngine {
 
   private captureReading = (reading: AltitudeReading): void => {
     try {
-      this.log.sample(reading, this.snapshot.segmentIndex, this.elevationEpochBase);
+      this.log.sample(reading, this.sampleSegmentSeq, this.elevationEpochBase);
     } catch (error) {
       console.warn('[run-engine] altitude sample dropped; the run is unaffected', error);
     }
@@ -447,9 +493,9 @@ export class RunEngine {
     }
   }
 
-  // Same smoother the finalize re-fold re-runs over run_points, so live distance == re-derived (ADR 0021 §3):
-  // the integer-ms timestamp survives the ISO round-trip, and the full accuracy-passed stream is buffered (no re-gate — the smoother owns velocity).
-  private ingestFix(fix: LocationFix, segmentSeq: number): void {
+  // why no re-gate: the smoother owns velocity, and the finalize re-fold must see this same stream
+  // (ADR 0021 §3).
+  private ingestFix(fix: LocationFix, segmentSeq: number, now: number): void {
     let buffered = false;
     try {
       if (!accuracyFilter(fix)) {
@@ -462,8 +508,10 @@ export class RunEngine {
         });
         return;
       }
-      const timestamp = Math.round(fix.timestamp);
-      const step = smoothFix(this.smootherState, { ...fix, timestamp });
+      const mode = this.mode;
+      if (!mode) return;
+      const timestamp = mode.fixTimeMs(fix.timestamp, this.clock());
+      const acceptedDeltaMeters = mode.ingest({ ...fix, timestamp }, this.events);
       const point: BufferedRunPoint = {
         seq: this.nextSeq,
         segmentSeq,
@@ -475,10 +523,9 @@ export class RunEngine {
         altitudeAccuracy: fix.altitudeAccuracy ?? null,
         speed: fix.speed,
       };
-      this.smootherState = step.state;
-      this.distanceM += step.acceptedDeltaMeters;
+      this.distanceM += acceptedDeltaMeters;
       this.pendingPoints.push(point);
-      if (step.acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
+      if (acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
       this.nextSeq += 1;
       buffered = true;
     } catch (error) {
@@ -488,6 +535,7 @@ export class RunEngine {
     if (buffered) {
       this.snapshot = {
         ...this.snapshot,
+        ...this.mode?.live(this.events, now),
         distanceM: this.distanceM,
         paceSecPerKm: paceSecPerKm(this.distanceM, this.snapshot.activeElapsedSeconds),
       };
@@ -497,20 +545,16 @@ export class RunEngine {
 
   /** Replays the log and re-folds the persisted points into live state; false when the log is unusable. */
   private rebuild(input: RunRestoreInput): boolean {
-    const { runId, session, state, points, logResume } = input;
+    const { runId, plan, state, points, logResume } = input;
     if (state.events.length === 0 || state.events[0].type !== 'start') return false;
-    if (state.sessionKey !== session.key) return false;
+    if (state.sessionKey !== keyOf(plan)) return false;
 
-    this.mode = new ScriptedMode(session, {
-      lastAnnouncedIndex: state.lastAnnouncedIndex,
-      halfwayFired: state.halfwayFired,
-    });
+    this.mode = modeFor(plan, this.modeDeps, state);
     this.events = state.events.map((event) => ({ ...event }));
     this.status = isPausedInLog(state.events) ? 'paused' : 'running';
     this.savedRunId = null;
     this.saveFailed = false;
     this.runGeneration += 1;
-    this.cuesSuppressed = isFieldTestRun(session.key);
     this.elevationEpochBase = logResume?.epochBase ?? 0;
     this.resetIngestState();
     // why the snapshot wins: it counts the rows this run minted, including any lost with the
@@ -524,14 +568,14 @@ export class RunEngine {
     // The `'active'` row already exists — recovery must never open a second one.
     this.runId = runId;
     this.startRunPromise = Promise.resolve(runId);
+    this.rowId = this.startRunPromise;
 
     // why: re-folding exactly the persisted spine — not the unflushed tail, not the snapshot anchor
     // on its own — is what keeps resumed distance equal to the live and finalize values (ADR 0021 §3).
     for (const point of points) {
-      const step = smoothFix(this.smootherState, toFix(point));
-      this.smootherState = step.state;
-      this.distanceM += step.acceptedDeltaMeters;
-      if (step.acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
+      const acceptedDeltaMeters = this.mode.ingest(toFix(point), this.events);
+      this.distanceM += acceptedDeltaMeters;
+      if (acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
       if (point.seq >= this.nextSeq) this.nextSeq = point.seq + 1;
     }
     return true;
@@ -541,16 +585,31 @@ export class RunEngine {
     requestedKind: 'completed' | 'endedEarly',
     origin: FinalizeOrigin = 'runner',
     at?: number,
+    intent: FinalizeIntent = 'save',
   ): Promise<void> {
     if (!this.mode || this.events.length === 0) return;
-    this.append('end', at);
-    const endAt = this.events[this.events.length - 1].at;
-    const { kind, elapsedS, segments } = this.mode.finalize(
-      this.events,
-      endAt,
-      requestedKind,
-      origin,
+    const generation = this.runGeneration;
+    const rowId = this.rowId;
+    // why the mode is asked before `end` is appended: it decides where the run ends.
+    const requestedEnd = Math.max(
+      at ?? this.clock(),
+      this.events[this.events.length - 1].at,
+      this.mode.eventFloorMs() ?? 0,
     );
+    const final = this.mode.finalize({
+      events: this.events,
+      endAt: requestedEnd,
+      requested: requestedKind,
+      origin,
+      intent,
+    });
+    if (final.outcome === 'discard') {
+      // why null for an abandon: nobody watched it end, so there is nothing to tell the runner
+      await this.discard(generation, rowId, origin === 'abandon' ? null : final.reason);
+      return;
+    }
+    const { kind, endAt, elapsedS, segments, derived } = final;
+    this.append('end', endAt);
 
     const record: CompletedRunRecord = {
       sessionKey: this.mode.key,
@@ -562,15 +621,19 @@ export class RunEngine {
       // active_run_snapshot (the only other home for this) is cleared once finalize succeeds, and
       // snapshotState strips `end` — so this is the run's last chance to keep it (spec §5.2).
       eventLogJson: JSON.stringify(this.events),
+      ...(derived && { derived }),
     };
+    const liveDistanceM = this.distanceM;
 
     this.status = kind;
     this.refresh(endAt);
     // A completed run speaks its congratulations, then self-releases the audio
     // session when that utterance finishes — calling release() here would cut it
     // off. Ending early — or an abandoned log — has no cue, so tear the session down immediately.
-    if (kind === 'completed' && origin === 'runner') this.announce('complete');
-    else this.cue.release();
+    // A derived run waits for its save, which can still find it under a minute and delete it.
+    const congratulates = kind === 'completed' && origin !== 'abandon';
+    if (congratulates && !derived) this.announce('complete');
+    else if (!congratulates) this.cue.release();
     this.scheduler.stop();
     // why above tracker.stop(): after that stop the process can be suspended mid-write (ADR 0008).
     // Concurrent because each is separately bounded and neither reads the other's result, so the
@@ -580,9 +643,16 @@ export class RunEngine {
       this.readMotionPermission(),
     ]);
     record.motionPermission = motionPermission;
+    if (generation !== this.runGeneration) {
+      await this.persistSuperseded(record, await rowId, liveDistanceM);
+      return;
+    }
     this.queueTracker(() => this.tracker.stop(), 'stop');
     this.queueSensors('stop');
-    await this.completeRun(record, this.runGeneration);
+    await this.completeRun(record, generation, rowId, liveDistanceM, {
+      congratulateOnSave: congratulates && !!derived,
+      tooShort: origin === 'abandon' ? null : 'tooShort',
+    });
   }
 
   // --- persistence ---
@@ -590,22 +660,25 @@ export class RunEngine {
   private openRunRow(sessionKey: string, startedAt: number): void {
     const generation = this.runGeneration;
     this.runId = null;
-    this.startRunPromise = this.persistence
-      .startRun(sessionKey, new Date(startedAt).toISOString())
-      .then(
-        (id) => {
-          if (generation !== this.runGeneration) return null; // superseded by reset()/start()
-          this.runId = id;
-          // why: stamp this run's own snapshot at once — until it lands, a launch-time resume can
-          // still find the previous attempt's snapshot beside this row.
-          void this.queueFlush();
-          return id;
-        },
-        (error) => {
-          console.warn('[run-engine] startRun failed; retrying at the next flush cadence', error);
-          return null;
-        },
-      );
+    const opening = this.persistence.startRun(sessionKey, new Date(startedAt).toISOString());
+    this.rowId = opening.then(
+      (id) => id,
+      () => null,
+    );
+    this.startRunPromise = opening.then(
+      (id) => {
+        if (generation !== this.runGeneration) return null; // superseded by reset()/start()
+        this.runId = id;
+        // why: stamp this run's own snapshot at once — until it lands, a launch-time resume can
+        // still find the previous attempt's snapshot beside this row.
+        void this.queueFlush();
+        return id;
+      },
+      (error) => {
+        console.warn('[run-engine] startRun failed; retrying at the next flush cadence', error);
+        return null;
+      },
+    );
   }
 
   private async awaitRunId(): Promise<string | null> {
@@ -633,6 +706,7 @@ export class RunEngine {
 
   /** Never rejects — a poisoned chain would kill every later flush, including finalize's. False when points are still buffered. */
   private async flushOnce(): Promise<boolean> {
+    if (this.discarding) return true;
     const generation = this.runGeneration;
     let batch: BufferedRunPoint[] = [];
     let samples: PendingSample[] = [];
@@ -681,7 +755,7 @@ export class RunEngine {
       sessionKey: mode.key,
       // why: an `end`-terminated log is not resumable, so a finalize that fails must not leave one behind.
       events: this.events.filter((event) => event.type !== 'end').map((event) => ({ ...event })),
-      ...mode.cueState(),
+      ...mode.stateFields(),
       lastAcceptedFix: this.lastAcceptedFix,
       logSeq: this.log.watermarks,
     };
@@ -700,44 +774,135 @@ export class RunEngine {
     return this.pendingPoints.length === 0;
   }
 
-  private async completeRun(record: CompletedRunRecord, generation: number): Promise<void> {
+  private async completeRun(
+    record: CompletedRunRecord,
+    generation: number,
+    rowId: Promise<string | null>,
+    liveDistanceM: number,
+    {
+      congratulateOnSave,
+      tooShort,
+    }: { congratulateOnSave: boolean; tooShort: RunSnapshot['lastOutcome'] },
+  ): Promise<void> {
     try {
-      const runId = await this.awaitRunId();
-      if (generation !== this.runGeneration) return; // superseded by reset()/start()
+      const runId = await rowId;
+      if (generation !== this.runGeneration) {
+        return await this.persistSuperseded(record, runId, liveDistanceM);
+      }
       if (runId === null) {
         // No `'active'` row means no point was ever insertable either, so the live scalar is the
         // only distance this run will ever have.
-        const id = await this.persistence.saveRun({ ...record, distanceM: this.distanceM });
+        const id = await this.persistence.saveRun({ ...record, distanceM: liveDistanceM });
         if (generation !== this.runGeneration) return;
-        this.markSaved(id);
+        if (id === null) return this.forgetDiscarded(tooShort);
+        this.markSaved(id, congratulateOnSave);
         return;
       }
       const drained = await this.drainPendingPoints();
-      if (generation !== this.runGeneration) return;
+      if (generation !== this.runGeneration) {
+        return await this.persistSuperseded(record, runId, liveDistanceM);
+      }
       if (!drained) {
         console.warn(
           `[run-engine] ${this.pendingPoints.length} point(s) could not be persisted; the saved distance is short`,
         );
       }
-      await this.persistence.finalizeRun(runId, record);
+      const outcome = await this.persistence.finalizeRun(runId, record);
       if (generation !== this.runGeneration) return;
-      this.markSaved(runId);
+      if (outcome === 'discarded') return this.forgetDiscarded(tooShort);
+      this.markSaved(runId, congratulateOnSave);
     } catch (error) {
       if (generation !== this.runGeneration) return;
       // why: leave the row `'active'` and the snapshot in place — the next launch re-finalizes it.
       console.warn('[run-engine] finalize failed', error);
+      if (congratulateOnSave) this.cue.release();
       this.markSaveFailed();
       return;
     }
+    // Only now: until finalizeRun commits, the snapshot is the run's only recovery path.
+    await this.clearSnapshotQuietly();
+  }
+
+  /**
+   * A run whose ending was overtaken by reset()/start(): its record still lands on its own row, and
+   * nothing the next run owns (status, cues, sensors, the snapshot) is touched. A leftover snapshot
+   * of it is cleared at the next launch, since it no longer ties to an `'active'` row.
+   */
+  private async persistSuperseded(
+    record: CompletedRunRecord,
+    runId: string | null,
+    liveDistanceM: number,
+  ): Promise<void> {
     try {
-      // Only now: until finalizeRun commits, the snapshot is the run's only recovery path.
+      if (runId === null) await this.persistence.saveRun({ ...record, distanceM: liveDistanceM });
+      // why the live distance here too: a row that opened late may have received no points
+      else await this.persistence.finalizeRun(runId, { ...record, distanceM: liveDistanceM });
+    } catch (error) {
+      console.warn('[run-engine] finalize of a superseded run failed', error);
+    }
+  }
+
+  /** A free run its save found too short: it is gone, so there is no summary to show. */
+  private async forgetDiscarded(outcome: RunSnapshot['lastOutcome']): Promise<void> {
+    await this.clearSnapshotQuietly();
+    this.resetTo(outcome);
+  }
+
+  private async clearSnapshotQuietly(): Promise<void> {
+    try {
       await this.runStore.clearSnapshot();
     } catch (error) {
       console.warn('[run-engine] snapshot clear failed; the next launch discards it', error);
     }
   }
 
-  private markSaved(id: string): void {
+  /**
+   * Deletes the live run and everything it wrote — never saved, never in Health (ADR 0026 §6).
+   * why this order: a flush in flight would write points and the snapshot back after the delete, so
+   * the scheduler stops and the chain drains first, and `discarding` blocks every later flush; the
+   * snapshot is marked before the delete, so a delete that fails is finished at the next launch
+   * rather than resumed or saved. The delete never waits on the run still being current.
+   */
+  private async discard(
+    generation: number,
+    rowId: Promise<string | null>,
+    reason: RunSnapshot['lastOutcome'],
+  ): Promise<void> {
+    const mode = this.mode;
+    const mark = mode && { ...this.snapshotState(mode), discarding: true };
+    const current = () => generation === this.runGeneration;
+    this.status = 'endedEarly';
+    this.discarding = true;
+    this.snapshot = { ...this.snapshot, status: 'endedEarly', elapsedAnchorMs: null };
+    this.emit();
+    this.scheduler.stop();
+    this.pendingPoints = [];
+    this.cue.release();
+    this.queueTracker(() => this.tracker.stop(), 'stop');
+    this.queueSensors('stop');
+    try {
+      await this.flushChain;
+      const runId = await rowId;
+      if (runId !== null) {
+        // why only while current: once another run has started, the snapshot row is that run's
+        if (current() && mark) {
+          try {
+            await this.runStore.flush(runId, [], [], [], mark);
+          } catch (error) {
+            console.warn('[run-engine] discard mark failed; deleting anyway', error);
+          }
+        }
+        await this.persistence.discardRun(runId);
+      }
+      if (current()) await this.runStore.clearSnapshot();
+    } catch (error) {
+      console.warn('[run-engine] discard failed; the next launch finishes it', error);
+    }
+    if (current()) this.resetTo(reason);
+  }
+
+  private markSaved(id: string, congratulate = false): void {
+    if (congratulate) this.announce('complete');
     this.savedRunId = id;
     this.snapshot = { ...this.snapshot, savedRunId: id };
     this.emit();

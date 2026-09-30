@@ -30,7 +30,7 @@ recorded here so implementation does not reopen them.
 | Chart | Distance axis with run/walk bands; **stops drawn as minimum-width markers**. *(Clarified after review.)* |
 | Run screen | Count-up clock, current bucket, distance, rolling pace. No progress bar and no Skip. |
 | Ending | Saved as `completed`, including a crashed run that is not resumed. |
-| Safeguards | **Save / Discard on End; auto-discard under 1 min; auto-end after 30 min stopped; hard cap at 4 h.** *(Added after review.)* |
+| Safeguards | **Save / Discard on End; auto-discard under 1 min; auto-end after 30 min stopped; hard cap at 4 h.** *(Added after review.)* Only a stop the GPS measured counts toward the 30 min; a GPS silence is stopped time but never ends or trims a run *(owner decision, 2026-09-30)*. |
 | No location | Allowed, timer-only. |
 | Cues | Paused/resumed, plus a per-kilometre cue for free runs only. |
 | Health | Run/walk segments for free and plan runs. **Android via a patched library; iOS only if a device spike meets its criteria.** *(Revised after review.)* |
@@ -60,7 +60,7 @@ numbers are from `main` at 9625d73.
 | `endCountsAsCompleted` (`:154`, `run.tsx:71`) | reads countdown fields | scripted view only |
 | `finalize` (`:674-713`) | caps elapsed at the total; `promoteInCooldown`; segments from the timeline; `complete` cue whenever completed | `mode.finalElapsed`, `mode.finalStatus(requested, finalElapsed, origin)`, `mode.finalSegments`; `complete` spoken only for origin `runner` / `limit` |
 | `abandon` (`:398-403`) | `finalize('endedEarly', false, aliveUntil)` | `finalize(..., origin: 'abandon')`: silent, saved per mode |
-| `isTimelineExhausted` (`:163`; `restore` `:378`; `index.ts:192`) | timeline-relative | `mode.exhausted(events, now)`; open is false |
+| `isTimelineExhausted` (`:163`; `restore` `:378`; `index.ts:192`) | timeline-relative | `mode.exhausted(events, now)`, via `isExhaustedOnResume`; open is the 4 h cap, judged at `aliveUntil` |
 | `isSnapshotFresh` (`resumable.ts:87-91`; `index.ts:193`) | plan length + 30 min | `mode.resumeWindowMs()`; open is 4 h |
 | `resumeDispositionOf` (`field-test.ts:40`) | field test `offerable: false` | `planOf(key) → { plan, offerable }`, same rule |
 | `rebuild` key check (`:634`) | `state.sessionKey !== session.key` | `keyOf(plan)`: `session.key`, or `'free-run'` |
@@ -75,9 +75,10 @@ The "Becomes" names are the design; stage 2 shipped them as `position`, `view`, 
 `exhausted`, `finalize(…, origin)` and `cueState`, and its plan lists which rows stage 3 still moves.
 
 **Snapshot.** `RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot`, built on a shared base: `mode`,
-`status`, `sessionKey`, `activeElapsedSeconds`, `distanceM`, `savedRunId`, `saveFailed`. The open
-branch adds `bucket` and `rollingPaceSecPerKm`. `IDLE_SNAPSHOT` is scripted-shaped, with `mode:
-'scripted'`.
+`status`, `sessionKey`, `activeElapsedSeconds`, `distanceM`, `savedRunId`, `saveFailed`,
+`elapsedAnchorMs` and `lastOutcome`. The open branch adds `motion`, `rollingPaceSecPerKm`,
+`gpsStale` and `endDiscards` (stage 3a, ADR 0026's amendment). `IDLE_SNAPSHOT` is scripted-shaped,
+with `mode: 'scripted'`.
 
 **Why stage 2 ships no behaviour change.** Stage 2 keeps `start(PlanSession)` and
 `restore({ session })`, and keeps the snapshot flat with `mode: 'scripted'`. `engine.test.ts` calls
@@ -342,7 +343,8 @@ the kilometre cue are verified by replay tests, and by driving GPS by hand on iO
 | --- | --- | --- | --- |
 | 1 | **Classifier** | `smoothedSpeedMps`; `run-motion.ts`; the learned threshold (`learnThreshold`); `bucketStats`; a replay harness over the captures (a plain `bun` file, not a `package.json` script, since scripts are fingerprint-hashed). Asks the owner for a capture with a crossing stop and a mid-run pause before the constants are frozen. No app change. | `bun test`; the harness reproduces §4.4. |
 | 2 | **Engine refactor** | `RunMode` and `ScriptedMode`, and `mode: 'scripted'` on a flat snapshot. **No behaviour change.** `RunPlan` arrives with `OpenMode` in stage 3: its open variant would be dead code here. | `engine.test.ts` with no assertion changed; both typechecks; the `session`-tagged Maestro flows on iOS and Android. |
-| 3 | **Free run, end to end** | `OpenMode`; the snapshot union; derived finalize with the `segment_seq` rewrite; the `stopped` kind everywhere §5.3 lists; `planOf` and the 4 h resume; safeguards; the header button, sheet, `FreeRunView` and `showSkip`; the free-run stat grid; `runTitle`; the ADR 0007 and 0021 amendments. | Engine tests for open mode; `free-run.yaml` (below); a manual GPS drive on both platforms, checking route colours and the grid. |
+| 3a | **Engine and persistence** | `OpenMode` and `modeFor`; the snapshot union; the derived finalize with the `segment_seq` rewrite; `deriveOpenRun` (cap, stopped trim, under-a-minute discard); hard-delete discard; `planOf` and the 4 h resume; the learned-threshold reader; the pause rule in every re-fold; the `stopped` kind's label, colour and symbol; the ADR 0007 and 0021 amendments. No entry point, so the app is unchanged. | `bun test` (open mode, derived finalize under `bun:sqlite`, `deriveOpenRun`); the differential old-vs-new engine harness for plan runs. [Plan](../plans/2026-09-29-free-run-stage-3a-engine-persistence.md). |
+| 3b | **The surfaces** | The header button, sheet, `FreeRunView` and `showSkip`; the Save / Discard / Cancel End dialog (Android: Discard in the dialog body); the free-run stat grid; `runTitle`; the resume sheet's copy. | `free-run.yaml` and a discard flow (below), waiting out the minute; a manual GPS drive on both platforms. |
 | 4 | **Chart and cue** | Chart bands and stop markers; the `kilometre` cue; Settings copy; the ADR 0009 amendment. | `bun test`; a drive past 1 km; light and dark screenshots on iOS and Android. |
 | 5a | **Health segments, Android** | `segmentWindows`; the library patch; exercise segments for plan and free runs; the ADR 0011 amendment. Depends only on stage 1 and can ship any time after it. | Readback through `readRecords`; the Health Connect data browser. |
 | 5b | **Health segments, iOS** | The spike, then `modules/workout-writer/`, or an amendment dropping it. | §6's three criteria on a device. |

@@ -4,8 +4,9 @@ import { View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
-import { sessionTitle } from '@/domain/format';
-import { discardResumableRun, resumeCrashedRun } from '@/services/run-engine';
+import { runTitle } from '@/domain/format';
+import { keyOf } from '@/domain/free-run';
+import { declineResumableRun, resumeCrashedRun } from '@/services/run-engine';
 import { clearResumeOffer, peekResumeOffer } from '@/services/run-engine/resume-offer';
 
 export default function ResumeRunScreen() {
@@ -29,7 +30,11 @@ export default function ResumeRunScreen() {
     // A false resume means the run expired between detection and the tap, so finalizing is the only
     // outcome left; show the saved run rather than returning silently. `celebrate` because this is a
     // fresh finish either way — the same acknowledgement an ended-early run gets.
-    await discardResumableRun(candidate);
+    // Nothing saved to show: a free run under a minute is deleted, and a failed save retries at launch.
+    if (!(await declineResumableRun(candidate))) {
+      router.replace('/');
+      return;
+    }
     router.replace({
       pathname: '/runs/[runId]',
       params: { runId: candidate.runId, celebrate: '1' },
@@ -43,7 +48,7 @@ export default function ResumeRunScreen() {
           Resume run?
         </Text>
         <Text tone="secondary">
-          {`${sessionTitle(candidate.session.key)} was interrupted. Resume to pick up where you left off, or save what you ran so far.`}
+          {`${runTitle(keyOf(candidate.plan))} was interrupted. Resume to pick up where you left off, or save what you ran so far.`}
         </Text>
       </View>
 
@@ -52,7 +57,7 @@ export default function ResumeRunScreen() {
         <Island.Button
           fill
           variant="secondary"
-          label="Save as Partial"
+          label={candidate.plan.mode === 'open' ? 'Save Run' : 'Save as Partial'}
           onPress={() => void decide(false)}
         />
       </View>

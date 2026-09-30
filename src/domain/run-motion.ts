@@ -6,6 +6,7 @@ import {
   createSmootherState,
   MAX_GAP_S,
   smoothFix,
+  type FixPolicy,
   type LatLng,
   type LocationFix,
   type SegmentedFix,
@@ -100,14 +101,8 @@ export function motionStep(
   const candidate = sample.afterPause ? null : state.candidate;
   if (sample.speedMps === null) return { state: { ...state, candidate }, transition: null };
 
+  // why no shortcut for an unknown kind: a first sample comes off a fresh smoother, pure jitter
   const target = targetKind(state.kind, sample.speedMps, thresholdMps);
-  if (state.kind === null) {
-    return {
-      state: { kind: target, candidate: null },
-      transition: { kind: target, atMs: sample.atMs },
-    };
-  }
-
   if (target === state.kind) {
     if (!candidate) return { state: { kind: state.kind, candidate: null }, transition: null };
     const seen = candidate.seen + 1;
@@ -152,11 +147,15 @@ export interface OpenTrackRollup {
   /** Smoothed points for rendering, as `smoothTrack` returns them. */
   points: LatLng[];
   buckets: MotionBucket[];
+  /** The trailing stop's measured active seconds (`OpenTrackState.measuredStop`); 0 when moving. */
+  measuredStopS: number;
 }
 
 export interface OpenTrackStepOptions {
   thresholdMps: number;
   paused: readonly PausedInterval[];
+  /** The run's start: a stop backdated to a fix cached before it is measured from here. */
+  startMs?: number;
 }
 
 export interface OpenTrackOptions extends OpenTrackStepOptions {
@@ -168,18 +167,30 @@ export interface OpenTrackState {
   smoother: SmootherState;
   motion: MotionState;
   previousMs: number | null;
+  /**
+   * The current stop as the fixes measured it — active ms from its start to its latest fix, with
+   * any GPS silence inside it left out — which alone ends or trims a free run (ADR 0026 §6); null
+   * while not stopped. `untilMs` is the latest fix counted.
+   */
+  measuredStop: { ms: number; untilMs: number } | null;
 }
 
 export interface OpenTrackStep {
   state: OpenTrackState;
   acceptedDeltaMeters: number;
   smoothedPoint: LatLng | null;
+  smoothedSpeedMps: number | null;
   /** Kind changes this fix confirmed, in time order; the saved buckets are built from these. */
   changes: MotionTransition[];
 }
 
 export function createOpenTrackState(): OpenTrackState {
-  return { smoother: createSmootherState(), motion: createMotionState(), previousMs: null };
+  return {
+    smoother: createSmootherState(),
+    motion: createMotionState(),
+    previousMs: null,
+    measuredStop: null,
+  };
 }
 
 function pausedMsWithin(paused: readonly PausedInterval[], fromMs: number, toMs: number): number {
@@ -196,40 +207,92 @@ const activeMs = (paused: readonly PausedInterval[], fromMs: number, toMs: numbe
 const pauseBetween = (paused: readonly PausedInterval[], fromMs: number, toMs: number) =>
   paused.some((pause) => pause.fromMs >= fromMs && pause.fromMs < toMs);
 
+/**
+ * Where a GPS silence began, when the silence up to `atMs` is longer than `MAX_GAP_S` of active time;
+ * null otherwise. One rule for the fold and the live engine: such a silence is stopped time, whether a
+ * later fix closes it or the run ends inside it.
+ */
+export function silentSince(
+  paused: readonly PausedInterval[],
+  lastAcceptedMs: number | null,
+  atMs: number,
+): number | null {
+  return lastAcceptedMs !== null && activeMs(paused, lastAcceptedMs, atMs) > MAX_GAP_S * 1000
+    ? lastAcceptedMs
+    : null;
+}
+
 const withinPause = (paused: readonly PausedInterval[], atMs: number) =>
   paused.some((pause) => atMs >= pause.fromMs && atMs < pause.toMs);
 
 /**
+ * A free run's fold rule, shared by every fold of its points so they agree with its saved distance
+ * (spec §4.3): a fix stamped at or before the last accepted one, or inside a pause, describes no
+ * active movement; the smoother restarts at the first fix after a pause.
+ */
+export function pausePolicy(paused: readonly PausedInterval[]): FixPolicy {
+  return {
+    ignores: (lastAcceptedMs, fix) =>
+      (lastAcceptedMs !== null && fix.timestamp <= lastAcceptedMs) ||
+      withinPause(paused, fix.timestamp),
+    restartsBefore: (lastAcceptedMs, fix) =>
+      lastAcceptedMs !== null && pauseBetween(paused, lastAcceptedMs, fix.timestamp),
+  };
+}
+
+function measureStop(
+  previous: OpenTrackState['measuredStop'],
+  moved: MotionStep,
+  fixMs: number,
+  paused: readonly PausedInterval[],
+  startMs: number,
+): OpenTrackState['measuredStop'] {
+  const { kind } = moved.state;
+  if (kind === 'walk' || kind === 'run') return null;
+  // why kept while unknown: after a gap the kind is forgotten, and a stop confirmed again continues it
+  if (kind === null) return previous;
+  if (moved.transition?.kind === 'stopped' || previous === null) {
+    const from = Math.max(moved.transition?.atMs ?? fixMs, startMs);
+    const measured = fixMs > from ? activeMs(paused, from, fixMs) : 0;
+    return { ms: (previous?.ms ?? 0) + measured, untilMs: fixMs };
+  }
+  if (fixMs <= previous.untilMs) return previous;
+  const from = Math.max(previous.untilMs, startMs);
+  return { ms: previous.ms + (fixMs > from ? activeMs(paused, from, fixMs) : 0), untilMs: fixMs };
+}
+
+/**
  * One accepted fix of a free run through the smoother and `motionStep` — the step the live engine
- * takes, and the one `rollupOpenTrack` folds (ADR 0026 §3). The smoother restarts at the first fix
- * after a pause, so ground covered while paused is not counted, as active time excludes the pause;
- * a GPS gap longer than `MAX_GAP_S` of active time is stopped.
+ * takes, and the one `rollupOpenTrack` folds (ADR 0026 §3); its fold rule is `pausePolicy`, its
+ * gap rule `silentSince`.
  */
 export function openTrackStep(
   state: OpenTrackState,
   fix: LocationFix,
-  { thresholdMps, paused }: OpenTrackStepOptions,
+  { thresholdMps, paused, startMs = -Infinity }: OpenTrackStepOptions,
 ): OpenTrackStep {
   const previous = state.previousMs;
-  // why ignored rather than folded: a fix stamped at or before the last one, or inside a pause,
-  // describes no active movement — and would read as a gap to the next fix.
-  if ((previous !== null && fix.timestamp <= previous) || withinPause(paused, fix.timestamp)) {
-    return { state, acceptedDeltaMeters: 0, smoothedPoint: null, changes: [] };
+  const policy = pausePolicy(paused);
+  if (policy.ignores(previous, fix)) {
+    return {
+      state,
+      acceptedDeltaMeters: 0,
+      smoothedPoint: null,
+      smoothedSpeedMps: null,
+      changes: [],
+    };
   }
-  const afterPause = previous !== null && pauseBetween(paused, previous, fix.timestamp);
-  const afterGap =
-    previous !== null && activeMs(paused, previous, fix.timestamp) > MAX_GAP_S * 1000;
+  const afterPause = policy.restartsBefore(previous, fix);
+  const afterGap = silentSince(paused, previous, fix.timestamp) !== null;
 
   const smoothed = smoothFix(afterPause ? createSmootherState() : state.smoother, fix);
+  // why the kind is forgotten across a gap: nothing says the runner resumed what they were doing
   const changes: MotionTransition[] =
     afterGap && previous !== null && state.motion.kind !== null
-      ? [
-          { kind: 'stopped', atMs: previous },
-          { kind: state.motion.kind, atMs: fix.timestamp },
-        ]
+      ? [{ kind: 'stopped', atMs: previous }]
       : [];
   const moved = motionStep(
-    state.motion,
+    afterGap ? createMotionState() : state.motion,
     {
       atMs: fix.timestamp,
       speedMps: smoothed.smoothedSpeedMps,
@@ -245,9 +308,11 @@ export function openTrackStep(
       smoother: smoothed.state,
       motion: moved.state,
       previousMs: smoothed.state.lastAcceptedTime,
+      measuredStop: measureStop(state.measuredStop, moved, fix.timestamp, paused, startMs),
     },
     acceptedDeltaMeters: smoothed.acceptedDeltaMeters,
     smoothedPoint: smoothed.smoothedPoint,
+    smoothedSpeedMps: smoothed.smoothedSpeedMps,
     changes,
   };
 }
@@ -259,20 +324,23 @@ export function openTrackStep(
  */
 export function rollupOpenTrack(
   fixes: readonly LocationFix[],
-  { startMs, endMs, ...stepOptions }: OpenTrackOptions,
+  { endMs, ...stepOptions }: OpenTrackOptions,
 ): OpenTrackRollup {
+  const { startMs } = stepOptions;
   let state = createOpenTrackState();
   const changes: MotionTransition[] = [];
   const deltas: { atMs: number; m: number }[] = [];
   const points: LatLng[] = [];
   let distanceM = 0;
 
+  let firstFixMs: number | null = null;
   for (const fix of fixes) {
     // why only the end is cut: the engine ingests a fix stamped just before the start (a cached
     // first fix), so dropping it would make the saved distance differ from the live one.
     if (fix.timestamp > endMs) continue;
     const step = openTrackStep(state, fix, stepOptions);
     state = step.state;
+    firstFixMs ??= state.previousMs;
     distanceM += step.acceptedDeltaMeters;
     if (step.acceptedDeltaMeters > 0) {
       deltas.push({ atMs: fix.timestamp, m: step.acceptedDeltaMeters });
@@ -280,11 +348,18 @@ export function rollupOpenTrack(
     if (step.smoothedPoint) points.push(step.smoothedPoint);
     changes.push(...step.changes);
   }
+  if (firstFixMs !== null && silentSince(stepOptions.paused, startMs, firstFixMs) !== null) {
+    changes.unshift({ kind: 'stopped', atMs: startMs });
+  }
+  const silent = silentSince(stepOptions.paused, state.previousMs, endMs);
+  if (silent !== null && state.motion.kind !== null)
+    changes.push({ kind: 'stopped', atMs: silent });
 
   return {
     distanceM,
     points,
     buckets: toBuckets(changes, deltas, stepOptions.paused, startMs, endMs),
+    measuredStopS: (state.measuredStop?.ms ?? 0) / 1000,
   };
 }
 
@@ -303,21 +378,23 @@ function toBuckets(
     if (spans.at(-1)?.kind !== change.kind) spans.push({ kind: change.kind, startMs: at });
   }
 
-  const buckets = spans.map((span, seq): MotionBucket => {
-    const bucketEnd = spans[seq + 1]?.startMs ?? endMs;
-    return {
-      seq,
-      kind: span.kind,
-      startMs: span.startMs,
-      endMs: bucketEnd,
-      activeS: activeMs(paused, span.startMs, bucketEnd) / 1000,
-      durationS: 0,
-      distanceM: 0,
-    };
-  });
+  const spanMs = spans.map((span, seq) =>
+    activeMs(paused, span.startMs, spans[seq + 1]?.startMs ?? endMs),
+  );
+  const buckets = spans.map((span, seq): MotionBucket => ({
+    seq,
+    kind: span.kind,
+    startMs: span.startMs,
+    endMs: spans[seq + 1]?.startMs ?? endMs,
+    activeS: spanMs[seq] / 1000,
+    durationS: 0,
+    distanceM: 0,
+  }));
+  // why the total from whole milliseconds: a sum of per-bucket seconds can land a hair under x.5 and
+  // round away from the run's own active time.
   const whole = largestRemainder(
     buckets.map((b) => b.activeS),
-    Math.round(buckets.reduce((sum, b) => sum + b.activeS, 0)),
+    Math.round(spanMs.reduce((sum, ms) => sum + ms, 0) / 1000),
   );
   buckets.forEach((bucket, i) => (bucket.durationS = whole[i]));
   // why `<`: a delta is the leg ending at its fix, so a fix exactly on a boundary closes the earlier bucket.
@@ -378,4 +455,11 @@ export function learnThreshold(samples: readonly LabelledSpeed[]): number {
   }
   const learned = (quantile(walk, 0.9) + quantile(run, 0.1)) / 2;
   return Math.min(Math.max(learned, MOTION.learnFloorMps), MOTION.learnCeilingMps);
+}
+
+/** `learnThreshold` over a runner's recent plan runs, each labelled on its own (see `labelledSpeeds`). */
+export function learnThresholdFromRuns(
+  runs: readonly { fixes: readonly SegmentedFix[]; kindBySeq: ReadonlyMap<number, SegmentKind> }[],
+): number {
+  return learnThreshold(runs.flatMap((run) => labelledSpeeds(run.fixes, run.kindBySeq)));
 }

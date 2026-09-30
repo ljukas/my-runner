@@ -3,14 +3,15 @@ import { describe, expect, test } from 'bun:test';
 import { ROUTE_STROKE_W, ROUTE_STROKE_W_RUN } from '@/constants/theme';
 
 import type { SegmentPolyline } from './geo';
-import type { SegmentKind } from './plan';
 import { toRouteLines } from './route-render';
+import type { StoredSegmentKind } from './run-motion';
 
-const COLORS: Record<SegmentKind, string> = {
+const COLORS: Record<StoredSegmentKind, string> = {
   warmup: '#warmup',
   run: '#run',
   walk: '#walk',
   cooldown: '#cooldown',
+  stopped: '#stopped',
 };
 
 function chunk(segmentSeq: number): SegmentPolyline {
@@ -24,7 +25,7 @@ function chunk(segmentSeq: number): SegmentPolyline {
   };
 }
 
-const SEGMENTS: { seq: number; kind: SegmentKind }[] = [
+const SEGMENTS: { seq: number; kind: StoredSegmentKind }[] = [
   { seq: 0, kind: 'warmup' },
   { seq: 1, kind: 'run' },
   { seq: 2, kind: 'walk' },
@@ -35,6 +36,11 @@ describe('toRouteLines', () => {
   test('colours each chunk from its segment kind', () => {
     const lines = toRouteLines([chunk(0), chunk(1), chunk(2), chunk(3)], SEGMENTS, COLORS);
     expect(lines.map((line) => line.color)).toEqual(['#warmup', '#run', '#walk', '#cooldown']);
+  });
+
+  test("draws a free run's stopped stretch in its own colour, at the thin width", () => {
+    const [line] = toRouteLines([chunk(0)], [{ seq: 0, kind: 'stopped' }], COLORS);
+    expect(line).toMatchObject({ color: '#stopped', width: ROUTE_STROKE_W });
   });
 
   test('draws a chunk whose segmentSeq has no segment row as walk', () => {

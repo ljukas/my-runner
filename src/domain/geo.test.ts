@@ -23,9 +23,11 @@ import {
   smoothTrack,
   smoothTrackBySegment,
   smoothTrackForRender,
+  stepWithPolicy,
   toSegmentPolylines,
   type BoundingBox,
   type CameraFit,
+  type FixPolicy,
   type LatLng,
   type LocationFix,
   type RenderPoint,
@@ -228,6 +230,41 @@ describe('smoothFix — smoothedSpeedMps', () => {
   test('is null on a fix whose timestamp does not advance', () => {
     const fixes = [fixAt(0, 0), fixAt(1, 2), { ...fixAt(1, 3) }];
     expect(speedsOf(fixes)[2]).toBeNull();
+  });
+});
+
+describe('stepWithPolicy', () => {
+  const warm = () => {
+    let state = createSmootherState();
+    for (const fix of [fixAt(0, 0), fixAt(1, 2), fixAt(2, 4)]) state = smoothFix(state, fix).state;
+    return state;
+  };
+  const never: FixPolicy = { ignores: () => false, restartsBefore: () => false };
+
+  test('without a policy it is exactly smoothFix', () => {
+    expect(stepWithPolicy(warm(), fixAt(3, 6))).toEqual(smoothFix(warm(), fixAt(3, 6)));
+  });
+
+  test('a policy that ignores nothing and restarts nothing changes nothing', () => {
+    expect(stepWithPolicy(warm(), fixAt(3, 6), never)).toEqual(smoothFix(warm(), fixAt(3, 6)));
+  });
+
+  test('an ignored fix yields no step', () => {
+    expect(stepWithPolicy(warm(), fixAt(3, 6), { ...never, ignores: () => true })).toBeNull();
+  });
+
+  test('a restart folds the fix into a fresh smoother, committing nothing', () => {
+    const step = stepWithPolicy(warm(), fixAt(3, 60), { ...never, restartsBefore: () => true });
+    expect(step).toMatchObject({ restarted: true, acceptedDeltaMeters: 0 });
+  });
+
+  test('the policy is told when the smoother last accepted a fix', () => {
+    let seen: number | null | undefined;
+    stepWithPolicy(warm(), fixAt(3, 6), {
+      ignores: (lastAcceptedMs) => ((seen = lastAcceptedMs), false),
+      restartsBefore: () => false,
+    });
+    expect(seen).toBe(2000);
   });
 });
 

@@ -21,7 +21,8 @@ export type RunLogKind =
   | 'cue'
   | 'sensor'
   | 'pedometer'
-  | 'samples_dropped';
+  | 'samples_dropped'
+  | 'motion_threshold';
 
 export interface PendingSample {
   seq: number;

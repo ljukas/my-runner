@@ -207,3 +207,23 @@ per-task review pipeline when built.
   truth; smoothing must stay re-tunable and HealthKit/maps want real fixes.
 - **Do nothing (raw track)** — rejected: it is the jagged line + inflated
   distance flagged as the problem.
+
+## Amendment (2026-09-29): a free run's points are re-tagged at finalize (ADR 0026)
+
+§4's per-segment attribution keys every committed delta on its end fix's `segment_seq`, which the
+live timeline assigns. A free run has no timeline: its buckets are derived from the points at
+finalize (`src/db/derived-finalize.ts`), so for such a run finalize **rewrites** `run_points.segment_seq`
+and `run_altitude_samples.segment_seq` to the bucket each row falls in, by timestamp with the fold's
+own `(start, end]` rule, and deletes the points after a trimmed end. This is the one exception to the
+points being append-only; the fix fields themselves are never changed. The payoff is that every
+reader that joins on `segment_seq` — route colouring, splits, the export — finds a free run's rows
+under its buckets; what those readers show for a bucket (its kind's label, colour, symbol) is stage
+3b's work.
+
+§3's invariant (live == finalize == every re-fold) extends to free runs — up to where finalize
+trims a trailing stop or caps the run at 4 h, since the fixes past the saved end are then dropped
+and their points and barometer samples deleted — through one shared rule,
+`FixPolicy` / `pausePolicy` in `src/domain/geo.ts` and `run-motion.ts`: a fix at or before the last
+accepted one, or inside a pause, is ignored, and the smoother restarts at the first fix after a pause.
+The live fold, the resume re-fold, the finalize fold, the route render and the pace chart all use it
+for a free run. A plan run folds with no policy, which is `smoothFix` exactly as before.

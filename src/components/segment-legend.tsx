@@ -2,17 +2,20 @@ import { View } from 'react-native';
 
 import { Text } from '@/components/ui/text';
 import { SEGMENT_KIND_LABEL } from '@/domain/format';
-import type { PlannedSegment, SegmentKind } from '@/domain/plan';
+import type { StoredSegmentKind } from '@/domain/run-motion';
 import { useSegmentColors } from '@/hooks/use-theme';
 
-const ORDER: SegmentKind[] = ['warmup', 'run', 'walk', 'cooldown'];
+const ORDER: StoredSegmentKind[] = ['warmup', 'run', 'walk', 'cooldown', 'stopped'];
 
 /**
- * Colour key for the SegmentBar (ADR 0013 domain component). One swatch + label
- * per kind present in the session, in plan order — a single continuous-run week
- * shows no "Walk".
+ * Colour key for the SegmentBar (ADR 0013 domain component). One swatch + label per kind present,
+ * in `ORDER` — a single continuous-run week shows no "Walk".
  */
-export function SegmentLegend({ segments }: { segments: PlannedSegment[] }) {
+export function SegmentLegend({
+  segments,
+}: {
+  segments: { kind: StoredSegmentKind; seconds: number }[];
+}) {
   const segmentColors = useSegmentColors();
   const present = new Set(segments.map((s) => s.kind));
   const kinds = ORDER.filter((kind) => present.has(kind));

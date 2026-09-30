@@ -1,13 +1,23 @@
 import { describe, expect, test } from 'bun:test';
 
-import { EARTH_RADIUS_M, MAX_GAP_S, smoothTrack, type LocationFix, type SegmentedFix } from './geo';
+import {
+  EARTH_RADIUS_M,
+  MAX_GAP_S,
+  smoothTrack,
+  smoothTrackForRender,
+  type LocationFix,
+  type SegmentedFix,
+} from './geo';
+import { toRunProfile } from './run-profile';
 import {
   createMotionState,
   createOpenTrackState,
   labelledSpeeds,
   learnThreshold,
+  learnThresholdFromRuns,
   motionStep,
   openTrackStep,
+  pausePolicy,
   rollupOpenTrack,
   type LabelledSpeed,
   type MotionSample,
@@ -39,9 +49,15 @@ function transitionsOf(
 }
 
 describe('motionStep', () => {
-  test('the first sample with a speed sets the kind at once, ignoring earlier nulls', () => {
-    expect(transitionsOf(samplesAt([null, null, 1.5, 1.5]))).toEqual([
-      { index: 2, transition: { kind: 'walk', atMs: 2000 } },
+  test('the first kind needs the same 8 s dwell, backdated to its first sample with a speed', () => {
+    expect(transitionsOf(samplesAt([null, null, ...repeat(1.5, 12)]))).toEqual([
+      { index: 10, transition: { kind: 'walk', atMs: 2000 } },
+    ]);
+  });
+
+  test('one jittery first sample does not decide the first kind', () => {
+    expect(transitionsOf(samplesAt([3.2, ...repeat(0.1, 12)]))).toEqual([
+      { index: 8, transition: { kind: 'stopped', atMs: 0 } },
     ]);
   });
 
@@ -278,11 +294,55 @@ describe('rollupOpenTrack', () => {
       endMs: endOf(fixes),
     });
     expect(buckets.map((b) => b.kind)).toEqual(['run', 'stopped', 'run']);
-    expect(buckets[1]).toMatchObject({
-      startMs: 60_000,
-      endMs: 60_000 + (gapS + 1) * 1000,
-      distanceM: 0,
+    expect(buckets[1].startMs).toBe(60_000);
+    // the run after the gap is confirmed anew, from its first sample with a speed: at most the one
+    // leg before that sample falls in the stopped bucket
+    expect(buckets[1].distanceM).toBeLessThan(3);
+    expect(buckets[1].endMs - (60_000 + (gapS + 1) * 1000)).toBeGreaterThanOrEqual(0);
+    expect(buckets[1].endMs - (60_000 + (gapS + 1) * 1000)).toBeLessThanOrEqual(2000);
+  });
+
+  test('after a gap the kind is unknown until confirmed, so a stop right after one joins it', () => {
+    const fixes = track([
+      { seconds: 300, mps: 1.5, gapAfterS: 600 },
+      { seconds: 600, mps: 0 },
+    ]);
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
     });
+    expect(buckets.map((b) => b.kind)).toEqual(['walk', 'stopped']);
+  });
+
+  test('a silence before the first fix is stopped time, like a silence anywhere else', () => {
+    const fixes = track([{ seconds: 600, mps: 0 }]).map((f) => ({
+      ...f,
+      timestamp: f.timestamp + 300_000,
+    }));
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    expect(buckets.map((b) => b.kind)).toEqual(['stopped']);
+  });
+
+  test('a run whose GPS locks late starts with the silence as stopped, not as running', () => {
+    const fixes = track([{ seconds: 300, mps: 2.6 }]).map((f) => ({
+      ...f,
+      timestamp: f.timestamp + 300_000,
+    }));
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    expect(buckets.map((b) => b.kind)).toEqual(['stopped', 'run']);
+    expect(buckets[0].startMs).toBe(0);
   });
 });
 
@@ -346,6 +406,59 @@ describe('openTrackStep — the live half of the fold', () => {
   });
 });
 
+describe('rollupOpenTrack — the measured stop the 30-minute limit reads (ADR 0026 §6)', () => {
+  test('is the trailing stop the fixes measured', () => {
+    const fixes = track([
+      { seconds: 120, mps: 2.6 },
+      { seconds: 1900, mps: 0 },
+    ]);
+    const { measuredStopS } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    expect(measuredStopS).toBeGreaterThan(1890);
+    expect(measuredStopS).toBeLessThan(1915);
+  });
+
+  test('counts no GPS silence, trailing or inside the stop', () => {
+    const silentTail = track([{ seconds: 300, mps: 2.6 }]);
+    const tail = rollupOpenTrack(silentTail, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: 300_000 + 40 * 60_000,
+    });
+    expect(tail.buckets.at(-1)?.kind).toBe('stopped');
+    expect(tail.measuredStopS).toBe(0);
+
+    const gapped = track([
+      { seconds: 120, mps: 2.6 },
+      { seconds: 600, mps: 0, gapAfterS: 300 },
+      { seconds: 600, mps: 0 },
+    ]);
+    const inside = rollupOpenTrack(gapped, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: endOf(gapped),
+    });
+    expect(inside.buckets.at(-1)?.kind).toBe('stopped');
+    expect(inside.measuredStopS).toBeLessThan(1220);
+    expect(inside.measuredStopS).toBeGreaterThan(1190);
+  });
+
+  test('is 0 once the runner moves again', () => {
+    const fixes = track([
+      { seconds: 120, mps: 0 },
+      { seconds: 120, mps: 2.6 },
+    ]);
+    const options = { thresholdMps: T, paused: [], startMs: 0, endMs: endOf(fixes) };
+    expect(rollupOpenTrack(fixes, options).measuredStopS).toBe(0);
+  });
+});
+
 describe('rollupOpenTrack — durations and bounds', () => {
   test('integer bucket durations sum to the rounded active time', () => {
     const fixes = track([
@@ -363,6 +476,30 @@ describe('rollupOpenTrack — durations and bounds', () => {
     const active = buckets.reduce((sum, b) => sum + b.activeS, 0);
     expect(buckets.reduce((sum, b) => sum + b.durationS, 0)).toBe(Math.round(active));
     buckets.forEach((b) => expect(Math.abs(b.durationS - b.activeS)).toBeLessThan(1));
+  });
+
+  test('rounds the total from whole milliseconds, where the seconds sum sits a hair under .5', () => {
+    // 120.002 + 61.006 + 60.492 s adds up to 241.49999999999997 in floating point.
+    const at = (ms: number, northM: number): LocationFix => ({
+      timestamp: ms,
+      lat: 59 + northM * DEG_PER_M,
+      lng: 18,
+      altitude: null,
+      accuracy: 5,
+      speed: null,
+    });
+    const fixes = [
+      ...Array.from({ length: 121 }, (_, i) => at(2 + i * 1000, i * 2.6)),
+      ...Array.from({ length: 61 }, (_, i) => at(181_008 + i * 1000, (181 + i) * 2.6)),
+    ];
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused: [],
+      startMs: 0,
+      endMs: 241_500,
+    });
+    expect(buckets.map((b) => b.kind)).toEqual(['run', 'stopped', 'run']);
+    expect(buckets.reduce((sum, b) => sum + b.durationS, 0)).toBe(Math.round(241_500 / 1000));
   });
 
   test('fixes after the run ended add no distance', () => {
@@ -504,6 +641,43 @@ describe('rollupOpenTrack — noisy tracks (spec §8)', () => {
   });
 });
 
+describe('pausePolicy — every re-fold of a free run agrees (spec §4.3)', () => {
+  // walking 1.5 m/s throughout; paused 60.5–80.5 s — under MAX_GAP_S, so a plain fold bridges it
+  const fixes = track([{ seconds: 150, mps: 1.5 }]);
+  const paused = [{ fromMs: 60_500, toMs: 80_500 }];
+  const policy = pausePolicy(paused);
+  const saved = rollupOpenTrack(fixes, {
+    thresholdMps: T,
+    paused,
+    startMs: 0,
+    endMs: endOf(fixes),
+  });
+
+  test('the pace chart spans exactly the saved distance', () => {
+    const [only] = toRunProfile(fixes, { bucketCount: 1, policy });
+    expect(only.distanceM * 2).toBeCloseTo(saved.distanceM, 6);
+  });
+
+  test('the pace chart does not charge the pause to the next stretch', () => {
+    const [only] = toRunProfile(fixes, { bucketCount: 1, policy });
+    // 1.5 m/s is 666.7 s/km; the 20 s pause would make it ~20% slower
+    expect(only.paceSecPerKm).toBeLessThan(700);
+  });
+
+  test('the drawn route breaks once, at the pause', () => {
+    const gaps = smoothTrackForRender(
+      fixes.map((fix) => ({ ...fix, segmentSeq: 0 })),
+      policy,
+    ).filter((point) => point.gapBefore);
+    expect(gaps).toHaveLength(1);
+  });
+
+  test('without a policy the chart still bridges the pause, as plan runs do today', () => {
+    const [only] = toRunProfile(fixes, { bucketCount: 1 });
+    expect(only.distanceM * 2).toBeCloseTo(smoothTrack(fixes).distanceM, 6);
+  });
+});
+
 describe('learnThreshold', () => {
   // walk p90 = 1.5 + 0.1 × (1.9 − 1.5) = 1.54; run p10 = 2.2 + 0.9 × (2.8 − 2.2) = 2.74 → 2.14.
   // (The midpoint of the medians, 1.5 and 2.8, would be 2.15.)
@@ -549,6 +723,32 @@ describe('learnThreshold', () => {
   test('never learns a threshold above 3.0 m/s', () => {
     const fast = [...labelled('walk', 3.2, 100), ...labelled('run', 4.5, 100)];
     expect(learnThreshold(fast)).toBe(3.0);
+  });
+});
+
+describe('learnThresholdFromRuns', () => {
+  const plan = (walkMps: number, runMps: number, startS: number): SegmentedFix[] => {
+    const fixes = track([
+      { seconds: startS, mps: 0 },
+      { seconds: 120, mps: walkMps },
+      { seconds: 120, mps: runMps },
+    ]);
+    return fixes.slice(startS).map((fix, i) => ({ ...fix, segmentSeq: i < 120 ? 0 : 1 }));
+  };
+  const kinds = new Map([
+    [0, 'walk' as const],
+    [1, 'run' as const],
+  ]);
+
+  test('learns from runs whose segments share numbers, trimming each run from its own start', () => {
+    // run B starts 1000 s later; pooled into one stream, its first 10 s would count as settled
+    const a = { fixes: plan(1.5, 2.8, 0), kindBySeq: kinds };
+    const b = { fixes: plan(1.5, 2.8, 1000), kindBySeq: kinds };
+    expect(learnThresholdFromRuns([a, b])).toBeCloseTo(learnThresholdFromRuns([a, a]), 6);
+  });
+
+  test('falls back to 2.1 m/s with no runs to learn from', () => {
+    expect(learnThresholdFromRuns([])).toBe(2.1);
   });
 });
 

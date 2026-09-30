@@ -1,4 +1,5 @@
 import type { SegmentKind } from '@/domain/plan';
+import type { MotionKind } from '@/domain/run-motion';
 
 /** Wall-clock time source, epoch milliseconds (ADR 0007: wall clock only). */
 export type Clock = () => number;
@@ -10,19 +11,10 @@ export interface RunEvent {
 
 export type EngineStatus = 'idle' | 'running' | 'paused' | 'completed' | 'endedEarly';
 
-export interface RunSnapshot {
-  mode: 'scripted';
+interface RunSnapshotBase {
   status: EngineStatus;
   sessionKey: string | null;
-  segmentIndex: number;
-  segmentKind: SegmentKind | null;
-  segmentSecondsRemaining: number;
-  segmentSecondsTotal: number;
-  /** Epoch-ms the current segment ends while running; null when idle/done. */
-  segmentEndsAt: number | null;
-  nextSegment: { kind: SegmentKind; seconds: number } | null;
   activeElapsedSeconds: number;
-  totalSeconds: number;
   /** Live smoothed distance in metres (ADR 0021 §3); 0 before the first committed fix / when GPS is off. */
   distanceM: number;
   /** Overall pace in seconds per km; null until distance exceeds 0. */
@@ -30,7 +22,38 @@ export interface RunSnapshot {
   /** Set once persistence resolves after completion/end-early. */
   savedRunId: string | null;
   saveFailed: boolean;
+  /** Epoch ms the active clock counts up from while running (now − active time); null otherwise. */
+  elapsedAnchorMs: number | null;
+  /** Why the last run left no summary (a free run, ADR 0026 §6); null otherwise, and once a run starts. */
+  lastOutcome: 'discarded' | 'tooShort' | null;
 }
+
+export interface ScriptedRunSnapshot extends RunSnapshotBase {
+  mode: 'scripted';
+  segmentIndex: number;
+  segmentKind: SegmentKind | null;
+  segmentSecondsRemaining: number;
+  segmentSecondsTotal: number;
+  /** Epoch-ms the current segment ends while running; null when idle/done. */
+  segmentEndsAt: number | null;
+  nextSegment: { kind: SegmentKind; seconds: number } | null;
+  totalSeconds: number;
+}
+
+/** A free run's live view (ADR 0026 §6): no countdown, only what the classifier sees now. */
+export interface OpenRunSnapshot extends RunSnapshotBase {
+  mode: 'open';
+  /** The confirmed kind right now; null before the first velocity. */
+  motion: MotionKind | null;
+  /** Pace over the last stretch of moving samples; null while stopped or when GPS is stale. */
+  rollingPaceSecPerKm: number | null;
+  /** No recent speed, or none yet: "Waiting for GPS" (spec §5.2). */
+  gpsStale: boolean;
+  /** Ending now would delete the run: under a minute of active time, as the save rounds it. */
+  endDiscards: boolean;
+}
+
+export type RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot;
 
 /** `timestamp` is normalized integer epoch-ms so the `run_points` int-ms→ISO write round-trips losslessly and the finalize re-fold matches live distance (ADR 0021 §3). */
 export interface BufferedRunPoint {
@@ -51,7 +74,7 @@ export interface CompletedSegmentRecord {
   plannedDurationS: number;
   actualDurationS: number;
   wasSkipped: boolean;
-  /** Engine's live-cached smoothed metres; finalize re-derives the stored value from `run_points` (ADR 0021 §3), never this. Absent when GPS is off / pre-Wave-C. */
+  /** Engine's live-cached smoothed metres; finalize re-derives the stored value from `run_points` (ADR 0021 §3), never this. Absent when GPS is off. */
   distanceM?: number;
 }
 
@@ -67,19 +90,30 @@ export interface CompletedRunRecord {
   /** The event log, persisted because `active_run_snapshot` is cleared at finalize and it would otherwise be destroyed (spec §5.2). */
   eventLogJson?: string;
   motionPermission?: string;
+  /**
+   * Present on a free run: its buckets are derived from the points at finalize (ADR 0026 §3–§4), with
+   * the threshold it ran under. `endedAt`/`activeDurationS` are then provisional — the derivation
+   * settles them (trim, cap) — and `eventLogJson` must be set.
+   */
+  derived?: { thresholdMps: number };
 }
+
+/** What a finalize did: saved the run, or deleted it (a free run left under a minute; ADR 0026 §6). */
+export type FinalizeOutcome = 'saved' | 'discarded';
 
 /** Persistence port (ADR 0003) — the engine never touches the DB directly. */
 export interface RunPersistence {
-  saveRun(record: CompletedRunRecord): Promise<string>;
+  /** The saved run's id; null when a free run was too short to keep, so nothing was written. */
+  saveRun(record: CompletedRunRecord): Promise<string | null>;
 }
 
 /**
- * Points-as-spine run lifecycle (Stage 3 crash-recovery contract, ADR 0021): `startRun` opens the in-flight
- * `'active'` row so `run_points` can FK-reference it mid-run; `finalizeRun` flips it to terminal, deriving
- * distance, per-segment rollup, and polyline from the persisted points. Wave C moves the engine onto this pair.
+ * Points-as-spine lifecycle (ADR 0021): `startRun` opens the `'active'` row `run_points` references;
+ * `finalizeRun` derives the stored totals from those points, or deletes the run (`FinalizeOutcome`).
  */
 export interface RunLifecyclePersistence extends RunPersistence {
   startRun(sessionKey: string, startedAtIso: string): Promise<string>;
-  finalizeRun(runId: string, record: CompletedRunRecord): Promise<void>;
+  finalizeRun(runId: string, record: CompletedRunRecord): Promise<FinalizeOutcome>;
+  /** Deletes an in-flight run and everything it owns — a discarded free run (ADR 0026 §6). */
+  discardRun(runId: string): Promise<void>;
 }

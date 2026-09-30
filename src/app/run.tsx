@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FreeRunView } from '@/components/free-run-view';
 import { KeepAwakeWhileMounted, runHoldsScreenAwake } from '@/components/keep-awake-while-mounted';
 import { RunLocationBanner } from '@/components/run-location-banner';
 import { RunLock } from '@/components/run-lock';
@@ -70,7 +71,14 @@ export default function RunScreen() {
           locked={locked}
           locationStatus={locationStatus}
         />
-      ) : null}
+      ) : (
+        <FreeRunView
+          snapshot={snapshot}
+          paused={paused}
+          locked={locked}
+          locationStatus={locationStatus}
+        />
+      )}
 
       <View className="flex-1" />
 

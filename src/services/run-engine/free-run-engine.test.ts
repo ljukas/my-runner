@@ -699,6 +699,30 @@ describe('an interrupted free run', () => {
   });
 });
 
+describe('a plan run and a fix delivered late', () => {
+  test('a fix stamped before a segment boundary but delivered after it repeats no cue', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(
+      scriptedPlan({
+        key: 'w1d1',
+        week: 1,
+        day: 1,
+        segments: [
+          { kind: 'warmup', seconds: 60 },
+          { kind: 'run', seconds: 60 },
+        ],
+      }),
+    );
+    h.at(START_MS + 60_200); // the 1 Hz tick crosses into the run
+    const [late] = track([[1, 2.6]]);
+    h.setNow(START_MS + 60_400);
+    h.engine.heartbeat(START_MS + 59_700, { ...late, timestamp: START_MS + 59_700 });
+    expect(h.engine.getSnapshot()).toMatchObject({ mode: 'scripted', segmentIndex: 1 });
+    h.at(START_MS + 61_200);
+    expect(h.cues).toEqual(['warmupStart', 'lastRun', 'halfway']);
+  });
+});
+
 describe('what a free run cannot do, and what a plan run cannot', () => {
   test('a free run has nothing to skip', () => {
     const h = makeFreeRunEngine();

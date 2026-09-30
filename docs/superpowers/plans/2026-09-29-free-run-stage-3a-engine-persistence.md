@@ -113,3 +113,20 @@ offers the run for resume; a failed delete followed by a new run in the same pro
 row (as a failed plan-run finalize already does); a free run past its measured-stop limit at its
 last flush is offered for resume and then ends at once (reachability unproven). Outside this
 stage: a late fix stamped before a segment boundary can repeat a plan run's segment cue.
+
+## Review round 3 (2026-09-30)
+
+Two focused reviewers re-attacked the round-2 mechanisms. The ending paths held at every await
+point they gated; the measured-stop rule held live == saved over ~60k checked instants. Fixed:
+
+- A silently abandoned free run left `lastOutcome: 'tooShort'`; an overtaken run whose row opened
+  late lost its live distance.
+- The classifier re-asserted the pre-gap kind before any speed, leaving a phantom walk between a
+  silence and the stop after it (the trim then kept the silence); the first kind came from one
+  jittery sample; a silence before the first fix took the first kind. All three fixed at the
+  source, with held-out agreement unchanged at 97.3%.
+
+Rule consequences for #79's outdoor capture to settle: a stop needs 30 uninterrupted minutes of
+stopped classification, so a phone with ≥ 4 m of standing jitter at 1 Hz may never auto-end, and
+fixes more than 30 s apart never measure a stop at all. The End dialog can say "saves" for up to
+a second before the limit discards the run.

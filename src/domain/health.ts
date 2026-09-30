@@ -1,6 +1,14 @@
 /** Pure Apple Health payload mapping — no React, Expo, native or DB imports (ADR 0003 §1). */
 
 import type { SegmentedFix } from './geo';
+import {
+  pauseWindows,
+  segmentWindows,
+  type SegmentRow,
+  type WorkoutSegment,
+  type WorkoutWindow,
+} from './health-segments';
+import { parseEventLog } from './run-altitude';
 
 /**
  * CoreLocation's marker for a value it did not measure. why not 0: Health reads 0 as a real,
@@ -55,6 +63,7 @@ export interface HealthRunInput {
   startedAt: string;
   endedAt: string;
   distanceM: number | null;
+  eventLogJson: string | null;
 }
 
 /** The platform-neutral payload crossing the HealthAdapter port (ADR 0011 §1). */
@@ -64,6 +73,8 @@ export interface HealthWorkoutInput {
   totalDistanceM: number | null;
   distanceSample: HealthDistanceSample | null;
   route: HealthRoutePoint[];
+  segments: WorkoutSegment[];
+  pauses: WorkoutWindow[];
   /** The run's own id, reused as HealthKit's sync identifier so a retry replaces rather than duplicates. */
   syncIdentifier: string;
 }
@@ -75,7 +86,9 @@ function hasMeasurableDistance(distanceM: number | null): distanceM is number {
 }
 
 // per ADR 0011 amendment (item 7): one sample per run, not per segment.
-export function toHealthDistanceSample(run: HealthRunInput): HealthDistanceSample | null {
+export function toHealthDistanceSample(
+  run: Pick<HealthRunInput, 'startedAt' | 'endedAt' | 'distanceM'>,
+): HealthDistanceSample | null {
   if (!hasMeasurableDistance(run.distanceM)) return null;
   return {
     startedAt: Date.parse(run.startedAt),
@@ -87,13 +100,17 @@ export function toHealthDistanceSample(run: HealthRunInput): HealthDistanceSampl
 export function toHealthWorkout(
   run: HealthRunInput,
   fixes: readonly SegmentedFix[],
+  segmentRows: readonly SegmentRow[],
 ): HealthWorkoutInput {
+  const workout = { startedAt: Date.parse(run.startedAt), endedAt: Date.parse(run.endedAt) };
+  const events = parseEventLog(run.eventLogJson);
   return {
-    startedAt: Date.parse(run.startedAt),
-    endedAt: Date.parse(run.endedAt),
+    ...workout,
     totalDistanceM: run.distanceM,
     distanceSample: toHealthDistanceSample(run),
     route: toHealthRoute(fixes),
+    segments: segmentWindows(segmentRows, events, workout),
+    pauses: pauseWindows(events, workout),
     syncIdentifier: run.id,
   };
 }

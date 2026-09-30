@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { loadRunFixes } from '@/db/run-points';
+import { loadRunSegments } from '@/db/run-segments';
 import { runs } from '@/db/schema';
 import { toHealthWorkout } from '@/domain/health';
 import { healthAdapter } from './adapter';
@@ -40,7 +41,7 @@ export async function syncRunToHealth(runId: string): Promise<HealthSyncResult> 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
     if (!run || !isHealthWritable(run)) return 'skipped';
 
-    await healthAdapter.saveRun(toHealthWorkout(run, loadRunFixes(runId)));
+    await healthAdapter.saveRun(toHealthWorkout(run, loadRunFixes(runId), loadRunSegments(runId)));
 
     db.update(runs)
       .set({ healthkitSaved: true, updatedAt: new Date().toISOString() })

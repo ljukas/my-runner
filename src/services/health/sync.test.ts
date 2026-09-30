@@ -8,6 +8,7 @@ import type { HealthAuthorization } from './port';
 function mockAdapter(getAuthorization: () => HealthAuthorization) {
   void mock.module('@/db/client', () => ({ db: {} }));
   void mock.module('@/db/run-points', () => ({ loadRunFixes: () => [] }));
+  void mock.module('@/db/run-segments', () => ({ loadRunSegments: () => [] }));
   void mock.module('./adapter', () => ({
     healthAdapter: { getAuthorization, saveRun: async () => {} },
   }));

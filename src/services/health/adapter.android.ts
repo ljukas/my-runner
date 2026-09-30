@@ -12,6 +12,7 @@ import {
 import type { HealthWorkoutInput } from '@/domain/health';
 import { notifyAuthorizationChanged } from './authorization-events';
 import {
+  insertExerciseSession,
   resolveAuthorization,
   toDistanceRecord,
   toExerciseSessionRecord,
@@ -110,7 +111,7 @@ export const healthAdapter: HealthAdapter = {
     // why Date.now(): as on iOS — Health Connect keeps the record with the highest
     // clientRecordVersion for a repeated clientRecordId, so a retry replaces only if it rises.
     const version = Date.now();
-    await insertRecords([toExerciseSessionRecord(input, version)]);
+    await insertExerciseSession(insertRecords, toExerciseSessionRecord(input, version));
     const distance = toDistanceRecord(input, version);
     // why two calls: insertRecords rejects a batch that mixes record types.
     if (distance) await insertRecords([distance]);

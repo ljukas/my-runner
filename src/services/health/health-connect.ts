@@ -9,19 +9,26 @@ import type {
 } from 'react-native-health-connect';
 
 import type { HealthWorkoutInput } from '@/domain/health';
+import type { WorkoutActivity } from '@/domain/health-segments';
 import type { HealthAuthorization } from './port';
 
 export type WritePermission = Permission | WriteExerciseRoutePermission;
 // The library declares `Location` and `Length` without exporting them.
 type Location = NonNullable<ExerciseSessionRecord['exerciseRoute']>['route'][number];
 type Length = DistanceRecord['distance'];
+type ExerciseSegment = NonNullable<ExerciseSessionRecord['segments']>[number];
 
 // why not the library's runtime constants: its entry point requires `react-native`, which `bun test`
-// cannot load, so the three numeric values are restated from androidx's ExerciseSessionRecord and
-// Metadata (verified against react-native-health-connect 4.1.3 `constants.ts` / `metadata.types.ts`).
+// cannot load, so the numeric values are restated from androidx's ExerciseSessionRecord,
+// ExerciseSegment and Metadata (verified against react-native-health-connect 4.1.3 `constants.ts` /
+// `metadata.types.ts`).
 const EXERCISE_TYPE_RUNNING = 56;
 const RECORDING_METHOD_ACTIVELY_RECORDED = 1;
 const DEVICE_TYPE_PHONE = 2;
+const SEGMENT_TYPE_PAUSE = 39;
+// Each is allowed inside a running session: RUNNING and WALKING by the running type's own set, REST
+// (and PAUSE) by androidx's universal set.
+const SEGMENT_TYPE: Record<WorkoutActivity, number> = { running: 46, walking: 64, resting: 44 };
 
 /** The write-only set the app asks for; a session without its route or distance is not "authorized". */
 export const WRITE_PERMISSIONS: readonly WritePermission[] = [
@@ -75,19 +82,67 @@ function metadata(clientRecordId: string, version: number): Metadata {
   };
 }
 
+function segment(startedAt: number, endedAt: number, segmentType: number): ExerciseSegment {
+  return {
+    startTime: new Date(startedAt).toISOString(),
+    endTime: new Date(endedAt).toISOString(),
+    segmentType,
+    repetitions: 0,
+  };
+}
+
+/**
+ * The workout's segments with each pause as a PAUSE segment, in time order — Health Connect
+ * subtracts PAUSE and REST from the session's exercise duration (ADR 0026 §8, 2026-09-30).
+ */
+export function toExerciseSegments(input: HealthWorkoutInput): ExerciseSegment[] {
+  return [
+    ...input.segments.map((s) => ({
+      at: s.startedAt,
+      value: segment(s.startedAt, s.endedAt, SEGMENT_TYPE[s.activity]),
+    })),
+    ...input.pauses.map((p) => ({
+      at: p.startedAt,
+      value: segment(p.startedAt, p.endedAt, SEGMENT_TYPE_PAUSE),
+    })),
+  ]
+    .sort((a, b) => a.at - b.at)
+    .map((entry) => entry.value);
+}
+
 export function toExerciseSessionRecord(
   input: HealthWorkoutInput,
   version: number,
 ): ExerciseSessionRecord {
   const route = toExerciseRouteLocations(input);
+  const segments = toExerciseSegments(input);
   return {
     recordType: 'ExerciseSession',
     startTime: new Date(input.startedAt).toISOString(),
     endTime: new Date(input.endedAt).toISOString(),
     exerciseType: EXERCISE_TYPE_RUNNING,
     ...(route.length > 0 ? { exerciseRoute: { route } } : {}),
+    ...(segments.length > 0 ? { segments } : {}),
     metadata: metadata(input.syncIdentifier, version),
   };
+}
+
+/**
+ * Inserts the session, and if Health Connect rejects it while it carries segments, inserts it once
+ * more without them — within the same save, so no silent retry (ADR 0011 §4) — before giving up.
+ */
+export async function insertExerciseSession(
+  insert: (records: ExerciseSessionRecord[]) => Promise<unknown>,
+  record: ExerciseSessionRecord,
+): Promise<void> {
+  try {
+    await insert([record]);
+  } catch (error) {
+    if (!record.segments) throw error;
+    console.warn('[health] segments rejected, saving the session without them', error);
+    const { segments: _rejected, ...bare } = record;
+    await insert([bare]);
+  }
 }
 
 /** One whole-session distance beside the session (ADR 0011 amendment item 7); `null` without GPS. */

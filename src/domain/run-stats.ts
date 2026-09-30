@@ -109,7 +109,7 @@ export interface FreeRunStats extends BucketStats {
   distanceM: number | null;
 }
 
-/** The free-run summary's figures (spec §5.3): the paces only mean something with measured distance. */
+/** The free-run summary's figures (spec §5.3). Paces are left as computed: the grid drops them all when `distanceM` is null. */
 export function freeRunStats(
   run: { distanceM: number | null; activeDurationS: number },
   segments: readonly BucketSegment[],

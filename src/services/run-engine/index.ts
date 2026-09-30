@@ -100,8 +100,7 @@ locationTracker.onFix((fix) => {
   runEngine.heartbeat(Math.min(fix.timestamp, Date.now()), fix);
 });
 
-// why module scope: a screen that read the idle snapshot on mount would repeat its notice on every
-// remount; the bridge posts each outcome once (ADR 0026 §6).
+// why module scope: no screen's mount decides when a notice posts (bridge.ts)
 bridgeEngineNotices(runEngine, runNotices);
 
 try {

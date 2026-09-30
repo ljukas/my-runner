@@ -5,13 +5,12 @@ import { RunTransport } from '@/components/run-transport';
 import { SkiaElapsedClock } from '@/components/skia-elapsed-clock';
 import { Text } from '@/components/ui/text';
 import { formatDistanceKm } from '@/domain/format';
-import { formatRollingPace, freeRunPhase, showsFreeRunMetrics } from '@/domain/free-run-view';
+import { formatRollingPace, freeRunPhase, showsRunMetrics } from '@/domain/free-run-view';
 import { useTheme } from '@/hooks/use-theme';
 import type { LocationPermissionStatus } from '@/services/location-tracker';
 import type { OpenRunSnapshot } from '@/services/run-engine/types';
 import { useElapsedClock } from '@/services/run-engine/use-elapsed-clock';
 
-/** A free run in progress (spec §5.2): what it is doing now, how long, and how far and fast. */
 export function FreeRunView({
   snapshot,
   paused,
@@ -40,7 +39,7 @@ export function FreeRunView({
         locked={locked}
         end={{ mode: 'open', discards: snapshot.endDiscards }}
       />
-      {showsFreeRunMetrics(locationStatus, snapshot.distanceM) ? (
+      {showsRunMetrics(locationStatus, snapshot.distanceM) ? (
         <Text tone="secondary" style={{ fontVariant: ['tabular-nums'] }}>
           {`${formatDistanceKm(snapshot.distanceM)} · ${formatRollingPace(snapshot.rollingPaceSecPerKm)}`}
         </Text>

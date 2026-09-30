@@ -1,11 +1,10 @@
-/** What a free run's surfaces say (spec §5), kept out of the platform forks so it exists once. */
+// What a free run's surfaces say (spec §5), kept out of the platform forks so it exists once.
 import { formatPace } from './format';
 import type { MotionKind } from './run-motion';
 
 /** A location permission as the run screen reads it; null before the first read. */
 export type LocationState = 'granted' | 'denied' | 'undetermined' | 'unsupported' | null;
 
-/** A free run's phase: a bucket, or one of the two states with no bucket to show. */
 export type FreeRunLook = MotionKind | 'waiting' | 'timerOnly';
 
 const MOTION_LABEL: Record<MotionKind, string> = {
@@ -30,8 +29,8 @@ export function freeRunPhase({
   return { look: motion, label: MOTION_LABEL[motion] };
 }
 
-/** Distance and pace only show where they can move, or already have (the plan run's rule too). */
-export function showsFreeRunMetrics(location: LocationState, distanceM: number): boolean {
+/** Distance and pace show only where they can move, or already have — never a permanent 0.00 km. */
+export function showsRunMetrics(location: LocationState, distanceM: number): boolean {
   return location === 'granted' || distanceM > 0;
 }
 

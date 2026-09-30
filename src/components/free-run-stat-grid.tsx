@@ -5,10 +5,7 @@ import { freeRunStats } from '@/domain/run-stats';
 import type { SummaryElevation } from '@/domain/run-summary';
 import { useStatColors } from '@/hooks/use-theme';
 
-/**
- * A free run's stat grid (spec §5.3), the sibling of `RunStatGrid`: its time moving and its run,
- * walk and moving paces, all dropped for a run that measured no distance.
- */
+/** `RunStatGrid`'s free-run sibling (spec §5.3): Active Time alone for a run that measured no distance. */
 export function FreeRunStatGrid({
   run,
   segments,

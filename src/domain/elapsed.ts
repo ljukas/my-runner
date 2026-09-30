@@ -1,4 +1,4 @@
-/** A count-up clock's display (spec §5.2): whole seconds run, `M:SS` under an hour, `H:MM:SS` from one. */
+// A count-up clock's display (spec §5.2): whole seconds run, `M:SS` under an hour, `H:MM:SS` from one.
 
 export function elapsedSecondsAt(anchorMs: number, nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - anchorMs) / 1000));
@@ -6,6 +6,7 @@ export function elapsedSecondsAt(anchorMs: number, nowMs: number): number {
 
 /** Milliseconds until the clock next turns over, in (0, 1000]. */
 export function msUntilNextSecond(anchorMs: number, nowMs: number): number {
+  // why: `%` of a negative span is negative, so a clock stepped back behind the anchor would wait too long
   if (nowMs < anchorMs) return Math.min(1000, anchorMs - nowMs);
   return 1000 - ((nowMs - anchorMs) % 1000);
 }

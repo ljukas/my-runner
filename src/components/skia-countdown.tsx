@@ -5,11 +5,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { SkiaClockFace } from '@/components/skia-clock';
 
 /**
- * The plan run's countdown. The visible clock is whole `M:SS`; the sub-second precision lives in the
- * shared `remaining` clock that also drives the progress bar and the exact segment boundary. We
- * derive whole seconds from it on the UI thread and hop to JS only when the second changes (~1/s)
- * to feed the digits — so the clock reads its full length at the start and `0:00` exactly at the
- * boundary, never advancing a second early.
+ * The plan run's countdown in whole seconds of the shared `remaining` clock, which also drives the
+ * progress bar; it hops to JS only when the second changes.
  */
 export function SkiaCountdown({
   remaining,
@@ -18,9 +15,8 @@ export function SkiaCountdown({
   remaining: SharedValue<number>;
   color: string;
 }) {
-  // Ceil so a fresh segment shows its full length and the clock only reads 0:00
-  // at the exact boundary. Seeded by the reaction's first run (never read the
-  // shared value during render).
+  // Ceil so a fresh segment shows its full length and the clock reads 0:00 only at the exact
+  // boundary. why 0: the reaction's first run seeds it — never read a shared value during render.
   const [secondsLeft, setSecondsLeft] = useState(0);
 
   useAnimatedReaction(

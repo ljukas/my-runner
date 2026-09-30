@@ -4,7 +4,7 @@ import {
   formatRollingPace,
   freeRunLocationLine,
   freeRunPhase,
-  showsFreeRunMetrics,
+  showsRunMetrics,
 } from './free-run-view';
 
 describe('freeRunPhase', () => {
@@ -39,12 +39,12 @@ describe('freeRunPhase', () => {
   });
 });
 
-describe('showsFreeRunMetrics', () => {
+describe('showsRunMetrics', () => {
   test('shows distance and pace whenever they can move, or already have', () => {
-    expect(showsFreeRunMetrics('granted', 0)).toBe(true);
-    expect(showsFreeRunMetrics('denied', 0)).toBe(false);
-    expect(showsFreeRunMetrics(null, 0)).toBe(false);
-    expect(showsFreeRunMetrics('denied', 120)).toBe(true);
+    expect(showsRunMetrics('granted', 0)).toBe(true);
+    expect(showsRunMetrics('denied', 0)).toBe(false);
+    expect(showsRunMetrics(null, 0)).toBe(false);
+    expect(showsRunMetrics('denied', 120)).toBe(true);
   });
 });
 

@@ -11,7 +11,7 @@ export function useEndRunDialog(end: RunTransportEnd) {
   const requestEnd = () => {
     // why the save path: the mode turns a run under a minute into a "too short" discard itself, so
     // only the dialog's own Discard reads as "discarded"
-    if (end.mode === 'open' && end.discards) runEngine.endEarly();
+    if (end.mode === 'open' && end.discards) runEngine.endEarly('save');
     else setOpen(true);
   };
 

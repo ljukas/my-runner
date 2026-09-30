@@ -24,16 +24,12 @@ export function useStartRun(): (plan: RunPlan) => Promise<void> {
     } catch (error) {
       console.warn('[start] location ask failed', error);
     }
-    // The engine's start() no-ops unless idle, so reset any prior finished run
-    // here (its state lingers harmlessly until now — no screen reads it between
-    // runs). This is why the summary no longer needs to reset the engine when it's dismissed.
     runNotices.dismiss();
+    // why reset: start() no-ops unless idle, and the last run's finished state lingers until here
     runEngine.reset();
     runEngine.start(plan);
-    // Replace, not push: the run screen is a full-screen modal, so the start sheet
-    // must leave the stack — otherwise the lingering formSheet bleeds into
-    // the accessibility tree behind the run/summary modals and occludes their
-    // controls (e.g. the summary's toolbar "Close").
+    // Replace, not push: a start sheet left under the run modal occludes its controls for VoiceOver
+    // and Maestro (e.g. the summary's "Close").
     router.replace('/run');
   };
 }

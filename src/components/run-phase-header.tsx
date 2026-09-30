@@ -23,16 +23,13 @@ const NO_BUCKET_SYMBOLS: Record<'waiting' | 'timerOnly', SymbolViewProps['name']
  * reads on any palette (main #32). `SymbolView` lays out as a square of its
  * `size`, which is why no reserved frame is needed to hold the height still.
  */
-export function RunPhaseHeader({
-  kind,
-  label,
-  paused,
-}: {
-  kind: SegmentKind | FreeRunLook;
-  /** Replaces the kind's own label, as a free run's "Running" does "Run". */
-  label?: string;
-  paused: boolean;
-}) {
+export function RunPhaseHeader(
+  props: { paused: boolean } & (
+    { kind: SegmentKind; label?: undefined } | { kind: FreeRunLook; label: string }
+  ),
+) {
+  const { kind, paused } = props;
+  const label = props.label === undefined ? SEGMENT_KIND_LABEL[props.kind] : props.label;
   const segmentColors = useSegmentColors();
   const colors = useTheme();
   const noBucket = kind === 'waiting' || kind === 'timerOnly';
@@ -45,9 +42,7 @@ export function RunPhaseHeader({
           tintColor={noBucket ? colors.textSecondary : segmentColors[kind]}
         />
       </View>
-      <Text variant="title2">
-        {paused ? 'Paused' : (label ?? (noBucket ? '' : SEGMENT_KIND_LABEL[kind]))}
-      </Text>
+      <Text variant="title2">{paused ? 'Paused' : label}</Text>
     </View>
   );
 }

@@ -6,8 +6,7 @@ import { View } from 'react-native';
 import { SKIA_FONT_FAMILY } from '@/constants/skia-font';
 
 const FONT_SIZE = 80;
-// Tall/wide enough for the vertical digit roll plus SkiaTimeFlow's top/bottom
-// gradient fade; the clock is centred within the available width.
+// Tall enough for the vertical digit roll plus SkiaTimeFlow's top/bottom gradient fade.
 const CANVAS_HEIGHT = 132;
 const BASELINE_Y = 96;
 

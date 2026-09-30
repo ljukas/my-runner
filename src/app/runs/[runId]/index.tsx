@@ -93,7 +93,7 @@ export default function RunSummaryScreen() {
             <RunElevationNote elevation={track.elevation} />
             <RunProfileCard run={run} track={track} />
             <SegmentBreakdown segments={segments} />
-            {/* why none for a free run: it can have dozens of buckets, and the timeline shows them */}
+            {/* why none for a free run: it can have dozens of buckets, and the breakdown bar shows them */}
             {isFreeRun(run.sessionKey) ? null : <SegmentSplits segments={segments} />}
             <HealthStatusRow run={run} />
             <RunExportRow run={run} />

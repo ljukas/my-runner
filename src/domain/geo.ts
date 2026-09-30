@@ -403,8 +403,7 @@ export function smoothTrackBySegment(fixes: readonly SegmentedFix[]): SmoothedRo
 
 /**
  * Which fixes a fold skips and where it restarts the smoother (ADR 0026 §3). Given the time of the
- * smoother's last accepted fix, null before the first. A free run's policy is `pausePolicy`; plan runs
- * fold with none, which is `smoothFix` unchanged.
+ * smoother's last accepted fix, null before the first.
  */
 export interface FixPolicy {
   ignores(lastAcceptedMs: number | null, fix: LocationFix): boolean;

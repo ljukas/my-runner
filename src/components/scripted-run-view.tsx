@@ -12,7 +12,6 @@ import { endCountsAsCompleted } from '@/services/run-engine';
 import type { ScriptedRunSnapshot } from '@/services/run-engine/types';
 import { useSegmentClock } from '@/services/run-engine/use-segment-clock';
 
-/** A plan session's run: the segment countdown, its progress, and what comes next. */
 export function ScriptedRunView({
   snapshot,
   paused,
@@ -29,8 +28,6 @@ export function ScriptedRunView({
   const remaining = useSegmentClock(snapshot.segmentIndex, snapshot.status);
 
   const kind = snapshot.segmentKind ?? 'run';
-  // Ending during the final cool-down saves the run as completed (issue #40);
-  // the engine resolves the same rule from the event log at finalize time.
   const endsAsCompleted = endCountsAsCompleted(snapshot);
 
   return (

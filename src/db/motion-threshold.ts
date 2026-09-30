@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, like } from 'drizzle-orm';
 
 import { parseSessionKey, type SegmentKind } from '@/domain/plan';
 import { learnThresholdFromRuns, MOTION } from '@/domain/run-motion';
@@ -18,8 +18,10 @@ export function loadLearnedThreshold(): number {
     const recent = db
       .select({ id: runs.id, sessionKey: runs.sessionKey })
       .from(runs)
-      .where(runCompleted)
+      // why the LIKE: without it every completed run is read to keep three
+      .where(and(runCompleted, like(runs.sessionKey, 'w%d%')))
       .orderBy(desc(runs.startedAt))
+      .limit(12)
       .all()
       .filter((run) => parseSessionKey(run.sessionKey) !== null)
       .slice(0, 3);

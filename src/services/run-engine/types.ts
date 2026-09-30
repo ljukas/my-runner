@@ -45,9 +45,9 @@ export interface OpenRunSnapshot extends RunSnapshotBase {
   mode: 'open';
   /** The confirmed kind right now; null before the first velocity. */
   motion: MotionKind | null;
-  /** Pace over the last ~45 s of moving samples; null while stopped or when GPS is stale. */
+  /** Pace over the last stretch of moving samples; null while stopped or when GPS is stale. */
   rollingPaceSecPerKm: number | null;
-  /** No speed for 10 s of active time, or none yet: "Waiting for GPS" (spec §5.2). */
+  /** No recent speed, or none yet: "Waiting for GPS" (spec §5.2). */
   gpsStale: boolean;
   /** Ending now would delete the run: under a minute of active time, as the save rounds it. */
   endDiscards: boolean;
@@ -74,7 +74,7 @@ export interface CompletedSegmentRecord {
   plannedDurationS: number;
   actualDurationS: number;
   wasSkipped: boolean;
-  /** Engine's live-cached smoothed metres; finalize re-derives the stored value from `run_points` (ADR 0021 §3), never this. Absent when GPS is off / pre-Wave-C. */
+  /** Engine's live-cached smoothed metres; finalize re-derives the stored value from `run_points` (ADR 0021 §3), never this. Absent when GPS is off. */
   distanceM?: number;
 }
 
@@ -108,9 +108,8 @@ export interface RunPersistence {
 }
 
 /**
- * Points-as-spine run lifecycle (Stage 3 crash-recovery contract, ADR 0021): `startRun` opens the in-flight
- * `'active'` row so `run_points` can FK-reference it mid-run; `finalizeRun` flips it to terminal, deriving
- * distance, per-segment rollup, and polyline from the persisted points. Wave C moves the engine onto this pair.
+ * Points-as-spine lifecycle (ADR 0021): `startRun` opens the `'active'` row `run_points` references;
+ * `finalizeRun` derives the stored totals from those points, or deletes the run (`FinalizeOutcome`).
  */
 export interface RunLifecyclePersistence extends RunPersistence {
   startRun(sessionKey: string, startedAtIso: string): Promise<string>;

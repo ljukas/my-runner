@@ -160,12 +160,12 @@ export class RunEngine {
   private saveFailed = false;
   /** Set while a discard deletes the run: no flush may write it back (ADR 0026 §6). */
   private discarding = false;
-  /** Bumped by start()/reset() so a slow save from a superseded run can never stamp a later one. */
+  /** Bumped whenever a run begins or ends (start, rebuild, reset), so a superseded run's ending never touches a later one. */
   private runGeneration = 0;
   private snapshot: RunSnapshot = IDLE_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
 
-  // GPS ingest state, cleared per run: the mode folds each fix as its finalize re-fold will (ADR 0021 §3).
+  // GPS ingest state, cleared per run.
   private distanceM = 0;
   private pendingPoints: BufferedRunPoint[] = [];
   private nextSeq = 0;
@@ -302,7 +302,7 @@ export class RunEngine {
   /**
    * Rebuild an interrupted run in place (crash recovery), continuing its existing `'active'` row.
    * False — leaving the engine untouched — when a run is already live, when the log cannot be
-   * replayed, or when its timeline already expired (`abandon` is that run's only outcome).
+   * replayed, or when it is already past resuming (`isExhaustedOnResume`; `abandon` is its outcome).
    */
   restore(input: RunRestoreInput): boolean {
     if (this.status !== 'idle') return false;
@@ -493,8 +493,8 @@ export class RunEngine {
     }
   }
 
-  // The mode folds the fix as its finalize re-fold will over run_points (ADR 0021 §3): the integer-ms
-  // timestamp survives the ISO round-trip, and the full accuracy-passed stream is buffered (no re-gate — the smoother owns velocity).
+  // why no re-gate: the smoother owns velocity, and the finalize re-fold must see this same stream
+  // (ADR 0021 §3).
   private ingestFix(fix: LocationFix, segmentSeq: number, now: number): void {
     let buffered = false;
     try {
@@ -851,9 +851,9 @@ export class RunEngine {
   /**
    * Deletes the live run and everything it wrote — never saved, never in Health (ADR 0026 §6).
    * why this order: a flush in flight would write points and the snapshot back after the delete, so
-   * the scheduler stops and the chain drains first; the terminal status keeps `armFlush` and
-   * `awaitRunId`'s retry from reopening the run; and the snapshot is marked `discarding` before the
-   * delete, so a delete that fails is finished at the next launch rather than resumed or saved.
+   * the scheduler stops and the chain drains first, and `discarding` blocks every later flush; the
+   * snapshot is marked before the delete, so a delete that fails is finished at the next launch
+   * rather than resumed or saved. The delete never waits on the run still being current.
    */
   private async discard(
     generation: number,

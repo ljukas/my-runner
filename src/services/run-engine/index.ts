@@ -151,14 +151,14 @@ async function clearSnapshot(): Promise<void> {
   try {
     await dbRunStore.clearSnapshot();
   } catch (error) {
-    console.warn('[run-engine] snapshot discard failed', error);
+    console.warn('[run-engine] snapshot clear failed', error);
   }
 }
 
 /**
- * The interrupted run worth offering at launch, or null. Never throws, and never leaves work for the
- * next launch: a corrupt, stale or expired snapshot is settled here — finalized (a plan run as
- * `partial`) when its own `'active'` row is identifiable, else discarded.
+ * The interrupted run worth offering at launch, or null. Never throws. A corrupt, stale or expired
+ * snapshot is settled here: finalized (a plan run as `partial`) when its own `'active'` row is
+ * identifiable, else cleared; an interrupted free-run discard is finished.
  */
 export async function detectResumableRun(): Promise<ResumableRun | null> {
   try {
@@ -205,7 +205,7 @@ export async function detectResumableRun(): Promise<ResumableRun | null> {
     ) {
       // why here too, not just resumeCrashedRun: abandon() also rebuilds the log counters before its
       // own finalize flush mints new rows (a tick at least) — without this the same duplicate-seq risk
-      // applies to the discarded run's tail.
+      // applies to the abandoned run's tail.
       await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
       return null;
     }
@@ -232,12 +232,12 @@ export async function resumeCrashedRun(candidate: ResumableRun): Promise<boolean
   }
 }
 
-/** Declining an offered run still finalizes it (a plan run as `partial`), so its track stays reachable from the Log. */
-export async function discardResumableRun(candidate: ResumableRun): Promise<void> {
+/** Declining an offered run still finalizes it, so its track stays reachable from the Log. */
+export async function declineResumableRun(candidate: ResumableRun): Promise<void> {
   try {
     await runEngine.abandon({ ...candidate, logResume: logResumeOf(candidate.runId) });
   } catch (error) {
-    console.warn('[run-engine] discard failed', error);
+    console.warn('[run-engine] declining the resume failed', error);
   }
 }
 

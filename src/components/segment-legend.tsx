@@ -8,9 +8,8 @@ import { useSegmentColors } from '@/hooks/use-theme';
 const ORDER: StoredSegmentKind[] = ['warmup', 'run', 'walk', 'cooldown', 'stopped'];
 
 /**
- * Colour key for the SegmentBar (ADR 0013 domain component). One swatch + label
- * per kind present in the session, in plan order — a single continuous-run week
- * shows no "Walk".
+ * Colour key for the SegmentBar (ADR 0013 domain component). One swatch + label per kind present,
+ * in `ORDER` — a single continuous-run week shows no "Walk".
  */
 export function SegmentLegend({
   segments,

@@ -55,6 +55,7 @@ export function writeDerivedFinalize(
   const logged = parseEventLog(record.eventLogJson ?? null);
   const endedAt = Date.parse(record.endedAt);
   const last = logged.at(-1);
+  // why: a log saved without its `end` (abandoned) keeps its pauses; only a missing log falls back
   const events =
     last === undefined
       ? [
@@ -76,6 +77,7 @@ export function writeDerivedFinalize(
   }
 
   const endIso = iso(derived.endMs);
+  // why: a trimmed stop or the cap moved the end back; what lies past it is no longer this run
   tx.delete(runPoints)
     .where(and(eq(runPoints.runId, runId), gt(runPoints.timestamp, endIso)))
     .run();
@@ -83,6 +85,7 @@ export function writeDerivedFinalize(
     .where(and(eq(runAltitudeSamples.runId, runId), gt(runAltitudeSamples.at, endIso)))
     .run();
 
+  // why open ends: a cached fix can predate the start and a sample trail the end; both need a bucket
   derived.buckets.forEach((bucket, index) => {
     const first = index === 0;
     const last = index === derived.buckets.length - 1;

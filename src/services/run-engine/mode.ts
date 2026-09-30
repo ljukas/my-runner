@@ -72,10 +72,7 @@ export function isTimelineExhausted(
 export type ModePosition =
   { done: true; origin: 'runner' | 'limit' } | { done: false; segmentSeq: number };
 
-/**
- * The plan-dependent half of a `RunSnapshot`, the active seconds it was derived at, and the segment
- * a barometer sample taken now belongs to.
- */
+/** The mode-owned half of a `RunSnapshot`. */
 export type ModeView = (
   | Pick<
       ScriptedRunSnapshot,
@@ -148,7 +145,7 @@ export interface ModeDeps {
 
 /**
  * The plan-relative rules of a run, per ADR 0026 §1. Every method takes the engine's one append-only
- * event log — implementations may cache on that (`ScriptedMode` does), so never pass another log.
+ * event log — implementations cache on that (both modes do), so never pass another log.
  */
 export interface RunMode {
   readonly kind: RunSnapshot['mode'];
@@ -246,6 +243,7 @@ export class ScriptedMode implements RunMode {
 
   position(events: readonly RunEvent[], activeS: number): ModePosition {
     const pos = positionAt(this.timeline(events), activeS);
+    // why 'runner': a finished timeline is the session completed, not a limit cutting it short
     return pos.done ? { done: true, origin: 'runner' } : { done: false, segmentSeq: pos.index };
   }
 

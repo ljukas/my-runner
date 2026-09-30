@@ -42,9 +42,9 @@ function fold(
 
 /**
  * How a finished free run is saved — the one place its end is settled, whether the runner ended
- * it, a limit did, or it was abandoned at launch (ADR 0026 §3, §6): capped at 4 h of active time,
- * a trailing stop of 30 min or more trimmed back to where the moving ended, and discarded when
- * what is left is under a minute.
+ * it, a limit did, or it was abandoned at launch (ADR 0026 §3, §6): capped at
+ * `OPEN_LIMITS.capActiveS`, a trailing measured stop of `stoppedLimitS` or more trimmed back to
+ * where the moving ended, and discarded when what is left is under `minActiveS`.
  */
 export function deriveOpenRun({ events, fixes, thresholdMps }: OpenRunInput): DerivedOpenRun {
   const endAt = events[events.length - 1].at;
@@ -61,6 +61,7 @@ export function deriveOpenRun({ events, fixes, thresholdMps }: OpenRunInput): De
   }
 
   const endMs = log[log.length - 1].at;
+  // why the bucket sum: the saved duration must equal its segment rows'; no buckets means no GPS speed
   const activeDurationS =
     rollup.buckets.length > 0
       ? rollup.buckets.reduce((sum, bucket) => sum + bucket.durationS, 0)

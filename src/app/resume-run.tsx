@@ -6,7 +6,7 @@ import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { sessionTitle } from '@/domain/format';
 import { keyOf } from '@/domain/free-run';
-import { discardResumableRun, resumeCrashedRun } from '@/services/run-engine';
+import { declineResumableRun, resumeCrashedRun } from '@/services/run-engine';
 import { clearResumeOffer, peekResumeOffer } from '@/services/run-engine/resume-offer';
 
 export default function ResumeRunScreen() {
@@ -30,7 +30,7 @@ export default function ResumeRunScreen() {
     // A false resume means the run expired between detection and the tap, so finalizing is the only
     // outcome left; show the saved run rather than returning silently. `celebrate` because this is a
     // fresh finish either way — the same acknowledgement an ended-early run gets.
-    await discardResumableRun(candidate);
+    await declineResumableRun(candidate);
     router.replace({
       pathname: '/runs/[runId]',
       params: { runId: candidate.runId, celebrate: '1' },

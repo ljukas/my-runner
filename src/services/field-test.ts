@@ -33,7 +33,7 @@ export function fieldTestSession(): PlanSession {
 
 /**
  * How an interrupted run's snapshot is settled at launch; null when it names nothing settleable, so
- * the caller discards it. A capture resolves here rather than through the plan (spec §8.0) because
+ * the caller clears it. A capture resolves here rather than through the plan (spec §8.0) because
  * otherwise nothing would ever close its `'active'` row. `offerable: false` means finalize as
  * `partial` without asking: a capture spliced across two sensor epochs is not the continuous
  * measurement the protocol wants. A free run resolves to the open plan (ADR 0026 §1).

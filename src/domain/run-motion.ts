@@ -246,12 +246,6 @@ export function pausePolicy(paused: readonly PausedInterval[]): FixPolicy {
   };
 }
 
-/**
- * One accepted fix of a free run through the smoother and `motionStep` — the step the live engine
- * takes, and the one `rollupOpenTrack` folds (ADR 0026 §3). The smoother restarts at the first fix
- * after a pause, so ground covered while paused is not counted, as active time excludes the pause;
- * a GPS gap longer than `MAX_GAP_S` of active time is stopped.
- */
 function measureStop(
   previous: OpenTrackState['measuredStop'],
   moved: MotionStep,
@@ -272,6 +266,11 @@ function measureStop(
   return { ms: previous.ms + (fixMs > from ? activeMs(paused, from, fixMs) : 0), untilMs: fixMs };
 }
 
+/**
+ * One accepted fix of a free run through the smoother and `motionStep` — the step the live engine
+ * takes, and the one `rollupOpenTrack` folds (ADR 0026 §3); its fold rule is `pausePolicy`, its
+ * gap rule `silentSince`.
+ */
 export function openTrackStep(
   state: OpenTrackState,
   fix: LocationFix,

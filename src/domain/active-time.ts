@@ -22,7 +22,7 @@ export function activeElapsedMs(events: readonly LoggedRunEvent[], now: number):
 
 /**
  * The wall-clock instant a run's active time reached `activeS`, skipping the pauses before it; null
- * when the log never gets there (the run is paused, or its last event is earlier).
+ * only when the log ends paused short of it — a log still running extrapolates past its last event.
  */
 export function wallClockAtActive(
   events: readonly LoggedRunEvent[],

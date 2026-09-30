@@ -17,6 +17,8 @@ import { useTheme } from '@/hooks/use-theme';
  */
 export function SegmentBreakdown({ segments }: { segments: RunSegment[] }) {
   const colors = useTheme();
+  // why: a free run with no GPS speed has no buckets, and an empty bar says nothing
+  if (segments.length === 0) return null;
   const bars = segments.map((s) => ({ kind: s.kind, seconds: s.actualDurationS }));
   return (
     <Card surface="card" className="gap-3">

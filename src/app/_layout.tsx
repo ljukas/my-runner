@@ -57,6 +57,17 @@ export default function RootLayout() {
   }
   if (!success) return null; // splash stays up
 
+  const startSheet = {
+    presentation: 'formSheet',
+    sheetAllowedDetents: 'fitToContents',
+    sheetGrabberVisible: true,
+    ...sheetOptions,
+    headerShown: false,
+    // Paint the whole sheet container (incl. the bottom safe-area inset the
+    // content view no longer covers under fitToContents) with the theme background.
+    contentStyle: { backgroundColor: colors.background },
+  } as const;
+
   return (
     <ThemeProvider value={navigationTheme(colorScheme)}>
       <UniwindInsets>
@@ -71,26 +82,15 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="session/[key]"
-            options={{
-              presentation: 'formSheet',
-              sheetAllowedDetents: 'fitToContents',
-              sheetGrabberVisible: true,
-              ...sheetOptions,
-              headerShown: false,
-              // Paint the whole sheet container (incl. the bottom safe-area inset the
-              // content view no longer covers under fitToContents) with the theme background.
-              contentStyle: { backgroundColor: colors.background },
-            }}
-          />
+          <Stack.Screen name="session/[key]" options={startSheet} />
+          <Stack.Screen name="free-run" options={startSheet} />
           <Stack.Screen
             name="resume-run"
             options={{
               presentation: 'formSheet',
               sheetAllowedDetents: 'fitToContents',
               ...sheetOptions,
-              // Not swipe-dismissible: an undecided dismissal would leave the run `'active'` and invisible.
+              // Not swipe-dismissible on iOS; Android can't block its dismissals, which save the run instead.
               gestureEnabled: false,
               headerShown: false,
               contentStyle: { backgroundColor: colors.background },

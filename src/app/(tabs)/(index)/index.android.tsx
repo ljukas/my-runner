@@ -6,17 +6,20 @@ import { useRouter } from 'expo-router';
 import { Island } from '@/components/island';
 import { ListSectionHeader } from '@/components/list-section-header';
 import { PlanSessionRow } from '@/components/plan-session-row';
+import { RunNoticeRow } from '@/components/run-notice-row';
 import { db } from '@/db/client';
 import { runCompleted } from '@/db/queries';
 import { runs } from '@/db/schema';
 import { nextSessionKey } from '@/domain/plan';
 import { useTheme } from '@/hooks/use-theme';
 import { useActivePlan } from '@/services/active-plan';
+import { useRunNotice } from '@/services/run-notice/use-run-notice';
 
 export default function PlanScreen() {
   const router = useRouter();
   const colors = useTheme();
   const plan = useActivePlan();
+  const notice = useRunNotice();
   const { data: completedRuns } = useLiveQuery(
     db.select({ sessionKey: runs.sessionKey }).from(runs).where(runCompleted),
   );
@@ -31,6 +34,7 @@ export default function PlanScreen() {
         modifiers={[fillMaxSize(), background(colors.background)]}
         contentPadding={{ bottom: 24 }}
       >
+        <RunNoticeRow notice={notice} />
         {weeks.flatMap((week) => {
           const sessions = plan.filter((session) => session.week === week);
           const done = sessions.filter((session) => completedKeys.has(session.key)).length;

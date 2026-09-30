@@ -381,10 +381,12 @@ the kilometre cue are verified by replay tests, and by driving GPS by hand on iO
   - Permissions include `location: inuse` with `motion: allow` on iOS, and the Android equivalents.
   - Flow: tap the "New free run" button → assert the heading "Free Run" → tap "Start Free Run" →
     assert that the clock counts up (not a bucket label, which depends on timing) → pause and resume
-    → End → Save → assert the summary by its "Moving Pace" tile, not by its title (the Plan header's
-    label stays in the accessibility tree behind the modal) → open the Log row "Free run" → back on
-    Plan, the next session is unchanged.
-  - A second flow: End → Discard → the Log has no new row.
+    → End → Save Run → assert the summary by its "Active Time" tile, not by its title (the Plan
+    header's label stays in the accessibility tree behind the modal), and that "Moving Pace" is absent
+    — a Maestro run never moves, and without measured distance only Active Time shows (owner decision,
+    2026-09-30) → open the Log row "Free run" → back on Plan, the next session is unchanged.
+  - A second flow: End → Discard → the "Run discarded" notice → the Log has no new row.
+  - Both wait out the minute on the app's own clock before End (as built in stage 3b).
 
 ## 9. Limits, stated plainly
 

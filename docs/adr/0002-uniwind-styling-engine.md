@@ -67,3 +67,21 @@ styling engine for all React Native-rendered UI.
   mental model (style objects, not Tailwind classes).
 - **Tamagui** — full UI kit plus compiler; oversized buy-in and its component
   library conflicts with the system-native (`@expo/ui`) UI direction.
+
+## Amendment (2026-09-30): platform variants are not trusted for layout
+
+Uniwind 1.12 does not reliably drop a platform variant from the other platform's bundle. Measured
+in `bunx expo export --platform ios --no-bytecode`: `android:pb-6`, `android:pb-safe-offset-6` and
+`android:pb-safe-offset-10` compiled into the iOS stylesheet as unconditional `paddingBottom`
+entries, while `android:pt-4` was correctly left out. On the iOS simulator this added 24 pt under
+every start sheet's button and 40 pt under the run summary.
+
+- A class that must apply on one platform only goes through `androidOnly()`
+  (`src/lib/android-only.ts`, a `Platform.OS` check) or a platform fork, never `android:`/`ios:`.
+  No platform variant remains in `src/`.
+- `cn()` does not treat `pb-safe-offset-*` and `pb-*` as conflicting (tailwind-merge doesn't know
+  Uniwind's inset utilities), so a site gives each platform its whole value rather than a base
+  class plus an override.
+- Revisit when Uniwind is upgraded: the check is the same export and a search of the stylesheet for
+  an `"android:` key.
+

@@ -6,6 +6,7 @@ import { RunTransport } from '@/components/run-transport';
 import { SkiaCountdown } from '@/components/skia-countdown';
 import { Text } from '@/components/ui/text';
 import { SEGMENT_KIND_LABEL, formatClock, formatDistanceKm, formatPace } from '@/domain/format';
+import { showsRunMetrics } from '@/domain/free-run-view';
 import { useSegmentColors, useTheme } from '@/hooks/use-theme';
 import type { LocationPermissionStatus } from '@/services/location-tracker';
 import { endCountsAsCompleted } from '@/services/run-engine';
@@ -39,7 +40,7 @@ export function ScriptedRunView({
         totalSeconds={snapshot.segmentSecondsTotal}
         color={segmentColors[kind]}
       />
-      <RunTransport paused={paused} locked={locked} endsAsCompleted={endsAsCompleted} />
+      <RunTransport paused={paused} locked={locked} end={{ mode: 'scripted', endsAsCompleted }} />
       <Text tone="secondary">
         {snapshot.nextSegment
           ? `Next: ${SEGMENT_KIND_LABEL[snapshot.nextSegment.kind]} ${formatClock(snapshot.nextSegment.seconds)}`
@@ -48,9 +49,7 @@ export function ScriptedRunView({
       <Text tone="secondary" style={{ fontVariant: ['tabular-nums'] }}>
         {`${formatClock(snapshot.activeElapsedSeconds)} / ${formatClock(snapshot.totalSeconds)}`}
       </Text>
-      {/* Only with location granted can these numbers ever move; otherwise the row is absent
-          rather than a permanent 0.00 km. */}
-      {locationStatus === 'granted' || snapshot.distanceM > 0 ? (
+      {showsRunMetrics(locationStatus, snapshot.distanceM) ? (
         <Text tone="secondary" style={{ fontVariant: ['tabular-nums'] }}>
           {`${formatDistanceKm(snapshot.distanceM)} · ${formatPace(snapshot.paceSecPerKm)}`}
         </Text>

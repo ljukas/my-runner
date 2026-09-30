@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { boundingBox, boundingBoxDiagonalM, MIN_ROUTE_EXTENT_M } from './geo';
 import {
+  freeRunStats,
   bestRunSegment,
   bucketStats,
   hasMeasuredDistance,
@@ -209,6 +210,46 @@ describe('bucketStats', () => {
       walkPaceSecPerKm: null,
       movingPaceSecPerKm: null,
       movingTimeS: 0,
+    });
+  });
+});
+
+describe('freeRunStats', () => {
+  const seg = (kind: 'run' | 'walk' | 'stopped', actualDurationS: number, distanceM: number) => ({
+    kind,
+    actualDurationS,
+    distanceM,
+  });
+
+  test('a run that measured its distance has every figure, stops in none of the paces', () => {
+    const stats = freeRunStats({ distanceM: 1700, activeDurationS: 800 }, [
+      seg('run', 300, 1000),
+      seg('stopped', 200, 20),
+      seg('walk', 300, 680),
+    ]);
+    expect(stats).toMatchObject({
+      activeS: 800,
+      distanceM: 1700,
+      movingTimeS: 600,
+      runPaceSecPerKm: 300,
+      movingPaceSecPerKm: 600 / 1.68,
+    });
+    expect(stats.walkPaceSecPerKm).toBeCloseTo(300 / 0.68, 6);
+  });
+
+  test('a run with no measured distance keeps only its active time', () => {
+    const stats = freeRunStats({ distanceM: 3, activeDurationS: 900 }, [seg('stopped', 900, 3)]);
+    expect(stats.distanceM).toBeNull();
+    expect(stats.activeS).toBe(900);
+  });
+
+  test('a timer-only run has no buckets and no paces', () => {
+    expect(freeRunStats({ distanceM: null, activeDurationS: 600 }, [])).toMatchObject({
+      distanceM: null,
+      movingTimeS: 0,
+      runPaceSecPerKm: null,
+      walkPaceSecPerKm: null,
+      movingPaceSecPerKm: null,
     });
   });
 });

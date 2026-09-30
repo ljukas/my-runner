@@ -1,13 +1,15 @@
-import { Redirect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FreeRunView } from '@/components/free-run-view';
 import { KeepAwakeWhileMounted, runHoldsScreenAwake } from '@/components/keep-awake-while-mounted';
 import { RunLocationBanner } from '@/components/run-location-banner';
 import { RunLock } from '@/components/run-lock';
 import { ScriptedRunView } from '@/components/scripted-run-view';
 import { UNSAVED_RUN_ID } from '@/constants/routes';
+import { leaveToTabs } from '@/lib/leave-to-tabs';
 import { useLocationPermission } from '@/services/location-tracker';
 import { retryTracking, runEngine, useRunEngine } from '@/services/run-engine';
 
@@ -48,7 +50,13 @@ export default function RunScreen() {
     void retryTracking().catch((error) => console.warn('[run] tracking restart failed', error));
   }, [locationStatus]);
 
-  if (snapshot.status === 'idle') return <Redirect href="/" />;
+  useEffect(() => {
+    if (snapshot.status !== 'idle') return;
+    // A discarded free run is the one way here from a live run.
+    leaveToTabs(router);
+  }, [snapshot.status, router]);
+
+  if (snapshot.status === 'idle') return null;
 
   return (
     <View
@@ -70,7 +78,14 @@ export default function RunScreen() {
           locked={locked}
           locationStatus={locationStatus}
         />
-      ) : null}
+      ) : (
+        <FreeRunView
+          snapshot={snapshot}
+          paused={paused}
+          locked={locked}
+          locationStatus={locationStatus}
+        />
+      )}
 
       <View className="flex-1" />
 

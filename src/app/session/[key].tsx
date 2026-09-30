@@ -1,10 +1,11 @@
 import { and, eq } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useRef } from 'react';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
 import { SegmentBar } from '@/components/segment-bar';
 import { SegmentLegend } from '@/components/segment-legend';
 import { StatList } from '@/components/stat-list';
@@ -21,18 +22,16 @@ import {
   sessionTotalSeconds,
   sessionWalkSeconds,
 } from '@/domain/plan';
+import { useStartRun } from '@/hooks/use-start-run';
 import { useTheme } from '@/hooks/use-theme';
 import { useActivePlan } from '@/services/active-plan';
-import { locationTracker } from '@/services/location-tracker';
-import { runEngine } from '@/services/run-engine';
 
 export default function SessionSheet() {
   const { key } = useLocalSearchParams<'/session/[key]'>();
-  const router = useRouter();
   const colors = useTheme();
   const plan = useActivePlan();
   const session = getSession(plan, key);
-  const starting = useRef(false);
+  const start = useStartRun();
   const { data: attempts, updatedAt } = useLiveQuery(
     db
       .select({ id: runs.id })
@@ -43,33 +42,8 @@ export default function SessionSheet() {
 
   if (!session) return <Redirect href="/" />;
 
-  const startSession = async () => {
-    // The handler is async now, so a second tap could start the run twice.
-    if (starting.current) return;
-    starting.current = true;
-    try {
-      // The just-in-time ask, reached only when the primer was skipped — the prompt is never cold
-      // (ADR 0008 §2). Denial still starts the run: timer-only (§5).
-      if ((await locationTracker.getPermissionStatus()) === 'undetermined') {
-        await locationTracker.requestPermission();
-      }
-    } catch (error) {
-      console.warn('[session] location ask failed', error);
-    }
-    // The engine's start() no-ops unless idle, so reset any prior finished run
-    // here (its state lingers harmlessly until now — no screen reads it between
-    // runs). This is why the summary no longer needs to reset the engine when it's dismissed.
-    runEngine.reset();
-    runEngine.start(scriptedPlan(session));
-    // Replace, not push: the run screen is a full-screen modal, so the session
-    // sheet must leave the stack — otherwise the lingering formSheet bleeds into
-    // the accessibility tree behind the run/summary modals and occludes their
-    // controls (e.g. the summary's toolbar "Close").
-    router.replace('/run');
-  };
-
   return (
-    <View className="gap-6 bg-background px-6 pt-8 android:pb-safe-offset-6">
+    <View className={cn('gap-6 bg-background px-6 pt-8', androidOnly('pb-safe-offset-6'))}>
       <View className="gap-1.5">
         <Text variant="subtitle" accessibilityRole="header">
           {sessionTitle(session.key)}
@@ -94,7 +68,7 @@ export default function SessionSheet() {
         </StatList>
       </Card>
 
-      <Island.Button fill label="Start Session" onPress={() => void startSession()} />
+      <Island.Button fill label="Start Session" onPress={() => void start(scriptedPlan(session))} />
     </View>
   );
 }

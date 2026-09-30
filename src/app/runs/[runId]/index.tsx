@@ -3,6 +3,9 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { ScrollView, View } from 'react-native';
 
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
+import { FreeRunStatGrid } from '@/components/free-run-stat-grid';
 import { HealthStatusRow } from '@/components/health-status-row';
 import { RouteMapCard } from '@/components/route-map-card';
 import { RunElevationNote } from '@/components/run-elevation-note';
@@ -18,6 +21,7 @@ import { db } from '@/db/client';
 import { runNotDeleted } from '@/db/queries';
 import { runs, runSegments } from '@/db/schema';
 import { runTitle } from '@/domain/format';
+import { isFreeRun } from '@/domain/free-run';
 import { useRunTrack } from '@/hooks/use-run-track';
 
 /**
@@ -77,17 +81,22 @@ export default function RunSummaryScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         className="bg-background-grouped"
-        contentContainerClassName="gap-4 px-4 android:pt-4 android:pb-safe-offset-10"
+        contentContainerClassName={cn('gap-4 px-4', androidOnly('pt-4 pb-safe-offset-10'))}
       >
         {loaded && run ? (
           <>
             <RunSummaryHeadline run={run} celebrate={celebrating} />
             <RouteMapCard run={run} track={track} />
-            <RunStatGrid run={run} segments={segments} elevation={track.elevation} />
+            {isFreeRun(run.sessionKey) ? (
+              <FreeRunStatGrid run={run} segments={segments} elevation={track.elevation} />
+            ) : (
+              <RunStatGrid run={run} segments={segments} elevation={track.elevation} />
+            )}
             <RunElevationNote elevation={track.elevation} />
             <RunProfileCard run={run} track={track} />
             <SegmentBreakdown segments={segments} />
-            <SegmentSplits segments={segments} />
+            {/* why none for a free run: it can have dozens of buckets, and the breakdown bar shows them */}
+            {isFreeRun(run.sessionKey) ? null : <SegmentSplits segments={segments} />}
             <HealthStatusRow run={run} />
             <RunExportRow run={run} />
           </>

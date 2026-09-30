@@ -118,3 +118,18 @@ Per-surface assignments and the rules that de-risk them:
 - **Custom `transparentModal` + Reanimated sheets** — maximum control,
   maximum code ownership; rejected for v1. `transparentModal` remains
   available for special cases without adopting it as the pattern.
+
+## Amendment (2026-09-30): what the start sheets and End actually do
+
+- **§1's "never `fitToContents`" no longer holds.** The session sheet has used
+  `sheetAllowedDetents: 'fitToContents'` since its redesign (#32), and the free-run start sheet
+  (`free-run`, ADR 0026) shares its options; both are flat, short and verified on the iOS simulator and the
+  Android emulator. A sheet whose content can outgrow the screen still takes explicit fractional detents.
+- **§2's "explicit End-run confirmation only" has one exception:** a free run under a minute is not
+  saved whatever the runner picks, so End deletes it without asking and the Plan tab says why
+  (ADR 0026's stage-3b amendment). A plan run always confirms.
+- **The resume sheet (`resume-run`)** is not swipe-dismissible on iOS (`gestureEnabled: false`).
+  Android cannot block its back, scrim tap or drag, so there a dismissal saves the run instead of
+  leaving it undecided.
+- **A modal that leaves no screen to go to dismisses back to the tabs** (`leaveToTabs`), never
+  `replace('/')`: over the tabs, a replace pushes a second copy of them.

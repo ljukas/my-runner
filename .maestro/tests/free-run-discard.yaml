@@ -10,4 +10,7 @@ tags:
     visible: "Run discarded"
     timeout: 15000
 - tapOn: "Log"
+- extendedWaitUntil:
+    visible: "No runs yet"
+    timeout: 10000
 - assertNotVisible: "Free run"

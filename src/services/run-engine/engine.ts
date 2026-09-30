@@ -604,7 +604,8 @@ export class RunEngine {
       intent,
     });
     if (final.outcome === 'discard') {
-      await this.discard(generation, rowId, final.reason);
+      // why null for an abandon: nobody watched it end, so there is nothing to tell the runner
+      await this.discard(generation, rowId, origin === 'abandon' ? null : final.reason);
       return;
     }
     const { kind, endAt, elapsedS, segments, derived } = final;
@@ -648,7 +649,10 @@ export class RunEngine {
     }
     this.queueTracker(() => this.tracker.stop(), 'stop');
     this.queueSensors('stop');
-    await this.completeRun(record, generation, rowId, liveDistanceM, congratulates && !!derived);
+    await this.completeRun(record, generation, rowId, liveDistanceM, {
+      congratulateOnSave: congratulates && !!derived,
+      tooShort: origin === 'abandon' ? null : 'tooShort',
+    });
   }
 
   // --- persistence ---
@@ -775,7 +779,10 @@ export class RunEngine {
     generation: number,
     rowId: Promise<string | null>,
     liveDistanceM: number,
-    congratulateOnSave: boolean,
+    {
+      congratulateOnSave,
+      tooShort,
+    }: { congratulateOnSave: boolean; tooShort: RunSnapshot['lastOutcome'] },
   ): Promise<void> {
     try {
       const runId = await rowId;
@@ -787,7 +794,7 @@ export class RunEngine {
         // only distance this run will ever have.
         const id = await this.persistence.saveRun({ ...record, distanceM: liveDistanceM });
         if (generation !== this.runGeneration) return;
-        if (id === null) return this.forgetDiscarded();
+        if (id === null) return this.forgetDiscarded(tooShort);
         this.markSaved(id, congratulateOnSave);
         return;
       }
@@ -802,7 +809,7 @@ export class RunEngine {
       }
       const outcome = await this.persistence.finalizeRun(runId, record);
       if (generation !== this.runGeneration) return;
-      if (outcome === 'discarded') return this.forgetDiscarded();
+      if (outcome === 'discarded') return this.forgetDiscarded(tooShort);
       this.markSaved(runId, congratulateOnSave);
     } catch (error) {
       if (generation !== this.runGeneration) return;
@@ -828,16 +835,17 @@ export class RunEngine {
   ): Promise<void> {
     try {
       if (runId === null) await this.persistence.saveRun({ ...record, distanceM: liveDistanceM });
-      else await this.persistence.finalizeRun(runId, record);
+      // why the live distance here too: a row that opened late may have received no points
+      else await this.persistence.finalizeRun(runId, { ...record, distanceM: liveDistanceM });
     } catch (error) {
       console.warn('[run-engine] finalize of a superseded run failed', error);
     }
   }
 
   /** A free run its save found too short: it is gone, so there is no summary to show. */
-  private async forgetDiscarded(): Promise<void> {
+  private async forgetDiscarded(outcome: RunSnapshot['lastOutcome']): Promise<void> {
     await this.clearSnapshotQuietly();
-    this.resetTo('tooShort');
+    this.resetTo(outcome);
   }
 
   private async clearSnapshotQuietly(): Promise<void> {
@@ -858,7 +866,7 @@ export class RunEngine {
   private async discard(
     generation: number,
     rowId: Promise<string | null>,
-    reason: NonNullable<RunSnapshot['lastOutcome']>,
+    reason: RunSnapshot['lastOutcome'],
   ): Promise<void> {
     const mode = this.mode;
     const mark = mode && { ...this.snapshotState(mode), discarding: true };

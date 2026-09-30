@@ -52,6 +52,10 @@ export interface RunSnapshotState {
   discarding?: boolean;
 }
 
+/**
+ * Each write takes effect when it is called, in call order, even though it resolves later: the
+ * engine orders an ending run's writes against the next run's by call order (ADR 0026 amendment).
+ */
 export interface RunStore {
   /**
    * Persist one cadence atomically: batch-insert `points`, `samples`, and `entries`, and upsert

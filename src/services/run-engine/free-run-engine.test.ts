@@ -500,6 +500,20 @@ describe('a run overtaken by reset() or start() while it is still ending', () =>
     expect(h.engine.getSnapshot()).toMatchObject({ status: 'running', savedRunId: null });
   });
 
+  test('an overtaken run whose row opened late still carries its live distance', async () => {
+    const h = makeFreeRunEngine({ holdStartRun: true });
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    h.holdStepRead();
+    h.engine.endEarly();
+    await settled();
+    h.engine.reset();
+    h.releaseStartRun();
+    h.releaseStepRead();
+    await drain();
+    expect(h.finalized[0]?.distanceM).toBeGreaterThan(700);
+  });
+
   test("an abandon's end does not stop a run started while it was finishing", async () => {
     const before = makeFreeRunEngine();
     before.engine.start(FREE_RUN_PLAN);
@@ -628,6 +642,42 @@ describe('an interrupted free run', () => {
         aliveUntil,
       }),
     ).toBe(true);
+  });
+
+  test('abandoned at launch under a minute, it is deleted silently, leaving no outcome to report', async () => {
+    const before = makeFreeRunEngine();
+    before.engine.start(FREE_RUN_PLAN);
+    before.feed(track([[30, 2.6]]));
+    before.fireFlush();
+    await settled();
+
+    const after = makeFreeRunEngine();
+    await after.engine.abandon({
+      runId: 'run-1',
+      plan: FREE_RUN_PLAN,
+      state: stateOf(before),
+      aliveUntil: START_MS + 30_000,
+    });
+    expect(after.calls).toContain('discardRun');
+    expect(after.engine.getSnapshot()).toMatchObject({ status: 'idle', lastOutcome: null });
+  });
+
+  test('abandoned at launch and deleted by its save, it leaves no outcome either', async () => {
+    const before = makeFreeRunEngine();
+    before.engine.start(FREE_RUN_PLAN);
+    before.feed(track([[300, 2.6]]));
+    before.fireFlush();
+    await settled();
+
+    const after = makeFreeRunEngine();
+    after.setFinalizeOutcome('discarded');
+    await after.engine.abandon({
+      runId: 'run-1',
+      plan: FREE_RUN_PLAN,
+      state: stateOf(before),
+      aliveUntil: START_MS + 300_000,
+    });
+    expect(after.engine.getSnapshot()).toMatchObject({ status: 'idle', lastOutcome: null });
   });
 
   test('abandoned at launch, it is saved as completed, silently', async () => {

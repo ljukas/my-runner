@@ -18,7 +18,7 @@ Steps 1–3 do not need the Play account.
 
 ## Before the Play account is verified
 
-- [ ] **1. Maps key in EAS.** Create the environment variable for the builds that
+- [x] **1. Maps key in EAS.** Create the environment variable for the builds that
       render maps (`production` for store builds, `preview` for internal APKs):
       ```
       eas env:create --name GOOGLE_MAPS_ANDROID_API_KEY --value <key> \
@@ -27,7 +27,7 @@ Steps 1–3 do not need the Play account.
       One key serves every variant. Without it a cloud build bakes the
       `MISSING_GOOGLE_MAPS_ANDROID_API_KEY` placeholder and route maps render blank
       ([ADR 0010](adr/0010-maps-expo-maps-ios18-floor.md)'s 2026-09-21 amendment).
-- [ ] **2. Upload keystore.** Run the first production build interactively so EAS
+- [x] **2. Upload keystore.** Run the first production build interactively so EAS
       generates and stores the upload key (non-interactive runs — the release
       workflow — cannot create credentials):
       ```
@@ -46,20 +46,20 @@ Steps 1–3 do not need the Play account.
 
 Developer account id `8846992213517983364`.
 
-- [ ] **4. Create the app.** Play Console → Create app: name RunBro, app, free.
+- [x] **4. Create the app.** Play Console → Create app: name RunBro, app, free.
       Package name comes from the first upload: `se.lukaslindqvist.runbro`.
-- [ ] **5. Internal testers.** Test and release → Internal testing → Testers: create
+- [x] **5. Internal testers.** Test and release → Internal testing → Testers: create
       the list (email addresses) and copy the opt-in link.
-- [ ] **6. First upload, by hand.** Internal testing → Create new release → upload
+- [x] **6. First upload, by hand.** Internal testing → Create new release → upload
       the AAB from step 2 (download it from the build page on expo.dev). Accept
       **Play App Signing** when asked (Google holds the app-signing key; the EAS key
       from step 2 becomes the upload key). Google's API cannot create an app's first
       release, which is why EAS Submit cannot do this step.
-- [ ] **7. App-signing SHA-1 on the Maps key.** Test and release → App integrity →
+- [x] **7. App-signing SHA-1 on the Maps key.** Test and release → App integrity →
       App signing → copy the **app signing key** SHA-1 and add it to the Maps key's
       restriction. Store-installed builds are re-signed with this key; without the
       entry their maps are blank.
-- [ ] **8. Service account for EAS Submit.** Follow <https://expo.fyi/creating-google-service-account>:
+- [x] **8. Service account for EAS Submit.** Follow <https://expo.fyi/creating-google-service-account>:
       Google Cloud service account + JSON key, invited in Play Console → Users and
       permissions with release permissions for this app. Upload the JSON on
       expo.dev → project → Credentials → Android → `se.lukaslindqvist.runbro` →
@@ -93,7 +93,7 @@ Play blocks releases, internal ones included, until these are complete.
 
 ## After the first green `e2e-android` run
 
-- [ ] Add `e2e-android` to the `main` ruleset's required status checks, beside
+- [x] Add `e2e-android` to the `main` ruleset's required status checks, beside
       `checks`, `precheck` and `e2e-ios`.
 
 ## Steady state

@@ -895,8 +895,8 @@ export class RunEngine {
     const current = () => generation === this.runGeneration;
     this.status = 'endedEarly';
     this.discarding = true;
-    this.snapshot = { ...this.snapshot, status: 'endedEarly', elapsedAnchorMs: null };
-    this.emit();
+    // why a refresh: the last heartbeat's elapsed time can be a second old, and the frozen clock would step back
+    this.refresh();
     this.scheduler.stop();
     this.pendingPoints = [];
     this.cue.release();

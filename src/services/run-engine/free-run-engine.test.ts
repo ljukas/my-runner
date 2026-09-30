@@ -255,6 +255,19 @@ describe('a free run, start to finish', () => {
     expect(h.engine.getSnapshot().status).toBe('idle');
   });
 
+  test('a discard freezes the clock at the tap, not at the last heartbeat', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[300, 2.6]]));
+    h.setNow(START_MS + 300_900);
+    h.engine.endEarly('discard');
+    expect(h.engine.getSnapshot()).toMatchObject({
+      status: 'endedEarly',
+      elapsedAnchorMs: null,
+      activeElapsedSeconds: 300.9,
+    });
+  });
+
   test('a discard waits for a flush already in flight, so nothing is written back after the delete', async () => {
     const h = makeFreeRunEngine();
     h.engine.start(FREE_RUN_PLAN);

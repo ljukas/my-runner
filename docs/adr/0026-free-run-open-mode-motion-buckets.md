@@ -4,7 +4,7 @@ Date: 2026-09-29
 
 ## Status
 
-Proposed — draft for review. Flip to `Accepted` on merge. Revision 2: revision 1 went
+Accepted (2026-09-29, on merge of #77). Stage 1 (the classifier) is in implementation. Revision 2: revision 1 went
 through four adversarial reviews on 2026-09-29 (evidence, engine, Health, and the spec's
 premises). This revision applies their findings and the owner's answers to what the
 findings reopened. The spec's §10 records both.
@@ -90,13 +90,13 @@ What constrains the design:
     crossing as walking.
   - It never confirmed 5 of 34 run segments for a jogger hovering at 2.10 m/s.
 - **Revision 2 classifier** (described in §3 below):
-  - **97.5%** mean agreement on the plans' walk/run intervals. Each run is held out from
+  - **97.3%** mean agreement on the plans' walk/run intervals. Each run is held out from
     the threshold it is scored with, and the first 10 s of each interval are excluded.
-  - The worst run scores 92.1%; the tired day scores 96.2%, where a midpoint-of-medians threshold scored 70.1%.
+  - The worst run scores 92.0%; the tired day scores 94.8%, where a midpoint-of-medians threshold scored 70.1%.
   - Run pace is within 2% on 7 of the 8 runs. The eighth runner stopped inside a
     scripted run segment; detection excludes that stop, and the script's own pace
     includes it.
-  - It labels **98.7%** of field-test fixes as stopped.
+  - It labels **99.6%** of field-test active time as stopped.
   - It labels **every second** of synthetic 10–30 s stops inside a run as stopped.
   - For a walker at 0.8 m/s coming out of a stop, 7% of their walking is labelled
     stopped; at 1.0 m/s, none of it.
@@ -155,8 +155,10 @@ What constrains the design:
   - It is null on restarted or velocity-gate-rejected steps.
   - The change is additive.
 - **Where the code lives.** `src/domain/run-motion.ts` holds `motionStep`, a causal
-  reducer, and `rollupOpenTrack`, its batch fold. Both take the run's paused intervals
-  and its threshold, so the live fold and the batch fold see the same boundaries.
+  reducer; `openTrackStep`, one fix through the smoother and the reducer, which the live
+  engine calls; and `rollupOpenTrack`, which folds that same step. The step takes the run's
+  paused intervals and its threshold, so the live fold and the batch fold see the same
+  boundaries.
 - **The rules:**
   - **Start state.** No kind until the first non-null speed.
   - **Direct transitions.** Any kind can move to any other: run, walk or stopped.
@@ -165,7 +167,8 @@ What constrains the design:
   - **Run/walk split.** A single threshold `T` divides run from walk. It has no band:
     the data showed a band adds nothing once the dwell has a majority rule.
   - **Dwell with a majority rule.** A candidate is confirmed after **8 s** in which at
-    least **70%** of its samples agree.
+    least **70%** of its samples differ from the current kind, on a sample that still
+    differs. A change that has already reverted by then is not confirmed.
   - **Retargeting.** A candidate can change its target kind without resetting its start
     (for example run → walk → stopped).
   - **Backdating.** A confirmed boundary moves back to the candidate's first sample.

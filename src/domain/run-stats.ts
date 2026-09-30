@@ -1,5 +1,6 @@
 import { MIN_MEASURED_SPEED_MPS } from './geo';
 import type { SegmentKind } from './plan';
+import type { StoredSegmentKind } from './run-motion';
 
 export interface RunStatsSegment {
   kind: SegmentKind;
@@ -65,4 +66,40 @@ export function bestRunSegment<T extends PaceSegment>(segments: T[]): T | null {
     }
   }
   return best;
+}
+
+export interface BucketSegment {
+  kind: StoredSegmentKind;
+  actualDurationS: number;
+  distanceM: number | null;
+}
+
+/** Paces in s/km (null without distance or time); `movingTimeS` is run + walk time. */
+export interface BucketStats {
+  runPaceSecPerKm: number | null;
+  walkPaceSecPerKm: number | null;
+  movingPaceSecPerKm: number | null;
+  movingTimeS: number;
+}
+
+/**
+ * A free run's paces (ADR 0026 §5): each is summed distance over summed time, and stopped buckets —
+ * time and drift alike — are in none of them.
+ */
+export function bucketStats(segments: readonly BucketSegment[]): BucketStats {
+  const total = (kind: 'run' | 'walk') =>
+    segments
+      .filter((s) => s.kind === kind)
+      .reduce((sum, s) => ({ s: sum.s + s.actualDurationS, m: sum.m + (s.distanceM ?? 0) }), {
+        s: 0,
+        m: 0,
+      });
+  const run = total('run');
+  const walk = total('walk');
+  return {
+    runPaceSecPerKm: paceSecPerKm(run.m, run.s),
+    walkPaceSecPerKm: paceSecPerKm(walk.m, walk.s),
+    movingPaceSecPerKm: paceSecPerKm(run.m + walk.m, run.s + walk.s),
+    movingTimeS: run.s + walk.s,
+  };
 }

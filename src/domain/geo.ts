@@ -158,6 +158,8 @@ export interface SmoothStep {
   smoothedPoint: LatLng | null;
   /** why: the two `startAt` paths emit a RAW fix and break track continuity — render must know (ADR 0021 §5). */
   restarted: boolean;
+  /** Kalman speed in m/s after this fix; null when the step carries no velocity (seed, restart, rejected, Δt ≤ 0). */
+  smoothedSpeedMps: number | null;
 }
 
 export interface SmoothedTrack {
@@ -253,12 +255,20 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
       acceptedDeltaMeters: 0,
       smoothedPoint: { lat: fix.lat, lng: fix.lng },
       restarted: true,
+      smoothedSpeedMps: null,
     };
   }
 
   const dtSec = (fix.timestamp - state.lastAcceptedTime) / 1000;
+  // non-monotonic timestamps → no Δt
   if (dtSec <= 0) {
-    return { state, acceptedDeltaMeters: 0, smoothedPoint: null, restarted: false }; // non-monotonic timestamps → no Δt
+    return {
+      state,
+      acceptedDeltaMeters: 0,
+      smoothedPoint: null,
+      restarted: false,
+      smoothedSpeedMps: null,
+    };
   }
   if (dtSec > MAX_GAP_S) {
     return {
@@ -266,6 +276,7 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
       acceptedDeltaMeters: 0,
       smoothedPoint: { lat: fix.lat, lng: fix.lng },
       restarted: true,
+      smoothedSpeedMps: null,
     };
   }
 
@@ -277,7 +288,13 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
     const implied =
       haversineMeters({ lat: refLatM, lng: refLngM }, { lat: fix.lat, lng: fix.lng }) / dtMed;
     if (implied > RUNNING_SPEED_CEILING_MPS * VELOCITY_GATE_MARGIN) {
-      return { state, acceptedDeltaMeters: 0, smoothedPoint: null, restarted: false };
+      return {
+        state,
+        acceptedDeltaMeters: 0,
+        smoothedPoint: null,
+        restarted: false,
+        smoothedSpeedMps: null,
+      };
     }
   }
 
@@ -336,7 +353,13 @@ export function smoothFix(state: SmootherState, fix: LocationFix): SmoothStep {
     s.anchorLng = smoothedPoint.lng;
   }
 
-  return { state: s, acceptedDeltaMeters, smoothedPoint, restarted: false };
+  return {
+    state: s,
+    acceptedDeltaMeters,
+    smoothedPoint,
+    restarted: false,
+    smoothedSpeedMps: smoothedSpeed,
+  };
 }
 
 /**

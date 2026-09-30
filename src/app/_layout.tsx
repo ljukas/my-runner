@@ -90,7 +90,7 @@ export default function RootLayout() {
               presentation: 'formSheet',
               sheetAllowedDetents: 'fitToContents',
               ...sheetOptions,
-              // Not swipe-dismissible: an undecided dismissal would leave the run `'active'` and invisible.
+              // Not swipe-dismissible on iOS; Android can't block its dismissals, which save the run instead.
               gestureEnabled: false,
               headerShown: false,
               contentStyle: { backgroundColor: colors.background },

@@ -16,12 +16,16 @@ export function ResumeRunGate() {
   const pathname = usePathname();
 
   useEffect(() => {
-    // A live in-process run already owns the engine: nothing to offer while it runs.
-    if (runEngine.getSnapshot().status !== 'idle') return settleResumeCheck();
+    // A live run owns the engine, so there is nothing to offer — unless this launch's check is the one
+    // running it (detection abandons a stale run), which settles the gate itself.
+    if (runEngine.getSnapshot().status !== 'idle') {
+      if (beginResumeCheck()) settleResumeCheck();
+      return;
+    }
     // A pending onboarding step would strand the sheet under the onboarding modal — pathname re-runs
     // this once that modal closes.
     if (onboarding.pendingSteps().length > 0) return;
-    // Module scope, so a StrictMode double-mount cannot offer the same run twice.
+    // At most one check per launch: every later pathname change finds it begun.
     if (!beginResumeCheck()) return;
     void detectResumableRun()
       .then((found) => {

@@ -1,26 +1,44 @@
-import { Redirect, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useNavigation, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { runTitle } from '@/domain/format';
 import { keyOf } from '@/domain/free-run';
+import { leaveToTabs } from '@/lib/leave-to-tabs';
 import { declineResumableRun, resumeCrashedRun } from '@/services/run-engine';
 import { clearResumeOffer, peekResumeOffer } from '@/services/run-engine/resume-offer';
 
 export default function ResumeRunScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   // Snapshot once: `decide` clears the module-scope offer, and re-reading it on the re-render that
-  // follows would trip the redirect below and cancel the navigation it just asked for.
+  // follows would leave this screen before the navigation it just asked for.
   const [candidate] = useState(peekResumeOffer);
-  const [busy, setBusy] = useState(false);
+  const decided = useRef(false);
 
-  if (!candidate) return <Redirect href="/" />;
+  useEffect(() => {
+    if (!candidate) {
+      leaveToTabs(router);
+      return;
+    }
+    // why: Android's back, scrim tap and drag close the sheet without asking (`gestureEnabled` is
+    // iOS-only), and an undecided run would stay hidden and hold the resume gate — so leaving saves it,
+    // as an offer that expires does
+    return navigation.addListener('beforeRemove', () => {
+      if (decided.current) return;
+      decided.current = true;
+      clearResumeOffer();
+      void declineResumableRun(candidate);
+    });
+  }, [candidate, navigation, router]);
+
+  if (!candidate) return null;
 
   const decide = async (resume: boolean) => {
-    if (busy) return;
-    setBusy(true);
+    if (decided.current) return;
+    decided.current = true;
     clearResumeOffer();
     // The engine announces the resume itself, behind the cue-suppression flag (spec §8.0).
     if (resume && (await resumeCrashedRun(candidate))) {
@@ -32,7 +50,7 @@ export default function ResumeRunScreen() {
     // fresh finish either way — the same acknowledgement an ended-early run gets.
     // Nothing saved to show: a free run under a minute is deleted, and a failed save retries at launch.
     if (!(await declineResumableRun(candidate))) {
-      router.replace('/');
+      leaveToTabs(router);
       return;
     }
     router.replace({

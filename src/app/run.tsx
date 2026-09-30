@@ -9,6 +9,7 @@ import { RunLocationBanner } from '@/components/run-location-banner';
 import { RunLock } from '@/components/run-lock';
 import { ScriptedRunView } from '@/components/scripted-run-view';
 import { UNSAVED_RUN_ID } from '@/constants/routes';
+import { leaveToTabs } from '@/lib/leave-to-tabs';
 import { useLocationPermission } from '@/services/location-tracker';
 import { retryTracking, runEngine, useRunEngine } from '@/services/run-engine';
 
@@ -51,10 +52,8 @@ export default function RunScreen() {
 
   useEffect(() => {
     if (snapshot.status !== 'idle') return;
-    // why dismiss, not a Redirect: this modal sits on the tabs, and redirecting to "/" pushed a second
-    // copy of them over the first (a discarded free run is the one way here from a live run)
-    if (router.canDismiss()) router.dismissAll();
-    else router.replace('/');
+    // A discarded free run is the one way here from a live run.
+    leaveToTabs(router);
   }, [snapshot.status, router]);
 
   if (snapshot.status === 'idle') return null;

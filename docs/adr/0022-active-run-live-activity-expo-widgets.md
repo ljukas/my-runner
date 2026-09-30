@@ -7,9 +7,9 @@ Date: 2026-07-22
 
 ## Status
 
-Proposed — decided in principle; **implementation gated on all five v1 delivery
-stages ([spec §13](../superpowers/specs/2026-07-11-c25k-app-design.md)) being
-complete.** Research: [2026-07-22 iOS Live Activities](../superpowers/research/2026-07-22-ios-live-activities.md).
+Accepted (2026-07-22, on merge of #47). Implementation was gated on all five v1
+delivery stages ([spec §13](../superpowers/specs/2026-07-11-c25k-app-design.md))
+being complete; that gate was met on 2026-08-02 (Stage 5, #52). Not yet implemented. Research: [2026-07-22 iOS Live Activities](../superpowers/research/2026-07-22-ios-live-activities.md).
 
 ## Context
 

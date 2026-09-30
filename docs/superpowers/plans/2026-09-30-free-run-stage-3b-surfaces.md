@@ -87,3 +87,22 @@ Noted, not changed: the Skia digits always draw two minute digits ("05:00"), as 
 already does; the pace chart's tail dives where a run slows into a stop until stage 4's bands; the
 dev client can crash natively (`ExpoFabricView.injectInitializer`) when a bundle is opened from its
 launcher menu after a relaunch — a cold `open-url` straight to Metro does not.
+
+## Found in review (2026-09-30)
+
+Four adversarial reviewers (stores and hooks, Maestro flows, ADR compliance, comment density), each
+able to run code. Fixed:
+
+- **Major:** on Android the resume sheet could be dismissed undecided (back, scrim, drag), leaving
+  the resume gate shut and "New free run" disabled for the rest of the process; a dismissal now
+  saves the run.
+- **Major:** the resume sheet's no-summary exits still `replace('/')`d over the tabs; they share the
+  run screen's dismissal (`leaveToTabs`).
+- **Major:** the flows' first clock wait matched only 0:03–0:09, and the minute wait could match the
+  Android status bar's clock; the minute wait now reads the clock `below` the run's own label.
+- **Minor:** a resumed clock rolled up from 0:00; a discard froze the clock up to a second back; a
+  live-run branch in the resume gate could open it while the launch check was still abandoning a
+  stale run; the notice's few seconds started while the run modal still covered Plan.
+- ADR 0006 amended (`fitToContents` start sheets, End under a minute, the resume sheet on Android,
+  `leaveToTabs`); ADR 0026's gate wording corrected; comments trimmed per the audit;
+  `RunPhaseHeader` requires a label for a free run's looks.

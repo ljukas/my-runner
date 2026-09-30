@@ -451,19 +451,27 @@ Where the build refined this ADR or the spec:
 
 - **The entry** is a "New free run" button on the Plan header: an iOS `Stack.Toolbar` button, and on
   Android a header view in a fork of the Plan stack's layout. It is disabled while the launch-time
-  resume is looked for or decided; the resume gate became an observable store for it, and fails
-  closed. The `/free-run` sheet shares the session sheet's start action (`useStartRun`).
+  resume is looked for or decided; the resume gate became an observable store for it. It starts
+  closed, and a check that fails opens it, since there is then nothing to offer. Only this entry
+  waits on the gate: a plan session's Start can still land during the check — milliseconds when it
+  finds an offer, seconds while it abandons a stale run, where run generations keep the two apart.
+  The `/free-run` sheet shares the session sheet's start action (`useStartRun`).
 - **The run screen's phase** reads Running, Walking or Stopped in the bucket's colour, and "Waiting
   for GPS" or "Timer only" in a neutral grey with their own symbols, so a run without GPS never
   reads as stopped. The rolling pace shows only for a confirmed run or walk.
 - **End** uses one `end` variant on `RunTransport` (a plan run's dialog is word for word as before;
   a free run's offers Save Run and Discard, with Discard in the Android dialog's body). Under a
-  minute, End takes the save path, which the mode turns into a "too short" discard, so only the
-  dialog's Discard reads as "discarded".
-- **The not-saved notice** is a store with a TTL, fed once per outcome by a module-scope bridge from
+  minute, End asks nothing and takes the save path, which the mode turns into a "too short"
+  discard, so only the dialog's Discard reads as "discarded" (ADR 0006's 2026-09-30 amendment).
+- **The not-saved notice** is a store whose few seconds count from when the Plan tab is focused
+  with it (it is posted while the run modal still covers Plan), fed once per outcome by a module-scope bridge from
   the engine's idle snapshot (deduped by snapshot identity, so a remount never repeats it) and by a
-  declined resume whose free run was deleted; the Plan list shows it as its first row. A free run
-  that leaves no summary dismisses the run modal back to the tabs, where a `<Redirect>` had pushed
-  a second copy of them.
+  declined resume whose free run was deleted; the Plan list shows it as its first row. A run that
+  leaves no summary — from the run screen or the resume sheet — dismisses back to the tabs
+  (`leaveToTabs`), where a `<Redirect>` or `replace('/')` had pushed a second copy of them.
+- **The resume sheet on Android** cannot refuse a dismissal: `gestureEnabled` is iOS-only, and the
+  legacy formSheet ignores `preventNativeDismiss`, so back, a scrim tap or a drag closes it. Such a
+  dismissal saves the run, as an offer that expires does. Leaving it undecided would keep the run
+  hidden and the gate shut, and a new run would then orphan its row for good.
 - **The summary** without measured distance keeps only Active Time, so the E2E flows anchor on it
   (spec §8 corrected).

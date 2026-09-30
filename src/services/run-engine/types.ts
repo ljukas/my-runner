@@ -11,6 +11,7 @@ export interface RunEvent {
 export type EngineStatus = 'idle' | 'running' | 'paused' | 'completed' | 'endedEarly';
 
 export interface RunSnapshot {
+  mode: 'scripted';
   status: EngineStatus;
   sessionKey: string | null;
   segmentIndex: number;

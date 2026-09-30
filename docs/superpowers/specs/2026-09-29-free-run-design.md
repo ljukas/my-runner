@@ -71,6 +71,9 @@ numbers are from `main` at 9625d73.
 `ScriptedMode` holds today's code for each row, verbatim. The engine keeps the event log, active
 time, pause and resume, GPS ingest, flushing, sensors and persistence.
 
+The "Becomes" names are the design; stage 2 shipped them as `position`, `view`, `takeCues`,
+`exhausted`, `finalize(…, origin)` and `cueState`, and its plan lists which rows stage 3 still moves.
+
 **Snapshot.** `RunSnapshot = ScriptedRunSnapshot | OpenRunSnapshot`, built on a shared base: `mode`,
 `status`, `sessionKey`, `activeElapsedSeconds`, `distanceM`, `savedRunId`, `saveFailed`. The open
 branch adds `bucket` and `rollingPaceSecPerKm`. `IDLE_SNAPSHOT` is scripted-shaped, with `mode:
@@ -338,7 +341,7 @@ the kilometre cue are verified by replay tests, and by driving GPS by hand on iO
 | # | Stage | Ships | Verified by |
 | --- | --- | --- | --- |
 | 1 | **Classifier** | `smoothedSpeedMps`; `run-motion.ts`; the learned threshold (`learnThreshold`); `bucketStats`; a replay harness over the captures (a plain `bun` file, not a `package.json` script, since scripts are fingerprint-hashed). Asks the owner for a capture with a crossing stop and a mid-run pause before the constants are frozen. No app change. | `bun test`; the harness reproduces §4.4. |
-| 2 | **Engine refactor** | `RunPlan`, `RunMode`, `ScriptedMode`, and `mode: 'scripted'` on a flat snapshot. **No behaviour change.** | `engine.test.ts` with no assertion changed; both typechecks; the `session`-tagged Maestro flows on iOS and Android. |
+| 2 | **Engine refactor** | `RunMode` and `ScriptedMode`, and `mode: 'scripted'` on a flat snapshot. **No behaviour change.** `RunPlan` arrives with `OpenMode` in stage 3: its open variant would be dead code here. | `engine.test.ts` with no assertion changed; both typechecks; the `session`-tagged Maestro flows on iOS and Android. |
 | 3 | **Free run, end to end** | `OpenMode`; the snapshot union; derived finalize with the `segment_seq` rewrite; the `stopped` kind everywhere §5.3 lists; `planOf` and the 4 h resume; safeguards; the header button, sheet, `FreeRunView` and `showSkip`; the free-run stat grid; `runTitle`; the ADR 0007 and 0021 amendments. | Engine tests for open mode; `free-run.yaml` (below); a manual GPS drive on both platforms, checking route colours and the grid. |
 | 4 | **Chart and cue** | Chart bands and stop markers; the `kilometre` cue; Settings copy; the ADR 0009 amendment. | `bun test`; a drive past 1 km; light and dark screenshots on iOS and Android. |
 | 5a | **Health segments, Android** | `segmentWindows`; the library patch; exercise segments for plan and free runs; the ADR 0011 amendment. Depends only on stage 1 and can ship any time after it. | Readback through `readRecords`; the Health Connect data browser. |

@@ -179,6 +179,12 @@ describe('OpenMode — its live view', () => {
     expect(view.mode === 'open' && view.rollingPaceSecPerKm).toBeCloseTo(384.6, -1);
   });
 
+  test('shows no pace before the first kind is confirmed, while the label waits for GPS', () => {
+    const mode = openMode();
+    feed(mode, track([[5, 2.6]]));
+    expect(mode.view(START, 5, 5_000)).toMatchObject({ motion: null, rollingPaceSecPerKm: null });
+  });
+
   test('shows no pace while stopped', () => {
     const mode = openMode();
     feed(

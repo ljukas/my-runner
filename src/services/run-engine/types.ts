@@ -46,7 +46,7 @@ export interface OpenRunSnapshot extends RunSnapshotBase {
   mode: 'open';
   /** The confirmed kind right now; null before the first velocity. */
   motion: MotionKind | null;
-  /** Pace over the last stretch of moving samples; null while stopped or when GPS is stale. */
+  /** Pace over the last stretch of moving samples; null unless running or walking on fresh GPS. */
   rollingPaceSecPerKm: number | null;
   /** No recent speed, or none yet: "Waiting for GPS" (spec §5.2). */
   gpsStale: boolean;

@@ -440,7 +440,8 @@ export class OpenMode implements RunMode {
   live(events: readonly RunEvent[], now: number): Required<ModeLive> {
     const gpsStale =
       this.lastSpeedMs === null || activeMsBetween(events, this.lastSpeedMs, now) > GPS_STALE_MS;
-    const moving = !gpsStale && this.track.motion.kind !== 'stopped' && this.moving.length > 0;
+    const kind = this.track.motion.kind;
+    const moving = !gpsStale && (kind === 'run' || kind === 'walk') && this.moving.length > 0;
     const meanMps = this.moving.reduce((sum, s) => sum + s.speedMps, 0) / this.moving.length;
     return {
       motion: this.track.motion.kind,

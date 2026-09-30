@@ -1,0 +1,21 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+- runFlow: ../helpers/launch-and-onboard.yaml
+- runFlow: ../helpers/start-free-run.yaml
+- tapOn: "Save Run"
+# A Maestro run never moves, so the grid keeps only Active Time: Moving Pace needs measured distance.
+- extendedWaitUntil:
+    visible: "Active Time"
+    timeout: 30000
+- assertNotVisible: "Moving Pace"
+- runFlow: ../helpers/close-summary.yaml
+- tapOn: "Log"
+- scrollUntilVisible:
+    element:
+      text: "Free run"
+# A free run marks no plan day (ADR 0023): Week 1's first session is still the next one.
+- tapOn: "Plan"
+- assertVisible: "Week 1 · 0/3"
+- assertVisible: "Up next"

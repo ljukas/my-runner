@@ -1,0 +1,29 @@
+appId: se.lukaslindqvist.runbro.e2e
+---
+# Plan header → the free-run sheet → a running free run. The entry stays disabled until the
+# launch-time resume check settles, so wait for it to be enabled rather than tap it early.
+- extendedWaitUntil:
+    visible:
+      text: "New free run"
+      enabled: true
+    timeout: 15000
+- tapOn: "New free run"
+- assertVisible: "Free Run"
+- tapOn: "Start Free Run"
+# The clock counts up (its accessibility label); never a bucket label, since Maestro cannot move
+# GPS (ADR 0001's 2026-07-31 amendment).
+- extendedWaitUntil:
+    visible: "0:0[3-9]"
+    timeout: 15000
+# Wait out the minute on the app's own clock: under it, End deletes the run without asking
+# (owner decision, 2026-09-29: no test-only override).
+- extendedWaitUntil:
+    visible: "1:0[2-9]"
+    timeout: 90000
+# Pause first, so everything after runs on a frozen screen (run-controls.yaml's reasoning).
+- tapOn: "Pause"
+- assertVisible: "Paused"
+- tapOn: "Resume"
+- tapOn: "Pause"
+- tapOn: "End"
+- assertVisible: "End this run\\?"

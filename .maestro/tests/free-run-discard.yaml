@@ -1,0 +1,13 @@
+appId: se.lukaslindqvist.runbro.e2e
+tags:
+  - session
+---
+- runFlow: ../helpers/launch-and-onboard.yaml
+- runFlow: ../helpers/start-free-run.yaml
+- tapOn: "Discard"
+# A discarded run leaves no summary; the Plan list says why for a few seconds.
+- extendedWaitUntil:
+    visible: "Run discarded"
+    timeout: 15000
+- tapOn: "Log"
+- assertNotVisible: "Free run"

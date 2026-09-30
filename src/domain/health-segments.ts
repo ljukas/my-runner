@@ -3,6 +3,7 @@
 import { wallClockAtActive } from './active-time';
 import { pausedIntervals, type LoggedRunEvent } from './run-altitude';
 import type { StoredSegmentKind } from './run-motion';
+import type { RunStatsSegment } from './run-stats';
 
 export type WorkoutActivity = 'running' | 'walking' | 'resting';
 
@@ -17,10 +18,8 @@ export interface WorkoutSegment extends WorkoutWindow {
 }
 
 /** Structural: a stored `run_segments` row satisfies it without importing db types. */
-export interface SegmentRow {
+export interface SegmentRow extends RunStatsSegment {
   seq: number;
-  kind: StoredSegmentKind;
-  actualDurationS: number;
 }
 
 // per ADR 0026 §8: a plan run's warm-up and cool-down are walks.
@@ -69,7 +68,7 @@ export function segmentWindows(
   let activeS = 0;
   for (const row of [...rows].sort((a, b) => a.seq - b.seq)) {
     const fromS = activeS;
-    activeS += Number.isFinite(row.actualDurationS) ? Math.max(0, row.actualDurationS) : 0;
+    activeS += Math.max(0, row.actualDurationS);
     // why Infinity: null means a log that ended paused never reached that active time.
     let cursor = Math.max(wallClockAtActive(log, fromS) ?? Infinity, lastEnd);
     const end = Math.min(wallClockAtActive(log, activeS) ?? Infinity, workout.endedAt);

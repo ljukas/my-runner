@@ -179,11 +179,12 @@ describe('toExerciseSegments', () => {
 });
 
 describe('insertExerciseSession', () => {
-  function recorder(failures: number) {
+  // The library rejects with the code it maps each native exception to (ExceptionsUtils.kt).
+  function recorder(failures: number, code = 'ARGUMENT_VALIDATION_ERROR') {
     const calls: ExerciseSessionRecord[][] = [];
     const insert = async (records: ExerciseSessionRecord[]) => {
       calls.push(records);
-      if (calls.length <= failures) throw new Error('rejected');
+      if (calls.length <= failures) throw Object.assign(new Error('rejected'), { code });
     };
     return { calls, insert };
   }
@@ -202,6 +203,13 @@ describe('insertExerciseSession', () => {
     expect(calls).toHaveLength(2);
     const { segments: _rejected, ...bare } = record;
     expect(calls[1]).toEqual([bare]);
+  });
+
+  test('rethrows at once when Health Connect failed for another reason', async () => {
+    const { calls, insert } = recorder(1, 'SERVICE_UNAVAILABLE');
+    const record = toExerciseSessionRecord(segmented, 7);
+    await expect(insertExerciseSession(insert, record)).rejects.toThrow('rejected');
+    expect(calls).toHaveLength(1);
   });
 
   test('rethrows at once when there were no segments to blame', async () => {

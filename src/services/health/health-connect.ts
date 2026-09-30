@@ -13,7 +13,7 @@ import type { WorkoutActivity } from '@/domain/health-segments';
 import type { HealthAuthorization } from './port';
 
 export type WritePermission = Permission | WriteExerciseRoutePermission;
-// The library declares `Location` and `Length` without exporting them.
+// The library declares `Location`, `Length` and `ExerciseSegment` without exporting them.
 type Location = NonNullable<ExerciseSessionRecord['exerciseRoute']>['route'][number];
 type Length = DistanceRecord['distance'];
 type ExerciseSegment = NonNullable<ExerciseSessionRecord['segments']>[number];
@@ -92,8 +92,8 @@ function segment(startedAt: number, endedAt: number, segmentType: number): Exerc
 }
 
 /**
- * The workout's segments with each pause as a PAUSE segment, in time order — Health Connect
- * subtracts PAUSE and REST from the session's exercise duration (ADR 0026 §8, 2026-09-30).
+ * The workout's segments with each pause as a PAUSE segment, in time order — per AOSP, Health
+ * Connect subtracts PAUSE and REST from a session's exercise duration (ADR 0026, 2026-09-30).
  */
 export function toExerciseSegments(input: HealthWorkoutInput): ExerciseSegment[] {
   return [
@@ -127,9 +127,18 @@ export function toExerciseSessionRecord(
   };
 }
 
+// The library's code for an IllegalArgumentException — what the session constructor throws for
+// segments it will not accept (ExceptionsUtils.kt).
+const ARGUMENT_VALIDATION_ERROR = 'ARGUMENT_VALIDATION_ERROR';
+
+function isValidationError(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === ARGUMENT_VALIDATION_ERROR;
+}
+
 /**
- * Inserts the session, and if Health Connect rejects it while it carries segments, inserts it once
- * more without them — within the same save, so no silent retry (ADR 0011 §4) — before giving up.
+ * Inserts the session, and if Health Connect refuses it as invalid while it carries segments,
+ * inserts it once more without them, in the same save rather than as a silent retry (ADR 0011,
+ * Consequences). Any other failure is rethrown, so a transient one never costs valid segments.
  */
 export async function insertExerciseSession(
   insert: (records: ExerciseSessionRecord[]) => Promise<unknown>,
@@ -138,8 +147,11 @@ export async function insertExerciseSession(
   try {
     await insert([record]);
   } catch (error) {
-    if (!record.segments) throw error;
-    console.warn('[health] segments rejected, saving the session without them', error);
+    if (!record.segments || !isValidationError(error)) throw error;
+    console.warn(
+      '[health] Health Connect refused the segments; saving the session without them',
+      error,
+    );
     const { segments: _rejected, ...bare } = record;
     await insert([bare]);
   }

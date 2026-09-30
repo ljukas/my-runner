@@ -478,6 +478,28 @@ describe('rollupOpenTrack — durations and bounds', () => {
     buckets.forEach((b) => expect(Math.abs(b.durationS - b.activeS)).toBeLessThan(1));
   });
 
+  test('rounds by running total, so no bucket boundary drifts by half a second or more', () => {
+    // A 600 ms pause inside each 20 s leg leaves every bucket 19.4 s of active time; rounding each
+    // bucket on its own would hand the spare seconds to the first buckets and push every later
+    // boundary a second out (ADR 0026 §8's Health windows are laid from these durations).
+    const legs = [1.5, 2.6, 1.5, 2.6, 1.5].map((mps) => ({ seconds: 20, mps }));
+    const fixes = track(legs);
+    const paused = legs.map((_, i) => ({ fromMs: i * 20_000 + 10_000, toMs: i * 20_000 + 10_600 }));
+    const { buckets } = rollupOpenTrack(fixes, {
+      thresholdMps: T,
+      paused,
+      startMs: 0,
+      endMs: endOf(fixes),
+    });
+    let activeS = 0;
+    let wholeS = 0;
+    for (const bucket of buckets) {
+      activeS += bucket.activeS;
+      wholeS += bucket.durationS;
+      expect(Math.abs(wholeS - activeS)).toBeLessThanOrEqual(0.5);
+    }
+  });
+
   test('rounds the total from whole milliseconds, where the seconds sum sits a hair under .5', () => {
     // 120.002 + 61.006 + 60.492 s adds up to 241.49999999999997 in floating point.
     const at = (ms: number, northM: number): LocationFix => ({

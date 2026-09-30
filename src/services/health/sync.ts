@@ -5,6 +5,7 @@ import { loadRunFixes } from '@/db/run-points';
 import { loadRunSegments } from '@/db/run-segments';
 import { runs } from '@/db/schema';
 import { toHealthWorkout } from '@/domain/health';
+import type { SegmentRow } from '@/domain/health-segments';
 import { healthAdapter } from './adapter';
 import { isHealthWritable } from './writable';
 
@@ -25,6 +26,17 @@ export function isHealthSyncFailure(result: HealthSyncResult): boolean {
   return result === 'failed';
 }
 
+// why: segments refine a workout Health would otherwise get whole, so failing to read them must not
+// cost the save itself.
+function segmentRowsOf(runId: string): SegmentRow[] {
+  try {
+    return loadRunSegments(runId);
+  } catch (error) {
+    console.warn('[health] segment rows unreadable; saving without segments', error);
+    return [];
+  }
+}
+
 /**
  * Writes a finalized run to Apple Health and records it locally. Never throws and never blocks a
  * run: the local save has already committed by the time this runs (ADR 0011 §4).
@@ -41,7 +53,7 @@ export async function syncRunToHealth(runId: string): Promise<HealthSyncResult> 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
     if (!run || !isHealthWritable(run)) return 'skipped';
 
-    await healthAdapter.saveRun(toHealthWorkout(run, loadRunFixes(runId), loadRunSegments(runId)));
+    await healthAdapter.saveRun(toHealthWorkout(run, loadRunFixes(runId), segmentRowsOf(runId)));
 
     db.update(runs)
       .set({ healthkitSaved: true, updatedAt: new Date().toISOString() })

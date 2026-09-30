@@ -1,5 +1,7 @@
 import { ScrollView } from 'react-native';
 
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
 import { PrivacyPolicy } from '@/components/privacy-policy';
 
 export default function PrivacyScreen() {
@@ -7,7 +9,7 @@ export default function PrivacyScreen() {
     <ScrollView
       contentInsetAdjustmentBehavior="automatic"
       className="bg-background"
-      contentContainerClassName="px-6 pt-4 pb-safe-offset-6 android:pb-safe-offset-10"
+      contentContainerClassName={cn('px-6 pt-4', androidOnly('pb-safe-offset-10') ?? 'pb-6')}
     >
       <PrivacyPolicy />
     </ScrollView>

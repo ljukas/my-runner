@@ -1,5 +1,7 @@
 import { View } from 'react-native';
 
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
 import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { FREE_RUN_PLAN } from '@/domain/free-run';
@@ -12,7 +14,7 @@ export default function FreeRunSheet() {
   const location = useLocationPermission();
 
   return (
-    <View className="gap-6 bg-background px-6 pt-8 android:pb-safe-offset-6">
+    <View className={cn('gap-6 bg-background px-6 pt-8', androidOnly('pb-safe-offset-6'))}>
       <View className="gap-1.5">
         <Text variant="subtitle" accessibilityRole="header">
           Free Run

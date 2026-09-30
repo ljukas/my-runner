@@ -4,6 +4,8 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 
 import { Island } from '@/components/island';
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
 import { SegmentBar } from '@/components/segment-bar';
 import { SegmentLegend } from '@/components/segment-legend';
 import { StatList } from '@/components/stat-list';
@@ -41,7 +43,7 @@ export default function SessionSheet() {
   if (!session) return <Redirect href="/" />;
 
   return (
-    <View className="gap-6 bg-background px-6 pt-8 android:pb-safe-offset-6">
+    <View className={cn('gap-6 bg-background px-6 pt-8', androidOnly('pb-safe-offset-6'))}>
       <View className="gap-1.5">
         <Text variant="subtitle" accessibilityRole="header">
           {sessionTitle(session.key)}

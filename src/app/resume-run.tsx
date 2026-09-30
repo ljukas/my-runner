@@ -2,6 +2,8 @@ import { useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
 import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { runTitle } from '@/domain/format';
@@ -60,7 +62,7 @@ export default function ResumeRunScreen() {
   };
 
   return (
-    <View className="gap-8 bg-background px-6 pt-8 android:pb-safe-offset-6">
+    <View className={cn('gap-8 bg-background px-6 pt-8', androidOnly('pb-safe-offset-6'))}>
       <View className="gap-2">
         <Text variant="subtitle" accessibilityRole="header">
           Resume run?

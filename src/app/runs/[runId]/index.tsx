@@ -3,6 +3,8 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { ScrollView, View } from 'react-native';
 
+import { androidOnly } from '@/lib/android-only';
+import { cn } from '@/lib/cn';
 import { FreeRunStatGrid } from '@/components/free-run-stat-grid';
 import { HealthStatusRow } from '@/components/health-status-row';
 import { RouteMapCard } from '@/components/route-map-card';
@@ -79,7 +81,7 @@ export default function RunSummaryScreen() {
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         className="bg-background-grouped"
-        contentContainerClassName="gap-4 px-4 android:pt-4 android:pb-safe-offset-10"
+        contentContainerClassName={cn('gap-4 px-4', androidOnly('pt-4 pb-safe-offset-10'))}
       >
         {loaded && run ? (
           <>

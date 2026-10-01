@@ -7,10 +7,16 @@ struct WindowRecord: Record {
   @Field var endMs: Double = 0
 }
 
+enum SegmentKind: String, Enumerable {
+  case run
+  case walk
+  case rest
+}
+
 struct SegmentRecord: Record {
   @Field var startMs: Double = 0
   @Field var endMs: Double = 0
-  @Field var kind: String = ""
+  @Field var kind: SegmentKind = .run
 }
 
 struct DistanceRecord: Record {
@@ -45,4 +51,8 @@ struct WorkoutRecord: Record {
   @Field var pauses: [WindowRecord] = []
   @Field var segments: [SegmentRecord] = []
   @Field var route: RouteRecord?
+}
+
+struct SaveResultRecord: Record {
+  @Field var plain: Bool = false
 }

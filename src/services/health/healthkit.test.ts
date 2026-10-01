@@ -60,8 +60,6 @@ describe('toHealthKitWorkout', () => {
     expect(workout.route).toBeNull();
   });
 
-  // why split: HealthKit spreads a sample evenly over the workout's active time, so one sample
-  // across a pause would lose the paused share from the workout's total.
   test('splits the distance at each pause, weighting each part by the route run in it', () => {
     const north = (m: number) => 59.3293 + m / 111_195;
     const route = [0, 60, 120, 600, 900].map((m, i) =>
@@ -81,7 +79,51 @@ describe('toHealthKitWorkout', () => {
     ]);
     // 120 m of route before the pause, 300 m after (the leg across it counts for neither).
     expect(workout.distances[0].meters).toBeCloseTo((1_000 * 120) / 420, 0);
-    expect(workout.distances[0].meters + workout.distances[1].meters).toBe(1_000);
+    expect(workout.distances[0].meters + workout.distances[1].meters).toBeCloseTo(1_000, 9);
+  });
+
+  test('never writes a negative or empty part when the last stretch has no route', () => {
+    const north = (m: number) => 59.3293 + m / 111_195;
+    const route = [0, 300, 600, 900].map((m, i) =>
+      makePoint({ latitude: north(m), timestamp: START + [1, 4, 12, 15][i] * MIN }),
+    );
+    const workout = toHealthKitWorkout(
+      makeInput({
+        route,
+        distanceSample: { startedAt: START, endedAt: END, meters: 1_234.567 },
+        pauses: [
+          { startedAt: START + 5 * MIN, endedAt: START + 10 * MIN },
+          { startedAt: START + 20 * MIN, endedAt: START + 25 * MIN },
+        ],
+      }),
+      7,
+    );
+    expect(workout.distances.map((d) => d.syncIdentifier)).toEqual([
+      'run-4200:distance:0',
+      'run-4200:distance:1',
+    ]);
+    for (const part of workout.distances) expect(part.meters).toBeGreaterThan(0);
+    const total = workout.distances.reduce((sum, d) => sum + d.meters, 0);
+    expect(total).toBeCloseTo(1_234.567, 9);
+  });
+
+  test('takes pauses in time order and keeps every part inside the run', () => {
+    const workout = toHealthKitWorkout(
+      makeInput({
+        route: [],
+        distanceSample: { startedAt: START, endedAt: END, meters: 900 },
+        pauses: [
+          { startedAt: START + 20 * MIN, endedAt: START + 25 * MIN },
+          { startedAt: START + 10 * MIN, endedAt: START + 15 * MIN },
+        ],
+      }),
+      7,
+    );
+    expect(workout.distances.map((d) => [d.startMs, d.endMs])).toEqual([
+      [START, START + 10 * MIN],
+      [START + 15 * MIN, START + 20 * MIN],
+      [START + 25 * MIN, END],
+    ]);
   });
 
   test('without a route, weights each part by its time', () => {

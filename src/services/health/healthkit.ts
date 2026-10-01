@@ -18,8 +18,9 @@ const KIND: Record<WorkoutActivity, HealthKitSegmentKind> = {
 function activeWindows(window: WorkoutWindow, pauses: readonly WorkoutWindow[]): HealthKitWindow[] {
   const windows: HealthKitWindow[] = [];
   let from = window.startedAt;
-  for (const pause of pauses) {
-    if (pause.startedAt > from) windows.push({ startMs: from, endMs: pause.startedAt });
+  for (const pause of [...pauses].sort((a, b) => a.startedAt - b.startedAt)) {
+    const pausedAt = Math.min(pause.startedAt, window.endedAt);
+    if (pausedAt > from) windows.push({ startMs: from, endMs: pausedAt });
     from = Math.max(from, pause.endedAt);
   }
   if (window.endedAt > from) windows.push({ startMs: from, endMs: window.endedAt });
@@ -54,12 +55,18 @@ function distanceParts(
   const weights = byRoute.some((m) => m > 0) ? byRoute : windows.map((w) => w.endMs - w.startMs);
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
   let assigned = 0;
-  return windows.map((window, i) => {
-    const last = i === windows.length - 1;
-    const meters = last ? sample.meters - assigned : (sample.meters * weights[i]) / totalWeight;
-    assigned += meters;
-    return { ...window, meters, syncIdentifier: `${id}:distance:${i}` };
-  });
+  return windows
+    .map((window, i) => {
+      const last = i === windows.length - 1;
+      // why the clamp: the remainder after shares rounded up can be a hair below zero, and a
+      // negative quantity would fail the whole save.
+      const meters = last
+        ? Math.max(0, sample.meters - assigned)
+        : (sample.meters * weights[i]) / totalWeight;
+      assigned += meters;
+      return { ...window, meters, syncIdentifier: `${id}:distance:${i}` };
+    })
+    .filter((part) => part.meters > 0);
 }
 
 // per ADR 0011 (2026-10-01 amendment): the distance samples and the route each carry their own

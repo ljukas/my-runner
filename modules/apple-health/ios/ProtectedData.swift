@@ -4,7 +4,8 @@ import UIKit
 /// so its route cannot attach), and plan runs usually end locked — so a save waits for the unlock.
 @MainActor
 enum ProtectedData {
-  static func waitUntilAvailable() async {
+  static func waitUntilAvailable(freshSignal: Bool = false) async {
+    if freshSignal { await nextSignal(awaitingNext: true) }
     while !UIApplication.shared.isProtectedDataAvailable {
       await nextSignal()
     }
@@ -12,7 +13,7 @@ enum ProtectedData {
 
   // why didBecomeActive too: a suspended app never receives the unlock notification, so for a run
   // that ended locked the wait really ends when the app next comes to the foreground.
-  private static func nextSignal() async {
+  private static func nextSignal(awaitingNext: Bool = false) async {
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       var observers: [NSObjectProtocol] = []
       var resumed = false
@@ -20,6 +21,7 @@ enum ProtectedData {
         guard !resumed else { return }
         resumed = true
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()  // the tokens retain the blocks that retain this closure
         continuation.resume()
       }
       for name in [
@@ -33,7 +35,7 @@ enum ProtectedData {
       }
       // why re-check after subscribing: an unlock between the caller's check and the observers
       // would otherwise be missed until the next one.
-      if UIApplication.shared.isProtectedDataAvailable { resume() }
+      if !awaitingNext, UIApplication.shared.isProtectedDataAvailable { resume() }
     }
   }
 }

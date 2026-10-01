@@ -22,8 +22,8 @@ public final class AppleHealthModule: Module {
       try await healthStore.requestAuthorization(toShare: shareTypes, read: [])
     }
 
-    AsyncFunction("saveWorkout") { (workout: WorkoutRecord) async throws -> [String: Bool] in
-      ["plain": try await WorkoutWriter.save(workout)]
+    AsyncFunction("saveWorkout") { (workout: WorkoutRecord) async throws -> SaveResultRecord in
+      SaveResultRecord(plain: try await WorkoutWriter.save(workout))
     }
   }
 }

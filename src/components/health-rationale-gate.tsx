@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 
-import { subscribeHealthRationaleIntent } from '@/services/health';
+import { subscribeHealthRationale } from '@/services/health';
 
 /** Opens the privacy policy when the platform health store asks the app to show its rationale. */
 export function HealthRationaleGate() {
   const router = useRouter();
-  useEffect(() => subscribeHealthRationaleIntent(() => router.navigate('/privacy')), [router]);
+  useEffect(() => subscribeHealthRationale(() => router.navigate('/privacy')), [router]);
   return null;
 }

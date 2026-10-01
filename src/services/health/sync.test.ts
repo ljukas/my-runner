@@ -3,9 +3,9 @@ import { describe, expect, mock, test } from 'bun:test';
 import type { HealthWorkoutInput } from '@/domain/health';
 import type { HealthAuthorization } from './port';
 
-// why mock.module, not a Metro build: `./adapter` only exists as `adapter.ios.ts` (platform-suffix
-// resolution Metro understands and bun test does not) and `@/db/client` opens a real expo-sqlite
-// database at import time — neither is reachable from `bun test`'s plain Node-style resolution.
+// why mock.module, not a Metro build: `./adapter` reaches the native module through `expo`, whose
+// `react-native` entry bun cannot parse, and `@/db/client` opens a real expo-sqlite database at
+// import time — neither loads under `bun test`.
 function mockAdapter(getAuthorization: () => HealthAuthorization) {
   void mock.module('@/db/client', () => ({ db: {} }));
   void mock.module('@/db/run-points', () => ({ loadRunFixes: () => [] }));

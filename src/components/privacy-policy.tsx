@@ -1,10 +1,10 @@
 import { Platform, View } from 'react-native';
 
 import { Text } from '@/components/ui/text';
+import { HEALTH_STORE as STORE } from '@/constants/health-store';
 
-// The platform health store is the one sentence-level fork; the policy is otherwise the same text
-// as docs/privacy-policy.md, which stays the hosted copy for the store listings.
-const STORE = Platform.select({ android: 'Health Connect', default: 'Apple Health' });
+// why REVOKE_IN: iOS revokes in "the Health app", not "Apple Health". The rest matches
+// docs/privacy-policy.md, the hosted copy for the store listings.
 const REVOKE_IN = Platform.select({ android: 'Health Connect', default: 'the Health app' });
 
 const SECTIONS: readonly { title: string; body: string }[] = [

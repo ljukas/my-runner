@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Write-only (ADR 0011 §2): no read permission is ever declared. -->
+  <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
+  <uses-permission android:name="android.permission.health.WRITE_EXERCISE_ROUTE" />
+  <uses-permission android:name="android.permission.health.WRITE_DISTANCE" />
+
+  <!-- Android 9–13: lets getSdkStatus see the Health Connect app. -->
+  <queries>
+    <package android:name="com.google.android.apps.healthdata" />
+  </queries>
+</manifest>

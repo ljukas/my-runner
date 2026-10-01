@@ -38,7 +38,6 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
-    "react-native-health-connect": "4.1.3",
     "react-native-pulsar": "^1.7.0",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
@@ -86,8 +85,5 @@
   "private": true,
   "trustedDependencies": [
     "@shopify/react-native-skia"
-  ],
-  "patchedDependencies": {
-    "react-native-health-connect@4.1.3": "patches/react-native-health-connect@4.1.3.patch"
-  }
+  ]
 }

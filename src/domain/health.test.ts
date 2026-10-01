@@ -114,6 +114,7 @@ describe('toHealthDistanceSample', () => {
 describe('toHealthWorkout', () => {
   const run = {
     id: 'run-4200',
+    sessionKey: 'w3d2',
     startedAt: '2026-08-01T06:00:00.000Z',
     endedAt: '2026-08-01T06:30:00.000Z',
     distanceM: 4_200,
@@ -146,6 +147,11 @@ describe('toHealthWorkout', () => {
     expect(workout.totalDistanceM).toBeNull();
     expect(workout.route).toEqual([]);
     expect(workout.distanceSample).toBeNull();
+  });
+
+  test("titles a plan run by its plan day and a free run as one, Health Connect's session title", () => {
+    expect(toHealthWorkout(run, [], []).title).toBe('Week 3 · Day 2');
+    expect(toHealthWorkout({ ...run, sessionKey: 'free-run' }, [], []).title).toBe('Free run');
   });
 
   test('carries the run id through as the sync identifier (finding 1: idempotent retries)', () => {

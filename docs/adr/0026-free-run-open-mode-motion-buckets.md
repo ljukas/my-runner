@@ -615,3 +615,16 @@ Connect follows the same way later (#90). Two consequences for §8 and the Conse
   Health and Fitness has its own distance and pace.
 - **The iOS fingerprint moves** through the new module and the removed packages, and Android's
   moves through the removed Nitro and the plugin list.
+
+## Amendment (2026-10-01): stage 5c built
+
+Stage 5c ([plan](../superpowers/plans/2026-10-01-free-run-stage-5c-health-connect-module.md)) moved
+the Android write into the owned `modules/health/` (ADR 0011's amendment of the same date). For this
+ADR:
+
+- **Health Connect gets one distance record per interval,** like HealthKit since stage 5b, so each
+  free-run bucket has its own distance there too. The stage-5a amendment's single whole-run record
+  is replaced, and a re-save deletes it.
+- **Sessions carry a title:** *Free run*, or *Week N · Day M* for a plan run.
+- The segments (RUNNING, WALKING, REST, and PAUSE for pauses) are unchanged from stage 5a.
+

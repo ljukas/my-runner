@@ -12,6 +12,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { isFieldTestBuild } from '@/services/field-test';
 import {
   openHealthApp,
+  openHealthStore,
   requestWriteAccess,
   useHealthAuthorization,
   type HealthAuthorization,
@@ -35,6 +36,7 @@ const HEALTH_ACCESS: Record<HealthAuthorization, string> = {
   denied: 'Off',
   notDetermined: 'Not set up',
   unavailable: 'Not available',
+  updateRequired: 'Update needed',
 };
 
 export default function SettingsScreen() {
@@ -106,7 +108,9 @@ export default function SettingsScreen() {
                 ? 'Finished runs are saved to Health Connect, with a route if location is on. Older runs can be saved one at a time from their summary.'
                 : health === 'unavailable'
                   ? "Health Connect isn't available on this device."
-                  : 'Save your finished runs to Health Connect, with distance and route. Nothing is ever read from Health Connect.'}
+                  : health === 'updateRequired'
+                    ? 'Saving runs to Health Connect needs the Health Connect app, or an update to it.'
+                    : 'Save your finished runs to Health Connect, with distance and route. Nothing is ever read from Health Connect.'}
             </Text>
           </ListItem.SupportingContent>
           <ListItem.TrailingContent>
@@ -117,6 +121,13 @@ export default function SettingsScreen() {
           <ListItem modifiers={[clickable(() => void requestWriteAccess())]}>
             <ListItem.HeadlineContent>
               <Text color={colors.primary}>Set up Health Connect</Text>
+            </ListItem.HeadlineContent>
+          </ListItem>
+        ) : null}
+        {health === 'updateRequired' ? (
+          <ListItem modifiers={[clickable(() => void openHealthStore())]}>
+            <ListItem.HeadlineContent>
+              <Text color={colors.primary}>Get Health Connect</Text>
             </ListItem.HeadlineContent>
           </ListItem>
         ) : null}

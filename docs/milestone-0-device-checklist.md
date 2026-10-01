@@ -343,3 +343,17 @@ On an iPhone with a **passcode** (without one, the phone never locks its data), 
 | H3 | Fitness shows each interval's own distance and pace for a run where the walks are slower than the runs | Fitness → the workout; compare with the run's summary in the app |
 | H4 | A re-save replaces: one workout, one route, one distance row per interval | `resaveLatestRunToHealth()` in the JS debugger, then Health → Workouts and Walking + Running Distance |
 | H5 | Upgrading from a build that used `@kingstinct/react-native-healthkit` keeps the existing grant: no prompt, and Settings still reads *Saving workouts* | Install this build over the previous one without deleting the app |
+
+## Health Connect module — device-only (free-run stage 5c, 2026-10-01)
+
+The emulators proved the module (API 37: the dialog, the privacy-link interruption, partial grants,
+the write and its re-save in the data browser; API 33 without Health Connect: *Get Health Connect*
+and the Play Store; ADR 0011's amendment of the same date). They have no Google account and never
+lock their data. On a dev build (`bun run android` with the phone attached):
+
+| # | Check | How |
+| --- | --- | --- |
+| C1 | On an Android 9–13 phone **without** Health Connect, *Get Health Connect* installs it from Play, and returning to the app turns the row into *Set up Health Connect* without a restart | Settings → Health Connect, or the onboarding primer |
+| C2 | A run that ends with the screen **off** is in Health Connect when the phone is unlocked, with its route, segments and per-interval distance | Let a run end locked; then Health Connect → Data and access → Exercise / Distance |
+| C3 | Cancelling the permission dialog twice, then asking again, reads *Off* with *Open Health Connect*, never a dialog that does nothing | Settings → *Set up Health Connect* three times, backing out of the first two |
+| C4 | Fitbit, or another app that reads Health Connect, shows the session with its title and duration | That app's activity list |

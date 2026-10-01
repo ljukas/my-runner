@@ -41,16 +41,20 @@ function routeMetresIn(route: readonly HealthRoutePoint[], { startMs, endMs }: H
   return metres;
 }
 
-// why split: HealthKit spreads a sample evenly over the workout's active time, so one sample across
-// a pause would cost the workout total the paused share. Each part is weighted by the route run in
-// it, or by its time without one; the last takes the remainder so the parts sum to the total.
+// why one part per interval: HealthKit spreads a sample evenly over the active time it spans, so a
+// sample across a pause would cost the total the paused share, and one across intervals would give
+// a run and a walk the same pace. Without intervals the parts are the stretches between pauses.
+// Each part is weighted by the route run in it, or by its time without one; the last takes the
+// remainder so the parts sum to the total.
 function distanceParts(
+  input: HealthWorkoutInput,
   sample: HealthDistanceSample,
-  pauses: readonly WorkoutWindow[],
   route: readonly HealthRoutePoint[],
-  id: string,
 ): HealthKitWorkout['distances'] {
-  const windows = activeWindows(sample, pauses);
+  const windows =
+    input.segments.length > 0
+      ? input.segments.map((s) => ({ startMs: s.startedAt, endMs: s.endedAt }))
+      : activeWindows(sample, input.pauses);
   const byRoute = windows.map((w) => routeMetresIn(route, w));
   const weights = byRoute.some((m) => m > 0) ? byRoute : windows.map((w) => w.endMs - w.startMs);
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
@@ -64,23 +68,27 @@ function distanceParts(
         ? Math.max(0, sample.meters - assigned)
         : (sample.meters * weights[i]) / totalWeight;
       assigned += meters;
-      return { ...window, meters, syncIdentifier: `${id}:distance:${i}` };
+      return { ...window, meters, syncIdentifier: `${input.syncIdentifier}:distance:${i}` };
     })
     .filter((part) => part.meters > 0);
 }
 
 // per ADR 0011 (2026-10-01 amendment): the distance samples and the route each carry their own
 // sync identifier, so a re-save replaces every piece rather than relying on HealthKit to cascade.
+// per Apple's route guidance (creating-a-workout-route): no point with an accuracy worse than 50 m.
+function isDrawable(point: HealthRoutePoint): boolean {
+  return point.horizontalAccuracy > 0 && point.horizontalAccuracy <= 50;
+}
+
 export function toHealthKitWorkout(input: HealthWorkoutInput, version: number): HealthKitWorkout {
   const id = input.syncIdentifier;
+  const route = input.route.filter(isDrawable);
   return {
     startMs: input.startedAt,
     endMs: input.endedAt,
     syncIdentifier: id,
     syncVersion: version,
-    distances: input.distanceSample
-      ? distanceParts(input.distanceSample, input.pauses, input.route, id)
-      : [],
+    distances: input.distanceSample ? distanceParts(input, input.distanceSample, route) : [],
     pauses: input.pauses.map((p) => ({ startMs: p.startedAt, endMs: p.endedAt })),
     segments: input.segments.map((s) => ({
       kind: KIND[s.activity],
@@ -88,10 +96,10 @@ export function toHealthKitWorkout(input: HealthWorkoutInput, version: number): 
       endMs: s.endedAt,
     })),
     route:
-      input.route.length > 0
+      route.length > 0
         ? {
             syncIdentifier: `${id}:route`,
-            points: input.route.map(({ timestamp, ...point }) => ({
+            points: route.map(({ timestamp, ...point }) => ({
               ...point,
               timestampMs: timestamp,
             })),

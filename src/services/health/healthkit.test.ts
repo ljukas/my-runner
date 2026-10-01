@@ -60,7 +60,33 @@ describe('toHealthKitWorkout', () => {
     expect(workout.route).toBeNull();
   });
 
-  test('splits the distance at each pause, weighting each part by the route run in it', () => {
+  test('writes one distance part per interval, weighted by the route run in it', () => {
+    const north = (m: number) => 59.3293 + m / 111_195;
+    // 1 Hz-ish fixes: 200 m over the first 2 min run, 60 m over the next 2 min walk.
+    const route = [0, 100, 200, 230, 260].map((m, i) =>
+      makePoint({ latitude: north(m), timestamp: START + i * MIN }),
+    );
+    const workout = toHealthKitWorkout(
+      makeInput({
+        route,
+        distanceSample: { startedAt: START, endedAt: START + 4 * MIN, meters: 260 },
+        endedAt: START + 4 * MIN,
+        segments: [
+          { activity: 'running', startedAt: START, endedAt: START + 2 * MIN },
+          { activity: 'walking', startedAt: START + 2 * MIN, endedAt: START + 4 * MIN },
+        ],
+      }),
+      7,
+    );
+    expect(workout.distances.map((d) => [d.startMs, d.endMs, d.syncIdentifier])).toEqual([
+      [START, START + 2 * MIN, 'run-4200:distance:0'],
+      [START + 2 * MIN, START + 4 * MIN, 'run-4200:distance:1'],
+    ]);
+    expect(workout.distances[0].meters).toBeCloseTo(200, 0);
+    expect(workout.distances[1].meters).toBeCloseTo(60, 0);
+  });
+
+  test('without intervals, splits the distance at each pause instead', () => {
     const north = (m: number) => 59.3293 + m / 111_195;
     const route = [0, 60, 120, 600, 900].map((m, i) =>
       makePoint({ latitude: north(m), timestamp: START + [1, 2, 3, 20, 25][i] * MIN }),
@@ -151,6 +177,14 @@ describe('toHealthKitWorkout', () => {
         syncIdentifier: 'run-4200:distance:0',
       },
     ]);
+  });
+
+  test('drops route points HealthKit would draw badly: accuracy unknown or worse than 50 m', () => {
+    const route = [5, 49, 51, CL_UNKNOWN].map((horizontalAccuracy, i) =>
+      makePoint({ horizontalAccuracy, timestamp: START + (i + 1) * 1_000 }),
+    );
+    const points = toHealthKitWorkout(makeInput({ route }), 7).route?.points ?? [];
+    expect(points.map((p) => p.horizontalAccuracy)).toEqual([5, 49]);
   });
 
   test('carries every route point, unknown values as they are', () => {

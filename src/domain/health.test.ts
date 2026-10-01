@@ -17,6 +17,12 @@ function makeFix(overrides: Partial<SegmentedFix> = {}): SegmentedFix {
 }
 
 describe('toHealthRoute', () => {
+  test('a fix without an altitude has its vertical accuracy marked invalid, never a measured 0 m', () => {
+    const [point] = toHealthRoute([makeFix({ altitude: null, altitudeAccuracy: 3 })]);
+    expect(point.altitude).toBe(0);
+    expect(point.verticalAccuracy).toBe(CL_UNKNOWN);
+  });
+
   test('passes coordinates, timestamp and measured values through', () => {
     const [point] = toHealthRoute([makeFix()]);
     expect(point).toEqual({

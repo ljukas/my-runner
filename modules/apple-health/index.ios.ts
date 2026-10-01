@@ -9,8 +9,8 @@ interface AppleHealthModule {
   /** Resolves when the sheet is answered, or at once when already answered; read the status after. */
   requestWriteAccess(): Promise<void>;
   /**
-   * Waits while the phone is locked — until the next unlock or foreground, unbounded — then writes.
-   * Skips the distance or route when the runner refused that type.
+   * Writes at once, the phone locked or not (HealthKit merges a locked write at unlock). Skips the
+   * distance or route when the runner refused that type. Rejects with `ERR_HEALTHKIT_<code>`.
    */
   saveWorkout(workout: HealthKitWorkout): Promise<HealthKitSaveResult>;
 }

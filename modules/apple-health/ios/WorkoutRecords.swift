@@ -20,10 +20,10 @@ struct SegmentRecord: Record {
 }
 
 struct DistanceRecord: Record {
-  @Field var startMs: Double = 0
-  @Field var endMs: Double = 0
-  @Field var meters: Double = 0
-  @Field var syncIdentifier: String = ""
+  @Field(.required) var startMs: Double = 0
+  @Field(.required) var endMs: Double = 0
+  @Field(.required) var meters: Double = 0
+  @Field(.required) var syncIdentifier: String = ""
 }
 
 struct RoutePointRecord: Record {
@@ -38,15 +38,16 @@ struct RoutePointRecord: Record {
 }
 
 struct RouteRecord: Record {
-  @Field var syncIdentifier: String = ""
+  @Field(.required) var syncIdentifier: String = ""
   @Field var points: [RoutePointRecord] = []
 }
 
+// why required: a dropped key would otherwise default to "" and every run would replace the last.
 struct WorkoutRecord: Record {
-  @Field var startMs: Double = 0
-  @Field var endMs: Double = 0
-  @Field var syncIdentifier: String = ""
-  @Field var syncVersion: Double = 0
+  @Field(.required) var startMs: Double = 0
+  @Field(.required) var endMs: Double = 0
+  @Field(.required) var syncIdentifier: String = ""
+  @Field(.required) var syncVersion: Double = 0
   @Field var distances: [DistanceRecord] = []
   @Field var pauses: [WindowRecord] = []
   @Field var segments: [SegmentRecord] = []

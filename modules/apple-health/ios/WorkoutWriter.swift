@@ -1,73 +1,67 @@
 import CoreLocation
-import ExpoModulesCore
 import HealthKit
 import UIKit
-
-let healthStore = HKHealthStore()
-
-let shareTypes: Set<HKSampleType> = [
-  HKObjectType.workoutType(),
-  HKSeriesType.workoutRoute(),
-  HKQuantityType(.distanceWalkingRunning),
-]
 
 // Apple's guidance for interval workouts: every activity takes the workout's own type, labelled
 // with custom metadata. Nothing in Health or Fitness reads this key; it keeps the kind on record.
 private let segmentKindKey = "RunBroSegmentKind"
 
-final class InvalidWorkoutException: Exception, @unchecked Sendable {
-  override var code: String { "ERR_INVALID_WORKOUT" }
-  override var reason: String { "The workout's window or sync version is empty or not finite" }
-}
-
 private struct StructureRefused: Error {}
 
 enum WorkoutWriter {
-  /// Writes the workout once the phone is unlocked; true when it was saved without its pauses and
-  /// segments because HealthKit refused them.
+  static let store = HKHealthStore()
+
+  /// True when the workout was saved without its pauses and segments because HealthKit refused them.
+  /// Writes at once, locked or not: HealthKit holds a locked device's writes and merges them at
+  /// unlock (protecting-user-privacy), and the route commits with the workout.
   static func save(_ workout: WorkoutRecord) async throws -> Bool {
-    guard workout.startMs.isFinite, workout.endMs.isFinite, workout.startMs < workout.endMs,
-      workout.syncVersion.isFinite, workout.syncVersion >= 0
+    guard workout.startMs.isFinite, workout.endMs.isFinite, workout.startMs < workout.endMs else {
+      throw InvalidWorkoutException("its window is empty or not finite")
+    }
+    guard !workout.syncIdentifier.isEmpty, let version = Int64(exactly: workout.syncVersion.rounded()),
+      version >= 0
     else {
-      throw InvalidWorkoutException()
+      throw InvalidWorkoutException("its sync identifier or version is unusable")
     }
-    let maxAttempts = 3
-    for attempt in 1...maxAttempts {
-      // why a fresh signal on a retry: the flag can still read available while HealthKit already
-      // refuses (the grace period after a lock), and trusting it would burn every attempt at once.
-      await ProtectedData.waitUntilAvailable(freshSignal: attempt > 1)
-      let task = await BackgroundTask.begin()
-      defer { Task { await task.end() } }
-      // why two versions per attempt: the plain fallback writes one above the structured write, and
-      // HealthKit replaces a stored object only under a strictly greater HKMetadataKeySyncVersion.
-      let version = Int64(workout.syncVersion) + 2 * Int64(attempt - 1)
-      do {
-        do {
-          try await write(workout, version: version, structured: true)
-          return false
-        } catch is StructureRefused {
-          try await write(workout, version: version + 1, structured: false)
-          return true
-        }
-      } catch let error as HKError where error.code == .errorDatabaseInaccessible && attempt < maxAttempts {
-        continue  // relocked mid-write: wait for the next unlock and write it all again
-      }
+    let task = await BackgroundTask.begin()
+    defer { Task { await task.end() } }
+
+    await deleteDistanceSamples(within: workout)
+    do {
+      try await write(workout, version: version, structured: true)
+      return false
+    } catch is StructureRefused {
+      // why one version up: a refusal at finishWorkout can already have committed the distance
+      // samples, and HealthKit replaces them only under a strictly greater version.
+      try await write(workout, version: version + 1, structured: false)
+      return true
     }
-    preconditionFailure("unreachable: the last attempt returns or throws")
+  }
+
+  // why delete first: the distance parts are keyed by index, so a re-save with fewer parts (or an
+  // app update that splits differently) would otherwise leave the extra ones counting towards the
+  // runner's totals. Only this app's own samples, inside this workout's window, are removed.
+  private static func deleteDistanceSamples(within workout: WorkoutRecord) async {
+    let type = HKQuantityType(.distanceWalkingRunning)
+    guard isAuthorized(type) else { return }
+    let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+      HKQuery.predicateForObjects(from: HKSource.default()),
+      HKQuery.predicateForSamples(
+        withStart: date(workout.startMs), end: date(workout.endMs),
+        options: [.strictStartDate, .strictEndDate]),
+    ])
+    // why ignored: a stale part is a cosmetic leftover, never a reason to lose the save.
+    _ = try? await store.deleteObjects(of: type, predicate: predicate)
   }
 
   private static func write(_ workout: WorkoutRecord, version: Int64, structured: Bool) async throws {
     let configuration = HKWorkoutConfiguration()
     configuration.activityType = .running
     configuration.locationType = .outdoor
-    let builder = HKWorkoutBuilder(healthStore: healthStore, configuration: configuration, device: .local())
+    let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: .local())
 
-    let finished: HKWorkout?
     do {
       try await builder.beginCollection(at: date(workout.startMs))
-      if !workout.distances.isEmpty, isAuthorized(HKQuantityType(.distanceWalkingRunning)) {
-        try await builder.addSamples(workout.distances.map { distanceSample($0, version: version) })
-      }
       // per HKWorkoutRouteBuilder.h: with a workout builder the route comes from its series builder
       // and is finished with the workout, so the two commit together.
       if let route = workout.route, !route.points.isEmpty, isAuthorized(HKSeriesType.workoutRoute()),
@@ -76,19 +70,25 @@ enum WorkoutWriter {
         try await routeBuilder.insertRouteData(route.points.map(location))
         try await routeBuilder.addMetadata(syncMetadata(route.syncIdentifier, version: version))
       }
-      try await builder.addMetadata(syncMetadata(workout.syncIdentifier, version: version))
+      var metadata = syncMetadata(workout.syncIdentifier, version: version)
+      metadata[HKMetadataKeyIndoorWorkout] = false
+      metadata[HKMetadataKeyTimeZone] = TimeZone.current.identifier
+      try await builder.addMetadata(metadata)
       if structured {
         try await refusable { try await addStructure(workout, to: builder, configuration: configuration) }
       }
+      // why last: addSamples saves at once and discardWorkout does not take it back, so a failure
+      // before this point leaves no distance in Health without its workout.
+      if !workout.distances.isEmpty, isAuthorized(HKQuantityType(.distanceWalkingRunning)) {
+        try await builder.addSamples(workout.distances.map { distanceSample($0, version: version) })
+      }
       try await builder.endCollection(at: date(workout.endMs))
-      finished = try await refusable(when: structured) { try await builder.finishWorkout() }
+      // A nil workout with no error is a locked device's save: done, only not readable until unlock.
+      _ = try await refusable(when: structured) { try await builder.finishWorkout() }
     } catch {
       builder.discardWorkout()
       throw error
     }
-    // why nil is an inaccessible database: HealthKit saved the workout but cannot hand it back
-    // while locked; the retry replaces it under the next version.
-    guard finished != nil else { throw HKError(.errorDatabaseInaccessible) }
   }
 
   private static func addStructure(
@@ -133,6 +133,7 @@ enum WorkoutWriter {
       quantity: HKQuantity(unit: .meter(), doubleValue: distance.meters),
       start: date(distance.startMs),
       end: date(distance.endMs),
+      device: .local(),
       metadata: syncMetadata(distance.syncIdentifier, version: version))
   }
 
@@ -154,7 +155,7 @@ enum WorkoutWriter {
   // why per type: the sheet lets the runner allow workouts but not routes or distance, and a write
   // of a refused type would fail the whole save.
   private static func isAuthorized(_ type: HKObjectType) -> Bool {
-    healthStore.authorizationStatus(for: type) == .sharingAuthorized
+    store.authorizationStatus(for: type) == .sharingAuthorized
   }
 
   private static func date(_ ms: Double) -> Date {
@@ -166,8 +167,8 @@ enum WorkoutWriter {
   }
 }
 
-// Begun only after the unlock wait: iOS expires a background task within about 30 s, enough for
-// the write itself but not for waiting on the runner.
+// A run usually ends with the phone locked and the app about to be suspended; this keeps the write
+// running to its end (iOS allows about 30 s).
 @MainActor
 private final class BackgroundTask {
   private var id = UIBackgroundTaskIdentifier.invalid
@@ -175,7 +176,8 @@ private final class BackgroundTask {
   static func begin() -> BackgroundTask {
     let task = BackgroundTask()
     task.id = UIApplication.shared.beginBackgroundTask(withName: "AppleHealth.saveWorkout") {
-      task.end()
+      // UIKit calls the expiration handler on the main thread.
+      MainActor.assumeIsolated { task.end() }
     }
     return task
   }

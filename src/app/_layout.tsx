@@ -16,9 +16,11 @@ import { useTheme } from '@/hooks/use-theme';
 import { navigationTheme } from '@/lib/navigation-theme';
 import { applyPlatformTheme } from '@/lib/platform-theme';
 import { sheetOptions } from '@/lib/sheet-options';
+import { registerDevResave } from '@/services/health/dev-resave';
 import { onboarding } from '@/services/onboarding-store';
 
 applyPlatformTheme();
+if (__DEV__) registerDevResave();
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 400, fade: true });
 

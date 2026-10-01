@@ -64,6 +64,51 @@ describe('syncRunToHealth with a run to save', () => {
   });
 });
 
+describe('syncRunToHealth on a run already saved', () => {
+  function mockSavedRun(saved: HealthWorkoutInput[]) {
+    const run = {
+      id: 'run-2',
+      sessionKey: 'w1d1',
+      status: 'completed',
+      healthkitSaved: true,
+      startedAt: '2026-09-30T06:00:00.000Z',
+      endedAt: '2026-09-30T06:30:00.000Z',
+      distanceM: null,
+      eventLogJson: null,
+    };
+    void mock.module('@/db/client', () => ({
+      db: {
+        select: () => ({ from: () => ({ where: () => ({ get: () => run }) }) }),
+        update: () => ({ set: () => ({ where: () => ({ run: () => {} }) }) }),
+      },
+    }));
+    void mock.module('@/db/run-points', () => ({ loadRunFixes: () => [] }));
+    void mock.module('@/db/run-segments', () => ({ loadRunSegments: () => [] }));
+    void mock.module('./adapter', () => ({
+      healthAdapter: {
+        getAuthorization: () => 'authorized',
+        saveRun: async (input: HealthWorkoutInput) => void saved.push(input),
+      },
+    }));
+  }
+
+  test('skips it, so a workout is never written twice', async () => {
+    const saved: HealthWorkoutInput[] = [];
+    mockSavedRun(saved);
+    const { syncRunToHealth } = await import('./sync');
+    await expect(syncRunToHealth('run-2')).resolves.toBe('skipped');
+    expect(saved).toHaveLength(0);
+  });
+
+  test('writes it again when asked to re-save, to test HealthKit replacing it', async () => {
+    const saved: HealthWorkoutInput[] = [];
+    mockSavedRun(saved);
+    const { syncRunToHealth } = await import('./sync');
+    await expect(syncRunToHealth('run-2', { resave: true })).resolves.toBe('saved');
+    expect(saved).toHaveLength(1);
+  });
+});
+
 describe('isHealthSyncFailure', () => {
   // Regression for the row painting "Couldn't save" while a collapsed in-flight save is still
   // succeeding (finding 1): only 'failed' should ever surface as a failure to the user.

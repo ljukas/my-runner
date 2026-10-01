@@ -6,6 +6,7 @@ import { loadRunFixes } from '@/db/run-points';
 import type { Run, RunSegment } from '@/db/schema';
 import { runPolicy } from '@/domain/free-run';
 import { DP_EPSILON_M, type BoundingBox, type LatLng } from '@/domain/geo';
+import { bandsFor, type ProfileBands } from '@/domain/profile-bands';
 import { parseEventLog, pausedIntervals } from '@/domain/run-altitude';
 import { toRouteLines } from '@/domain/route-render';
 import type { ProfilePoint } from '@/domain/run-profile';
@@ -32,6 +33,8 @@ export type RunTrack = (
   | (ReadyRoute & {
       /** The chart's series, or null when `deriveRunSummary` withholds it. */
       profile: ProfilePoint[] | null;
+      /** A free run's buckets on the chart; null for a plan run or a withheld chart. */
+      bands: ProfileBands | null;
     })
 ) & {
   /** Independent of `ready`: a run can carry samples that are too few to place. */
@@ -97,11 +100,17 @@ export function useRunTrack(
 
   const route = useStyledRoute(summary?.route ?? null, segments);
   const profile = summary?.profile ?? null;
+  const profileSpans = summary?.profileSpans ?? null;
   const elevation = summary?.elevation ?? null;
+  // why apart from the summary: segment rows arrive live, and must not re-run the fold
+  const bands = useMemo(
+    () => bandsFor(sessionKey, profileSpans, segments),
+    [sessionKey, profileSpans, segments],
+  );
 
   return useMemo(
-    () => (route.ready ? { ...route, profile, elevation } : { ready: false, elevation }),
-    [route, profile, elevation],
+    () => (route.ready ? { ...route, profile, bands, elevation } : { ready: false, elevation }),
+    [route, profile, bands, elevation],
   );
 }
 

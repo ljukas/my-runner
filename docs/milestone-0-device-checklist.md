@@ -314,6 +314,20 @@ locked 20+ minute outdoor run:
 | E3 | Denying it leaves the barometer unaffected and the step count `null` | same export |
 | E4 | A phone **without** a barometer is never asked, records no altitude samples, and logs `sensor` `available: false` | `## log` → `sensor` row |
 
+## Free-run kilometre cue — device-only (free-run stage 4, 2026-09-30)
+
+On 2026-09-30 the iOS simulator's route engine and `adb emu geo fix` stepping each drove a free run
+past 1 km: each logged one `kilometre` cue row with its pace, and a crash-resume after it logged
+only `resuming`. Hearing it with the phone locked needs a device. During a locked 2+ km outdoor free run
+with milestone cues on:
+
+| # | Check | How |
+| --- | --- | --- |
+| K1 | "1 kilometre. … per kilometre." and "2 kilometres. …" are heard, each once, with the phone locked | ear; the run's `cue` rows with `data.km` 1 and 2 |
+| K2 | The spoken pace is close to the summary's Moving Pace for a steady kilometre | compare the cue row's `paceSecPerKm` with the summary |
+| K3 | With milestone cues off, no kilometre is spoken (the row is still logged) | Settings → Milestone cues off; `cue` rows |
+| K4 | Killing the app 10 s or more after km 1 and resuming announces "Resuming your workout." but not km 1 again (a kill within ~5 s of it may repeat it by design: the point flush had not run) | ear; `cue` rows after the `lifecycle` resume |
+
 ## Apple Health workout builder — device-only (free-run stage 5b, 2026-10-01)
 
 The simulator's Health app proved the write: one activity per interval, the pause/resume events, a

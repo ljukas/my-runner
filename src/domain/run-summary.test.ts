@@ -82,6 +82,12 @@ describe('deriveRunSummary', () => {
     expect(summary.elevation).toEqual({ status: 'insufficient' });
   });
 
+  test("carries the chart's spans exactly when it carries the chart", () => {
+    expect(summaryOf().profileSpans!.length).toBeGreaterThan(0);
+    expect(summaryOf({ fixes: track(60, 0), distanceM: 0 }).profileSpans).toBeNull();
+    expect(summaryOf({ distanceM: 200, activeDurationS: 600 }).profileSpans).toBeNull();
+  });
+
   test('a route with drift-slow distance withholds profile and elevation alike', () => {
     // 1800 m of track, but a stored distance under the 0.5 m/s speed floor.
     const summary = summaryOf({ distanceM: 200, activeDurationS: 600 });

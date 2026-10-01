@@ -18,7 +18,7 @@ tags:
     element:
       text: ".*Ask Next Time Or When I Share"
 - assertVisible: "Enable Location"
-- tapOn: "Plan"
+- runFlow: ../helpers/open-run-tab.yaml
 - runFlow: ../helpers/start-w1d1.yaml
 - extendedWaitUntil:
     visible: "Allow While Using.*App"

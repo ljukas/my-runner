@@ -24,13 +24,13 @@ if (__DEV__) registerDevResave();
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 400, fade: true });
 
-/** Pushes the first pending onboarding step as a full-screen modal over the tabs. */
+/** Opens the first pending onboarding step as a full-screen modal over the tabs. */
 function OnboardingGate() {
   const router = useRouter();
   useEffect(() => {
     const pending = onboarding.pendingSteps();
     if (pending.length > 0) {
-      router.push(pending[0].route);
+      router.navigate(pending[0].route);
     }
   }, [router]);
   return null;

@@ -1,4 +1,4 @@
-import { SEGMENT_ENTRY_CUE, type CueId } from '@/domain/cues';
+import { SEGMENT_ENTRY_CUE, type ModeCue } from '@/domain/cues';
 import { sessionTotalSeconds, type PlanSession, type SegmentKind } from '@/domain/plan';
 import { buildTimeline, positionAt, totalSeconds, type TimelineSegment } from '@/domain/segments';
 import { activeElapsedMs, activeMsBetween, wallClockAtActive } from '@/domain/active-time';
@@ -169,7 +169,9 @@ export interface RunMode {
   /** Folds one accepted fix into the mode's own track (ADR 0021 §3); returns the metres it committed. */
   ingest(fix: LocationFix, events: readonly RunEvent[]): number;
   /** Cues due at a running refresh; advances the mode's cue state. */
-  takeCues(events: readonly RunEvent[], elapsedS: number): CueId[];
+  takeCues(events: readonly RunEvent[], elapsedS: number): ModeCue[];
+  /** A resume re-folded the persisted points: what they already crossed must not be announced. */
+  caughtUp(): void;
   exhausted(events: readonly RunEvent[], now: number): boolean;
   /** How long after its last flush an interrupted run is still offered for resume. */
   resumeWindowMs(): number;
@@ -280,22 +282,26 @@ export class ScriptedMode implements RunMode {
   }
 
   /** The transition cue on a derived-segment change, and the halfway milestone once (ADR 0007 §4). */
-  takeCues(events: readonly RunEvent[], elapsedS: number): CueId[] {
+  takeCues(events: readonly RunEvent[], elapsedS: number): ModeCue[] {
     const timeline = this.timeline(events);
     const pos = positionAt(timeline, elapsedS);
     if (pos.done) return [];
     const kind: SegmentKind = timeline[pos.index].kind;
-    const cues: CueId[] = [];
+    const cues: ModeCue[] = [];
     if (pos.index !== this.lastAnnouncedIndex) {
       this.lastAnnouncedIndex = pos.index;
-      cues.push(pos.index === this.lastRunIndex ? 'lastRun' : SEGMENT_ENTRY_CUE[kind]);
+      cues.push({ cue: pos.index === this.lastRunIndex ? 'lastRun' : SEGMENT_ENTRY_CUE[kind] });
     }
     if (!this.halfwayFired && this.plannedTotalS > 0 && elapsedS >= this.plannedTotalS / 2) {
       this.halfwayFired = true;
-      cues.push('halfway');
+      cues.push({ cue: 'halfway' });
     }
     return cues;
   }
+
+  // why nothing to do: the segment cue state is persisted and restored, and a resume re-announces
+  // the current segment on purpose
+  caughtUp(): void {}
 
   exhausted(events: readonly RunEvent[], now: number): boolean {
     return isTimelineExhausted(this.session, events, now);
@@ -381,6 +387,11 @@ export class OpenMode implements RunMode {
   private latestFedMs: number | null = null;
   private lastSpeedMs: number | null = null;
   private moving: { atMs: number; speedMps: number }[] = [];
+  private distanceM = 0;
+  private reachedKm = 0;
+  /** Moving metres and active ms since the last kilometre crossed (ADR 0026 §7). */
+  private sinceKm = { m: 0, ms: 0 };
+  private crossing: { km: number; paceSecPerKm: number | null } | null = null;
   private pausedCache: { count: number; paused: PausedInterval[] } | null = null;
 
   constructor(thresholdMps: number) {
@@ -404,12 +415,14 @@ export class OpenMode implements RunMode {
   }
 
   ingest(fix: LocationFix, events: readonly RunEvent[]): number {
+    const beforeMs = this.track.previousMs;
     const step = openTrackStep(this.track, fix, {
       thresholdMps: this.thresholdMps,
       paused: this.paused(events),
       startMs: events[0].at,
     });
     this.track = step.state;
+    this.countKilometres(events, beforeMs, step.acceptedDeltaMeters);
     this.latestFedMs = Math.max(this.latestFedMs ?? fix.timestamp, fix.timestamp);
     const lastMs = this.track.previousMs ?? fix.timestamp;
     if (step.smoothedSpeedMps !== null) this.lastSpeedMs = lastMs;
@@ -463,8 +476,35 @@ export class OpenMode implements RunMode {
     };
   }
 
-  takeCues(): CueId[] {
-    return [];
+  // why the live kind and not the saved buckets': those are back-dated at finalize, and a spoken
+  // pace can bear the dwell's few seconds of lag (ADR 0026 §7). Stopped and unknown legs are left out.
+  private countKilometres(events: readonly RunEvent[], beforeMs: number | null, deltaM: number) {
+    this.distanceM += deltaM;
+    const afterMs = this.track.previousMs;
+    const kind = this.track.motion.kind;
+    if (beforeMs !== null && afterMs !== null && afterMs > beforeMs) {
+      if (kind === 'run' || kind === 'walk') {
+        this.sinceKm.m += deltaM;
+        this.sinceKm.ms += activeMsBetween(events, beforeMs, afterMs);
+      }
+    }
+    const km = Math.floor(this.distanceM / 1000);
+    if (km <= this.reachedKm) return;
+    this.reachedKm = km;
+    // why overwritten: two crossings before one refresh speak the latest kilometre, not a backlog
+    this.crossing = { km, paceSecPerKm: paceSecPerKm(this.sinceKm.m, this.sinceKm.ms / 1000) };
+    this.sinceKm = { m: 0, ms: 0 };
+  }
+
+  takeCues(): ModeCue[] {
+    if (!this.crossing) return [];
+    const data = this.crossing;
+    this.crossing = null;
+    return [{ cue: 'kilometre', data }];
+  }
+
+  caughtUp(): void {
+    this.crossing = null;
   }
 
   exhausted(events: readonly RunEvent[], now: number): boolean {

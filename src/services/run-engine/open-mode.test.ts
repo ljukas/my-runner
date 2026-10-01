@@ -333,3 +333,71 @@ describe('OpenMode — how it ends', () => {
     expect(openMode().resumeWindowMs()).toBe(4 * 3_600_000);
   });
 });
+
+describe('OpenMode — the kilometre cue (ADR 0026 §7)', () => {
+  // why a take after every fix: the engine takes cues at each running refresh
+  function cuesOver(mode: RunMode, fixes: readonly LocationFix[], events = START) {
+    return fixes.flatMap((fix) => {
+      mode.ingest(fix, events);
+      return mode.takeCues(events, fix.timestamp / 1000);
+    });
+  }
+
+  test('fires once per kilometre, carrying the kilometre and its pace', () => {
+    const cues = cuesOver(openMode(), track([[800, 2.6]]));
+    expect(cues.map((c) => c.cue)).toEqual(['kilometre', 'kilometre']);
+    expect(cues.map((c) => c.data?.km)).toEqual([1, 2]);
+    for (const { data } of cues) expect(data?.paceSecPerKm).toBeCloseTo(1000 / 2.6, -1);
+  });
+
+  test('is silent short of a kilometre, and for a timer-only run', () => {
+    expect(cuesOver(openMode(), track([[350, 2.6]]))).toEqual([]);
+    expect(openMode().takeCues(START, 3600)).toEqual([]);
+  });
+
+  test('leaves a stop out of the pace', () => {
+    const cues = cuesOver(
+      openMode(),
+      track([
+        [200, 2.6],
+        [120, 0],
+        [250, 2.6],
+      ]),
+    );
+    expect(cues).toHaveLength(1);
+    // why a bound and not equality: the stop's first ~8 s count as running until the dwell
+    // confirms it (spec §9); with the whole stop counted this would be ~505 s/km
+    expect(cues[0].data?.paceSecPerKm).toBeGreaterThan(1000 / 2.6);
+    expect(cues[0].data?.paceSecPerKm).toBeLessThan(1000 / 2.6 + 15);
+  });
+
+  test('leaves a pause out of the pace', () => {
+    const events: RunEvent[] = [
+      { type: 'start', at: 0 },
+      { type: 'pause', at: 200_500 },
+      { type: 'resume', at: 320_000 },
+    ];
+    const fixes = [...track([[200, 2.6]]), ...track([[250, 2.6]], 320_000, 520)];
+    const cues = cuesOver(openMode(), fixes, events);
+    expect(cues).toHaveLength(1);
+    expect(cues[0].data?.paceSecPerKm).toBeCloseTo(1000 / 2.6, -1);
+  });
+
+  test('announces the latest kilometre once when several were crossed between refreshes', () => {
+    const mode = openMode();
+    feed(mode, track([[800, 2.6]]));
+    expect(mode.takeCues(START, 800).map((c) => c.data?.km)).toEqual([2]);
+    expect(mode.takeCues(START, 801)).toEqual([]);
+  });
+
+  test('announces nothing a resume re-folded, then the next kilometre as usual', () => {
+    const fixes = track([[800, 2.6]]);
+    const resumed = openMode();
+    feed(resumed, fixes.slice(0, 500));
+    resumed.caughtUp();
+    expect(resumed.takeCues(START, 500)).toEqual([]);
+    const next = cuesOver(resumed, fixes.slice(500));
+    expect(next.map((c) => c.data?.km)).toEqual([2]);
+    expect(next[0].data?.paceSecPerKm).toBeCloseTo(1000 / 2.6, -1);
+  });
+});

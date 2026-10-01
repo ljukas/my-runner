@@ -20,4 +20,4 @@ appId: se.lukaslindqvist.runbro.e2e
     maxRetries: 3
     commands:
       - tapOn: "Not [Nn]ow"
-      - assertVisible: "Week 1 ·.*" # plan list
+      - runFlow: assert-run-home.yaml

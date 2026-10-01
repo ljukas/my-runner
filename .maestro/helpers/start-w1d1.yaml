@@ -1,14 +1,17 @@
 appId: se.lukaslindqvist.runbro.e2e
 ---
-# Plan list → w1d1 running. Onboarding is already done and the caller has stubbed the
-# location answer on its own launchApp.
-# "Day 1" repeats in every week section — the first match is Week 1's.
-- scrollUntilVisible:
-    element:
-      text: "Day 1"
-      index: 0
-- tapOn:
-    text: "Day 1"
-    index: 0
-- assertVisible: "Week 1 · Day 1"
+# The Run tab's chooser → w1d1 running. Onboarding is already done and the caller has stubbed the
+# location answer on its own launchApp. The button stays disabled until the launch-time resume check
+# settles: iOS reports that, but on Android the text node Maestro sees does not carry the button's
+# disabled state, so the tap is retried as well.
+- extendedWaitUntil:
+    visible:
+      text: "Up next: Week 1 · Day 1"
+      enabled: true
+    timeout: 15000
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn: "Up next: Week 1 · Day 1"
+      - assertVisible: "Week 1 · Day 1"
 - tapOn: "Start Session"

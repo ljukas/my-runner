@@ -5,7 +5,9 @@ import {
   CUE_IDS,
   CUE_PHRASE,
   SEGMENT_ENTRY_CUE,
+  cuePhrase,
   effectiveCue,
+  kilometrePhrase,
   type CueId,
 } from './cues';
 import type { SegmentKind } from './plan';
@@ -94,5 +96,41 @@ describe('effectiveCue gating', () => {
       expect(eff).not.toBeNull();
       expect(CUE_PHRASE[eff as CueId]).toBeTruthy();
     }
+  });
+});
+
+describe('the kilometre cue (ADR 0026 §7)', () => {
+  test('is a milestone, gated by the milestone toggle alone', () => {
+    expect(CUE_CATEGORY.kilometre).toBe('milestone');
+    expect(effectiveCue('kilometre', MILESTONE_ONLY)).toBe('kilometre');
+    expect(effectiveCue('kilometre', INTERVAL_ONLY)).toBeNull();
+  });
+
+  test.each([
+    [1, 400, '1 kilometre. 6 minutes 40 per kilometre.'],
+    [2, 400, '2 kilometres. 6 minutes 40 per kilometre.'],
+    [3, 360, '3 kilometres. 6 minutes per kilometre.'],
+    [1, 60, '1 kilometre. 1 minute per kilometre.'],
+    [1, 65, '1 kilometre. 1 minute 5 per kilometre.'],
+    [4, 359.6, '4 kilometres. 6 minutes per kilometre.'],
+    [4, 359.4, '4 kilometres. 5 minutes 59 per kilometre.'],
+  ])('%i km at %p s/km reads "%s"', (km, pace, phrase) => {
+    expect(kilometrePhrase({ km, paceSecPerKm: pace })).toBe(phrase);
+  });
+
+  test('an unknown or implausible pace is left out', () => {
+    expect(kilometrePhrase({ km: 2, paceSecPerKm: null })).toBe('2 kilometres.');
+    expect(kilometrePhrase({ km: 2, paceSecPerKm: Number.POSITIVE_INFINITY })).toBe(
+      '2 kilometres.',
+    );
+    expect(kilometrePhrase({ km: 2, paceSecPerKm: 45 })).toBe('2 kilometres.');
+  });
+
+  test('cuePhrase speaks the data for a kilometre and the fixed phrase otherwise', () => {
+    expect(cuePhrase('kilometre', { km: 1, paceSecPerKm: 400 })).toBe(
+      '1 kilometre. 6 minutes 40 per kilometre.',
+    );
+    expect(cuePhrase('kilometre')).toBe('Kilometre.');
+    expect(cuePhrase('halfway')).toBe(CUE_PHRASE.halfway);
   });
 });

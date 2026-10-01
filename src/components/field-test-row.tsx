@@ -66,11 +66,11 @@ export function FieldTestRow() {
         }
         runEngine.reset();
         runEngine.start(scriptedPlan(fieldTestSession()));
-        // why push and not replace (which session/[key].tsx uses): that screen is itself a modal
+        // why not replace (which session/[key].tsx uses): that screen is itself a modal
         // over the tabs, so replacing it keeps the tabs underneath. Replacing from a tab screen
         // takes the tabs out of the stack instead, and the summary's dismiss then has nothing to
         // pop to — the capture ends with the runner stranded, needing a force-quit.
-        router.push('/run');
+        router.navigate('/run');
       } finally {
         // why released, not latched: `/run` is a fullScreenModal, so Settings stays mounted
         // underneath and this row never remounts — a latched ref would make every capture after the

@@ -51,7 +51,9 @@ tags:
       text: "Save to Apple Health"
 - runFlow: ../helpers/close-summary.yaml
 - runFlow: ../helpers/open-log-row.yaml
-- tapOn: "Plan"
-# The next-session marker is an icon-only arrow — no text to target (ADR 0016).
+- runFlow: ../helpers/open-run-tab.yaml
+- assertVisible: "Up next: Week 1 · Day 2"
+- runFlow: ../helpers/open-plan.yaml
+# The week list's next-session marker is an icon-only arrow — no text to target (ADR 0016).
 - assertVisible:
     id: "plan-next-w1d2"

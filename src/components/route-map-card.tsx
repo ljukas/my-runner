@@ -37,7 +37,7 @@ export function RouteMapCard({ run, track }: { run: Run; track: RunTrack }) {
   const distance = run.distanceM ? formatDistanceKm(run.distanceM) : null;
 
   const openViewer = () =>
-    router.push({ pathname: '/runs/[runId]/route', params: { runId: run.id } });
+    router.navigate({ pathname: '/runs/[runId]/route', params: { runId: run.id } });
 
   // why min-h: an ExpoSwiftUI host that mounts at height 0 renders blank and never re-measures, and
   // `aspect-[3/2]` was the sole height source — the narrowed cause of the card missing on a fresh

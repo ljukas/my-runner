@@ -19,7 +19,12 @@ import {
   type RunElevation,
   type StoredAltitudeSample,
 } from './run-altitude';
-import { isDrawableProfile, toRunProfile, type ProfilePoint } from './run-profile';
+import {
+  foldRunProfile,
+  isDrawableProfile,
+  type ProfilePoint,
+  type ProfileSpan,
+} from './run-profile';
 import { hasMeasuredDistance } from './run-stats';
 
 export interface RunRouteGeometry {
@@ -38,6 +43,8 @@ export interface RunSummary {
   route: RunRouteGeometry | null;
   /** Null unless there is a route, a measured distance and a strokable pace line. */
   profile: ProfilePoint[] | null;
+  /** The x-axis spans behind `profile`'s points; null exactly when `profile` is. */
+  profileSpans: ProfileSpan[] | null;
   /** Null when the run recorded no barometer samples at all (no sensor, or motion access denied), and
    *  when deriving the route or the elevation threw — a defect is not the runner's lack of data. */
   elevation: SummaryElevation | null;
@@ -110,11 +117,11 @@ export function deriveRunSummary(input: RunSummaryInput): RunSummary {
 
   const profile = placed
     ? isolated('profile', () => {
-        const points = toRunProfile(input.fixes, {
+        const fold = foldRunProfile(input.fixes, {
           altitude: folded?.series,
           policy: input.policy,
         });
-        return isDrawableProfile(points) ? points : null;
+        return isDrawableProfile(fold.points) ? fold : null;
       })
     : null;
 
@@ -125,7 +132,8 @@ export function deriveRunSummary(input: RunSummaryInput): RunSummary {
 
   return {
     route: route.ok ? route.value : null,
-    profile: profile?.ok ? profile.value : null,
+    profile: profile?.ok ? (profile.value?.points ?? null) : null,
+    profileSpans: profile?.ok ? (profile.value?.spans ?? null) : null,
     elevation,
   };
 }

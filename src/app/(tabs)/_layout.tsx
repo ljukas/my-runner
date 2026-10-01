@@ -4,7 +4,7 @@ export default function TabsLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="(index)">
-        <NativeTabs.Trigger.Label>Plan</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Label>Run</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="figure.run" md="directions_run" />
       </NativeTabs.Trigger>
 

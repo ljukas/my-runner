@@ -1,5 +1,9 @@
 import { Button, HStack, Image, Spacer } from '@expo/ui/swift-ui';
-import { accessibilityLabel, font } from '@expo/ui/swift-ui/modifiers';
+import {
+  accessibilityLabel,
+  disabled as disabledModifier,
+  font,
+} from '@expo/ui/swift-ui/modifiers';
 
 import { Island } from '@/components/island';
 import { formatMinutes } from '@/domain/format';
@@ -10,11 +14,13 @@ export function PlanSessionRow({
   session,
   completed,
   isNext,
+  disabled,
   onPress,
 }: {
   session: PlanSession;
   completed: boolean;
   isNext: boolean;
+  disabled: boolean;
   onPress: () => void;
 }) {
   const colors = useTheme();
@@ -23,7 +29,10 @@ export function PlanSessionRow({
   return (
     <Button
       onPress={onPress}
-      modifiers={[accessibilityLabel(`Day ${session.day}, ${state}, ${duration}`)]}
+      modifiers={[
+        accessibilityLabel(`Day ${session.day}, ${state}, ${duration}`),
+        disabledModifier(disabled),
+      ]}
     >
       <HStack spacing={12}>
         <Island.Label

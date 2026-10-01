@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
 import type { Run } from '@/db/schema';
 import { formatDistanceKm, formatElevation, formatPace, paceParts } from '@/domain/format';
+import { bandsLabel } from '@/domain/profile-bands';
 import { isDrawableElevation, paceRange } from '@/domain/run-profile';
 import type { RunTrack } from '@/hooks/use-run-track';
 import { useStatColors } from '@/hooks/use-theme';
@@ -36,6 +37,7 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
     elevation &&
       `Estimated elevation gain ${formatElevation(elevation.gainM)}, ` +
         `loss ${formatElevation(elevation.lossM)}.`,
+    track.bands && bandsLabel(track.bands),
   ]
     .filter(Boolean)
     .join(' ');
@@ -75,7 +77,7 @@ export function RunProfileCard({ run, track }: { run: Run; track: RunTrack }) {
       {/* why the label lives here: the chart is a Skia canvas and carries no accessible
           content of its own, so the card is the only thing VoiceOver can read. */}
       <View accessible accessibilityRole="image" accessibilityLabel={label}>
-        <RunProfileChart points={track.profile} />
+        <RunProfileChart points={track.profile} bands={track.bands} />
       </View>
     </Card>
   );

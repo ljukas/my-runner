@@ -1,0 +1,5 @@
+appId: se.lukaslindqvist.runbro.e2e
+---
+# From another tab only: on the Run tab itself the large title also reads "Run".
+- tapOn: "Run"
+- runFlow: assert-run-home.yaml

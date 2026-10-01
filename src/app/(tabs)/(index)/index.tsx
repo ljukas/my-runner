@@ -1,51 +1,48 @@
-import { List, Section } from '@expo/ui/swift-ui';
-import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { useRouter } from 'expo-router';
-
 import { Island } from '@/components/island';
-import { PlanSessionRow } from '@/components/plan-session-row';
+import { RunModeCard } from '@/components/run-mode-card';
 import { RunNoticeRow } from '@/components/run-notice-row';
-import { db } from '@/db/client';
-import { runCompleted } from '@/db/queries';
-import { runs } from '@/db/schema';
-import { nextSessionKey } from '@/domain/plan';
-import { useActivePlan } from '@/services/active-plan';
+import { FREE_RUN_CARD } from '@/domain/free-run-view';
+import { nextRunLabel, planCardDetail } from '@/domain/plan-progress';
+import { usePlanProgress } from '@/hooks/use-plan-progress';
+import { useRunEntry } from '@/hooks/use-run-entry';
 import { useRunNotice } from '@/services/run-notice/use-run-notice';
 
-export default function PlanScreen() {
-  const router = useRouter();
-  const plan = useActivePlan();
+export default function RunScreen() {
+  const progress = usePlanProgress();
+  const entry = useRunEntry();
   const notice = useRunNotice();
-  const { data: completedRuns } = useLiveQuery(
-    db.select({ sessionKey: runs.sessionKey }).from(runs).where(runCompleted),
-  );
-
-  const completedKeys = new Set(completedRuns.map((run) => run.sessionKey));
-  const nextKey = nextSessionKey(plan, completedKeys);
-  const weeks = [...new Set(plan.map((session) => session.week))];
+  const { next } = progress;
+  const nextLabel = nextRunLabel(progress);
 
   return (
     <Island>
-      <List>
+      <RunModeCard.List>
         <RunNoticeRow notice={notice} />
-        {weeks.map((week) => {
-          const sessions = plan.filter((session) => session.week === week);
-          const done = sessions.filter((session) => completedKeys.has(session.key)).length;
-          return (
-            <Section key={week} title={`Week ${week} · ${done}/${sessions.length}`}>
-              {sessions.map((session) => (
-                <PlanSessionRow
-                  key={session.key}
-                  session={session}
-                  completed={completedKeys.has(session.key)}
-                  isNext={session.key === nextKey}
-                  onPress={() => router.push(`/session/${session.key}`)}
-                />
-              ))}
-            </Section>
-          );
-        })}
-      </List>
+        <RunModeCard
+          featured
+          title="Couch to 5K"
+          detail={planCardDetail(progress)}
+          symbol={{ ios: 'calendar', android: 'calendar_month' }}
+          progress={progress.done / progress.total}
+          onPress={entry.openPlan}
+          action={
+            next && nextLabel
+              ? {
+                  label: nextLabel,
+                  disabled: entry.disabled,
+                  onPress: () => entry.openSession(next.key),
+                }
+              : undefined
+          }
+        />
+        <RunModeCard
+          title={FREE_RUN_CARD.title}
+          detail={FREE_RUN_CARD.detail}
+          symbol={{ ios: 'figure.run', android: 'directions_run' }}
+          disabled={entry.disabled}
+          onPress={entry.openFreeRun}
+        />
+      </RunModeCard.List>
     </Island>
   );
 }

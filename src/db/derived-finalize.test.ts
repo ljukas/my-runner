@@ -1,11 +1,14 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, gt, lte } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { runPolicy } from '@/domain/free-run';
 import { EARTH_RADIUS_M } from '@/domain/geo';
+import { bandsFor } from '@/domain/profile-bands';
+import { foldRunProfile } from '@/domain/run-profile';
 import type { CompletedRunRecord } from '@/services/run-engine/types';
 import { deleteRunTree, saveDerivedRun, writeDerivedFinalize } from './derived-finalize';
 import { runAltitudeSamples, runLog, runPoints, runSegments, runs } from './schema';
@@ -188,6 +191,59 @@ describe('writeDerivedFinalize', () => {
     finalize(db, end);
     expect(strip(db.select().from(runSegments).all())).toEqual(first.segs);
     expect(db.select().from(runPoints).all()).toEqual(first.pts);
+  });
+});
+
+describe('the saved buckets on the pace chart (ADR 0026 §5)', () => {
+  test('the strip tiles the saved distance and the stop sits where the runner stood', () => {
+    const db = makeDb();
+    const end = seed(db, [
+      [200, 2.6],
+      [60, 0],
+      [120, 1.4],
+      [150, 2.6],
+    ]);
+    finalize(db, end);
+    const run = db.select().from(runs).get()!;
+    const rows = db.select().from(runSegments).orderBy(asc(runSegments.seq)).all();
+    const fixes = db
+      .select()
+      .from(runPoints)
+      .orderBy(asc(runPoints.seq))
+      .all()
+      .map((p) => ({ ...p, timestamp: Date.parse(p.timestamp), speed: null }));
+
+    const { spans } = foldRunProfile(fixes, { policy: runPolicy('free-run', []) });
+    const bands = bandsFor('free-run', spans, rows)!;
+
+    expect(bands.runWalk.map((band) => band.kind)).toEqual(['run', 'walk', 'run']);
+    expect(bands.runWalk.at(-1)!.toM).toBeCloseTo(run.distanceM!, 6);
+    expect(bands.stopsAtM).toHaveLength(1);
+    expect(Math.abs(bands.stopsAtM[0] - 200 * 2.6)).toBeLessThan(15);
+    expect(bands.silencesAtM).toEqual([]);
+  });
+
+  test('a tunnel is a silence, not a stop', () => {
+    const db = makeDb();
+    const end = seed(db, [[400, 2.6]]);
+    db.delete(runPoints)
+      .where(and(gt(runPoints.timestamp, iso(200_000)), lte(runPoints.timestamp, iso(260_000))))
+      .run();
+    finalize(db, end);
+    const rows = db.select().from(runSegments).orderBy(asc(runSegments.seq)).all();
+    const fixes = db
+      .select()
+      .from(runPoints)
+      .orderBy(asc(runPoints.seq))
+      .all()
+      .map((p) => ({ ...p, timestamp: Date.parse(p.timestamp), speed: null }));
+
+    const { spans } = foldRunProfile(fixes, { policy: runPolicy('free-run', []) });
+    const bands = bandsFor('free-run', spans, rows)!;
+
+    expect(rows.map((row) => row.kind)).toContain('stopped');
+    expect(bands.stopsAtM).toEqual([]);
+    expect(bands.silencesAtM).toHaveLength(1);
   });
 });
 

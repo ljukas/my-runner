@@ -133,3 +133,11 @@ Per-surface assignments and the rules that de-risk them:
   leaving it undecided.
 - **A modal that leaves no screen to go to dismisses back to the tabs** (`leaveToTabs`), never
   `replace('/')`: over the tabs, a replace pushes a second copy of them.
+
+## Amendment (2026-09-30): stage 3c — the Run tab
+
+The Plan tab became the Run tab (ADR 0026's stage-3c amendment): a chooser at its root, with the week
+list pushed inside the tab's stack. `dismissAll()` still leaves that stack as it was, so §3's
+"landing on Plan after a run" now reads: back to the chooser after a run started from "Up next" or
+the free-run card, back to the week list after one started from its rows. The under-a-minute
+notice of the 2026-09-30 amendment shows on the chooser, the only screen a free run starts from.

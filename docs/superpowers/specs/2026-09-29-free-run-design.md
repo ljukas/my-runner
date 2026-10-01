@@ -348,7 +348,7 @@ the kilometre cue are verified by replay tests, and by driving GPS by hand on iO
 | 3b | **The surfaces** | The header button, sheet, `FreeRunView` and `showSkip`; the Save / Discard / Cancel End dialog (Android: Discard in the dialog body); the free-run stat grid; `runTitle`; the resume sheet's copy. | `free-run.yaml` and a discard flow (below), waiting out the minute; a manual GPS drive on both platforms. |
 | 4 | **Chart and cue** | Chart bands and stop markers; the `kilometre` cue; Settings copy; the ADR 0009 amendment. | `bun test`; a drive past 1 km; light and dark screenshots on iOS and Android. |
 | 5a | **Health segments, Android** | `segmentWindows`; the library patch; exercise segments for plan and free runs; the ADR 0011 amendment. Depends only on stage 1 and can ship any time after it. | Readback through `readRecords`; the Health Connect data browser. [Plan](../plans/2026-09-30-free-run-stage-5a-health-segments.md): pauses are written as PAUSE segments too, and the patch moves both fingerprints (ADR 0026's stage-5a amendment). |
-| 5b | **Health segments, iOS** | The spike, then `modules/workout-writer/`, or an amendment dropping it. | §6's three criteria on a device. |
+| 5b | **Health segments, iOS** | The spike, then `modules/workout-writer/`, or an amendment dropping it. | §6's three criteria on a device. [Plan](../plans/2026-10-01-free-run-stage-5b-apple-health-module.md): run on the simulator first; criteria 1 and 3 pass there, 2 is met by design. `modules/apple-health/` replaces the library, and the device checks are H1–H5 in the device checklist (ADR 0026's stage-5b amendment). |
 
 ## 8. Testing
 

@@ -508,3 +508,27 @@ Where the build changed §3, §8 and the Consequences:
   pause segments intact, and Health Connect's own entry details list them (§6 of the spec had that
   unconfirmed). That Health Connect's aggregate duration subtracts them is not verified: aggregates
   need a READ permission the app does not hold.
+
+## Amendment (2026-10-01): stage 5b built
+
+The iOS spike ran as stage 5b ([plan](../superpowers/plans/2026-10-01-free-run-stage-5b-apple-health-module.md)),
+on the simulator first (owner decision), with the device checks left as H1–H5 in the device
+checklist. Per §8's criteria:
+
+1. **Visible intervals: passes** on the owner's bar of "distinct visible intervals, even unlabelled".
+   - Health lists one activity per interval, each with its own times, duration and distance, and
+     lists the pauses as events.
+   - Every activity reads "Running". HealthKit refuses a walking activity inside a running workout
+     (measured, which confirms this ADR's Context), and Health does not show the custom kind.
+   - Fitness is unverified (H1).
+2. **The route after a locked finish: met by design, unverified.** The save waits for the next unlock
+   or foreground (ADR 0011's 2026-10-01 amendment, item 4) instead of finishing while locked (H2).
+3. **Sync-identifier replacement: passes.** A re-save left one workout, one route and one distance
+   row, because the route and the distance parts each carry their own identifier.
+
+The module ships. The owner decided earlier that, had criterion 1 failed, the useful parts would ship
+anyway. It replaces the HealthKit library entirely rather than only its write path, and Health
+Connect follows the same way later (#90). Two consequences for §8 and the Consequences:
+- **iOS distance is split at pauses** (ADR 0011's amendment, item 3).
+- **The iOS fingerprint moves** through the new module and the removed packages, and Android's
+  moves through the removed Nitro and the plugin list.

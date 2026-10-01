@@ -313,3 +313,19 @@ locked 20+ minute outdoor run:
 | E2 | The first run on a fresh install asks for **Physical activity** once, at run start; allowing it gives a plausible `pedometer` step count | `## log` → `pedometer` row |
 | E3 | Denying it leaves the barometer unaffected and the step count `null` | same export |
 | E4 | A phone **without** a barometer is never asked, records no altitude samples, and logs `sensor` `available: false` | `## log` → `sensor` row |
+
+## Apple Health workout builder — device-only (free-run stage 5b, 2026-10-01)
+
+The simulator's Health app proved the write: one activity per interval, the pause/resume events, a
+duration equal to active time, the route, the distance split at pauses, and a re-save that replaces
+rather than duplicates (ADR 0011's 2026-10-01 amendment). It cannot lock, and it has no Fitness app.
+On an iPhone with a **passcode** (without one, protected data is never unavailable), on a dev build
+(`bun expo run:ios --device` with Metro on 8087):
+
+| # | Check | How |
+| --- | --- | --- |
+| H1 | Fitness shows the workout from a plan run with a pause: note whether it shows the intervals, the pause or the route at all | Fitness → the workout; compare with Health → Workouts → Show All Data → the entry |
+| H2 | A run that ends while the phone is **locked** writes nothing until unlock. After unlocking and opening the app, the workout appears **with its route** | Let a run end locked (a short session, or End from the lock screen's Live Activity if available); check Health before and after unlocking |
+| H3 | Force-quitting while the save waits writes nothing, and the summary's *Save to Apple Health* then saves it | As H2, but swipe the app away before unlocking; then open the run in Log |
+| H4 | A re-save replaces: one workout, one route, one distance row per stretch between pauses | `resaveLatestRunToHealth()` in the JS debugger, then Health → Workouts and Walking + Running Distance |
+| H5 | Upgrading from a build that used `@kingstinct/react-native-healthkit` keeps the existing grant: no prompt, and Settings still reads *Saving workouts* | Install this build over the previous one without deleting the app |

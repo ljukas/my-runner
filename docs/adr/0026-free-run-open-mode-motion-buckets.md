@@ -4,7 +4,7 @@ Date: 2026-09-29
 
 ## Status
 
-Accepted (2026-09-29, on merge of #77). Stage 1 (the classifier) is in implementation. Revision 2: revision 1 went
+Accepted (2026-09-29, on merge of #77). Stages 1–4 are built; the amendments below record each. Revision 2: revision 1 went
 through four adversarial reviews on 2026-09-29 (evidence, engine, Health, and the spec's
 premises). This revision applies their findings and the owner's answers to what the
 findings reopened. The spec's §10 records both.
@@ -501,3 +501,52 @@ This supersedes the entry-point bullet of Decision §6 and the entry bullet of t
 - **The Run stack anchors on the chooser** (`unstable_settings.anchor`), so a deep link to the week
   list keeps its way back, and the entries use `router.navigate`: a double tap unwinds to the screen
   it already opened instead of stacking a second one.
+
+## Amendment (2026-09-30): stage 4 built
+
+The chart and the kilometre cue shipped as stage 4
+([plan](../superpowers/plans/2026-09-30-free-run-stage-4-chart-and-cue.md)). Where the build refined
+§5 and §7:
+
+- **The bands are a strip, the stops hairlines** (owner decision). Run and walk shade a strip hung
+  just under the plot's x-axis, not the plot's full height, which competed with the pace and
+  elevation lines; every stopped bucket is a full-height 2 dp hairline in the stopped colour at the
+  distance it began, the short ones included, so the chart counts the stops the bucket timeline
+  below it does. Plan runs get neither.
+  - **Under the axis, not inside the plot**: the pace domain puts the slowest pace on the plot's
+    bottom edge, which is exactly where a walk is drawn, so a strip inside it was covered by the
+    line (found on device). It is drawn in victory's unclipped `renderOutside` layer, and the tick
+    labels move down by the strip's height, only when there are bands.
+  - **Run 4 dp, walk 2 dp**, so the two differ by more than hue (spec §7.3), as the route's stroke
+    widths also keep them apart. A stop's few metres go to the band before it, so the strip has no
+    gaps.
+  - **The card's label** reads the strip as distances: "Running 1.21 km, walking 0.21 km, stopped
+    1 time."
+- **A GPS silence is drawn apart from a stop** (owner decision after review). A stopped bucket the
+  GPS measured less than half of — a tunnel, a slow first fix, a phone that lost its signal — is
+  a translucent grey zone of fixed width (a silence covers no distance, so it has none on this
+  axis), not a brown hairline, and the label counts it as "GPS lost N times", not as a stop. The
+  measured share is the fold's own: seconds between fixes under `MAX_GAP_S`, none across a pause
+  (`ProfileSpan.measuredS`). The bucket itself stays stopped time (the 3a amendment); only the
+  chart tells the two apart.
+- **One fold draws both.** `foldRunProfile` returns the chart's points and, from the same smoother
+  and pause policy, the span each `segment_seq` covered, so the strip tiles exactly the axis the
+  pace line is drawn on (ADR 0021 §3). A stop the GPS never saw — a silence — has no fixes and so
+  no span; it sits where the span before it ended. The kinds come from the run's segment rows in a
+  separate memo, so they never re-run the fold.
+- **The kilometre count lives in `OpenMode.ingest`**, from the metres it commits, because the engine
+  takes cues before it ingests the fix; a crossing is therefore announced one heartbeat late.
+- **The pace is the last kilometre's moving pace from the live kind**, not from the saved buckets,
+  which finalize back-dates. A stop's first seconds count as moving until the dwell confirms it
+  (spec §9), so the spoken pace can be a few seconds slower than the summary's.
+- **Two crossings captured before one refresh** speak the latest kilometre, with that kilometre's
+  pace. Live, one fix cannot cross two kilometres (the velocity gate and ADR 0021 §5's gap rule
+  bound a step to under ~200 m), so this is a rule for folds, not an expected case.
+- **A crossing lives for one heartbeat before it is spoken.** Pausing within that second defers it
+  to the resume, where it is spoken before "Resumed."; ending within it drops it, and "Workout
+  complete" plays alone. Both are accepted.
+- **A resume announces nothing the re-folded points crossed**: `RunMode.caughtUp()` runs after the
+  rebuild, keeping the partial kilometre's totals. Nothing is persisted, as §7 wanted.
+- **The phrase** drops the seconds on a whole minute and the pace when it is unknown or under a
+  minute per kilometre; seconds are rounded before splitting, so 359.6 s is "6 minutes". ADR 0009's
+  Decision 1 is amended for the typed data.

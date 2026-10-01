@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { CueId } from '@/domain/cues';
+import type { CueData, CueId } from '@/domain/cues';
 import { FREE_RUN_KEY, FREE_RUN_PLAN, scriptedPlan } from '@/domain/free-run';
 import { EARTH_RADIUS_M, type LocationFix } from '@/domain/geo';
 import type { PlanSession } from '@/domain/plan';
@@ -12,6 +12,7 @@ import type { RunPoint, RunSnapshotState, RunStore } from '@/services/run-store/
 import type { StepCounterSource } from '@/services/step-counter/port';
 import { RunEngine } from './engine';
 import type { PointBatchScheduler } from './point-batch-scheduler';
+import type { PendingEntry } from './run-log';
 import type { CompletedRunRecord, FinalizeOutcome, RunLifecyclePersistence } from './types';
 
 const DEG_PER_M = 180 / (Math.PI * EARTH_RADIUS_M);
@@ -59,8 +60,9 @@ function makeFreeRunEngine({
   const calls: string[] = [];
   const finalized: CompletedRunRecord[] = [];
   const opened: string[] = [];
-  const flushes: { points: RunPoint[]; state: RunSnapshotState }[] = [];
+  const flushes: { points: RunPoint[]; state: RunSnapshotState; entries: PendingEntry[] }[] = [];
   const cues: CueId[] = [];
+  const cueData: (CueData | undefined)[] = [];
   let finalizeOutcome: FinalizeOutcome = 'saved';
   let savedId: string | null = 'run-1';
   let gateFlush: (() => void) | undefined;
@@ -98,14 +100,14 @@ function makeFreeRunEngine({
     },
   };
   const runStore: RunStore = {
-    flush: async (_runId, points, _samples, _entries, state) => {
+    flush: async (_runId, points, _samples, entries, state) => {
       calls.push(state.discarding ? 'flush:discarding' : 'flush');
       if (state.discarding && failMark) throw new Error('mark failed');
       if (deferFlush) {
         deferFlush = false; // holds back the one flush in flight, not the ones after it
         await new Promise<void>((resolve) => (gateFlush = resolve));
       }
-      flushes.push({ points, state });
+      flushes.push({ points, state, entries });
     },
     loadSnapshot: async () => null,
     clearSnapshot: async () => void calls.push('clearSnapshot'),
@@ -136,7 +138,10 @@ function makeFreeRunEngine({
   };
   const cue: CueService = {
     prepare: () => {},
-    announce: (c) => void cues.push(c),
+    announce: (c, data) => {
+      cues.push(c);
+      cueData.push(data);
+    },
     release: () => {},
   };
   let fireFlush = (): void => {};
@@ -163,6 +168,7 @@ function makeFreeRunEngine({
     opened,
     flushes,
     cues,
+    cueData,
     setFinalizeOutcome: (o: FinalizeOutcome) => (finalizeOutcome = o),
     setSavedId: (id: string | null) => (savedId = id),
     releaseStartRun: () => releaseStartRun?.(),
@@ -789,5 +795,60 @@ describe('what a free run cannot do, and what a plan run cannot', () => {
     await settled();
     expect(h.calls).not.toContain('discardRun');
     expect(h.engine.getSnapshot().status).toBe('running');
+  });
+});
+
+describe('the kilometre cue (ADR 0026 §7)', () => {
+  const pointsOf = (h: ReturnType<typeof makeFreeRunEngine>) =>
+    h.flushes.flatMap((f) => f.points).map((p) => ({ ...p, timestamp: Date.parse(p.timestamp) }));
+
+  test('is announced with its numbers, and logged with them', async () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(FREE_RUN_PLAN);
+    h.feed(track([[450, 2.6]]));
+    expect(h.cues.filter((c) => c === 'kilometre')).toHaveLength(1);
+    const data = h.cueData[h.cues.indexOf('kilometre')];
+    expect(data?.km).toBe(1);
+    expect(data?.paceSecPerKm).toBeCloseTo(1000 / 2.6, -1);
+
+    h.fireFlush();
+    await settled();
+    const row = h.flushes
+      .flatMap((f) => f.entries)
+      .find((e) => e.kind === 'cue' && e.detailJson?.includes('kilometre'));
+    expect(JSON.parse(row!.detailJson!)).toMatchObject({ cue: 'kilometre', data: { km: 1 } });
+  });
+
+  test('is never announced on a plan run', () => {
+    const h = makeFreeRunEngine();
+    h.engine.start(scriptedPlan(PLAN));
+    h.feed(track([[450, 2.6]]));
+    expect(h.engine.getSnapshot().distanceM).toBeGreaterThan(1000);
+    expect(h.cues).not.toContain('kilometre');
+  });
+
+  test('a resume announces none of the kilometres already run, then the next one', async () => {
+    const fixes = track([[850, 2.6]]);
+    const before = makeFreeRunEngine();
+    before.engine.start(FREE_RUN_PLAN);
+    before.feed(fixes.slice(0, 450));
+    before.fireFlush();
+    await settled();
+    // why asserted: one flush persists at most MAX_FLUSH_POINTS, and a partial spine would pass
+    // for the wrong reason
+    expect(pointsOf(before)).toHaveLength(450);
+
+    const after = makeFreeRunEngine();
+    after.setNow(fixes[449].timestamp);
+    after.engine.restore({
+      runId: 'run-1',
+      plan: FREE_RUN_PLAN,
+      state: before.flushes.at(-1)!.state,
+      points: pointsOf(before),
+    });
+    expect(after.cues).toEqual(['resuming']);
+
+    after.feed(fixes.slice(450));
+    expect(after.cueData.filter(Boolean).map((d) => d?.km)).toEqual([2]);
   });
 });

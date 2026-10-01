@@ -1,17 +1,18 @@
-import { DashPathEffect, matchFont } from '@shopify/react-native-skia';
+import { DashPathEffect, matchFont, Rect } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
 import { PixelRatio, View } from 'react-native';
 import { CartesianChart, Line } from 'victory-native';
 
 import { SKIA_FONT_FAMILY } from '@/constants/skia-font';
 import { distanceParts, paceParts } from '@/domain/format';
+import type { ProfileBands } from '@/domain/profile-bands';
 import {
   elevationChartDomain,
   paceChartDomain,
   type ProfilePoint,
   type ProfileSeriesKey,
 } from '@/domain/run-profile';
-import { useChartGridColor, useStatColors, useTheme } from '@/hooks/use-theme';
+import { useChartGridColor, useSegmentColors, useStatColors, useTheme } from '@/hooks/use-theme';
 
 const AXIS_FONT_SIZE = 11;
 // why 160 and not the former 200: the x axis spends ~30 pt on its tick row and unit, leaving a
@@ -68,12 +69,38 @@ const Y_AXIS_TICK_COUNT = 3;
 // gap to read as dotted rather than dashed at chart scale.
 const Y_GRID_DASH_INTERVALS = [1, 3];
 
+// why a strip under the axis rather than tinted columns: shading the plot competes with the pace and
+// elevation lines, and the owner chose the strip (ADR 0026 §5, stage 4). Why below the plot and not
+// inside it: the pace domain puts the slowest pace on the plot's bottom edge, which is exactly where
+// a walk is drawn. Why two heights: run and walk must not differ by hue alone (spec §7.3).
+const BAND_STRIP_HEIGHT = { run: 4, walk: 2 } as const;
+// victory's default x `labelOffset` (`axisDefaults.ts`), plus room for the strip above the labels
+const X_LABEL_OFFSET_WITH_BANDS = 2 + BAND_STRIP_HEIGHT.run + 2;
+const STOP_MARKER_WIDTH = 2;
+// why a fixed width: a GPS silence covers no distance, so it has none of its own on this axis
+const SILENCE_ZONE_WIDTH = 10;
+const SILENCE_ZONE_OPACITY = 0.18;
+
+// why clamped: points sit at bucket centres, so the axis starts half a bucket in and a marker at
+// 0 m would fall wholly outside the clipped plot
+function markerLeft(centre: number, width: number, bounds: { left: number; right: number }) {
+  return Math.min(Math.max(centre, bounds.left + width / 2), bounds.right - width / 2) - width / 2;
+}
+
 /**
  * Pace, and relative elevation when the run carries it, against distance (spec §7.2). The only file importing victory-native — if it is ever
  * swapped for hand-drawn Skia, nothing outside this file changes.
  */
-export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
+export function RunProfileChart({
+  points,
+  bands = null,
+}: {
+  points: ProfilePoint[];
+  /** A free run's buckets, drawn as a run/walk strip and a hairline per stop. */
+  bands?: ProfileBands | null;
+}) {
   const stat = useStatColors();
+  const segment = useSegmentColors();
   // why every axis color is passed: victory's defaults are hardcoded black (`axisDefaults.ts`),
   // latent only for as long as no axis rendered at all.
   const colors = useTheme();
@@ -85,6 +112,7 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
     [fontScale],
   );
 
+  const banded = bands !== null;
   const xAxis = useMemo(
     () => ({
       font,
@@ -93,8 +121,9 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
       formatXLabel: formatDistanceTick,
       title: X_AXIS_TITLE,
       tickCount: Math.max(2, Math.round(DEFAULT_TICK_COUNT / fontScale)),
+      ...(banded ? { labelOffset: X_LABEL_OFFSET_WITH_BANDS } : null),
     }),
-    [font, colors.textSecondary, grid, fontScale],
+    [font, colors.textSecondary, grid, fontScale, banded],
   );
 
   const paceDomain = useMemo(() => paceChartDomain(points), [points]);
@@ -142,9 +171,47 @@ export function RunProfileChart({ points }: { points: ProfilePoint[] }) {
         yKeys={elevationDomain ? ALL_KEYS : PACE_KEYS}
         xAxis={xAxis}
         yAxis={yAxis}
+        // why outside: this layer is not clipped to the plot, so the strip can hang under its axis
+        renderOutside={({ xScale, chartBounds }) =>
+          bands?.runWalk.map((band, index) => {
+            const from = Math.max(xScale(band.fromM), chartBounds.left);
+            const to = Math.min(xScale(band.toM), chartBounds.right);
+            return (
+              <Rect
+                key={`band-${index}`}
+                x={from}
+                y={chartBounds.bottom}
+                width={Math.max(0, to - from)}
+                height={BAND_STRIP_HEIGHT[band.kind]}
+                color={segment[band.kind]}
+              />
+            );
+          })
+        }
       >
-        {({ points: rendered }) => (
+        {({ points: rendered, xScale, chartBounds }) => (
           <>
+            {bands?.silencesAtM.map((atM, index) => (
+              <Rect
+                key={`silence-${index}`}
+                x={markerLeft(xScale(atM), SILENCE_ZONE_WIDTH, chartBounds)}
+                y={chartBounds.top}
+                width={SILENCE_ZONE_WIDTH}
+                height={chartBounds.bottom - chartBounds.top}
+                color={colors.textSecondary}
+                opacity={SILENCE_ZONE_OPACITY}
+              />
+            ))}
+            {bands?.stopsAtM.map((atM, index) => (
+              <Rect
+                key={`stop-${index}`}
+                x={markerLeft(xScale(atM), STOP_MARKER_WIDTH, chartBounds)}
+                y={chartBounds.top}
+                width={STOP_MARKER_WIDTH}
+                height={chartBounds.bottom - chartBounds.top}
+                color={segment.stopped}
+              />
+            ))}
             {/* Drawn first so pace, the run's primary measure, stays on top. */}
             {elevationDomain ? (
               <Line

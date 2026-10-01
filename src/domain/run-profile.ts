@@ -18,6 +18,21 @@ export type ProfilePoint = {
 
 export type ProfileSeriesKey = Exclude<keyof ProfilePoint, 'distanceM'>;
 
+/** The stretch of the chart's x axis one `segmentSeq` covered, in the same metres as its points. */
+export interface ProfileSpan {
+  segmentSeq: number;
+  fromM: number;
+  toM: number;
+  /** Seconds between its fixes that the GPS measured: legs under `MAX_GAP_S`, none across a pause. */
+  measuredS: number;
+}
+
+export interface RunProfileFold {
+  points: ProfilePoint[];
+  /** In fix order; a seq's metres are those committed by its fixes, so spans tile [0, total]. */
+  spans: ProfileSpan[];
+}
+
 /** Upper bound on the resampled point count; shorter runs get proportionally fewer. */
 export const PROFILE_SAMPLE_COUNT = 120;
 
@@ -37,6 +52,7 @@ interface Walked {
   distanceM: number;
   timestamp: number;
   restarted?: boolean;
+  span: ProfileSpan;
 }
 
 // why interpolated between fixes and clamped at the ends: samples arrive ~1 Hz on their own clock,
@@ -76,40 +92,45 @@ function elevationBuckets(
 
 /**
  * Fixes (and optionally a Run elevation series, time-aligned) → the chart's series on one uniform
- * distance grid. Distance is folded with the SAME smoother the stored distance used (ADR 0021 §3), so
- * the chart's x extent agrees with the summary's headline figure. Inputs must already pass
- * `accuracyFilter`. Returns [] for a run that covered no ground, or a `bucketCount` that is not a
- * positive integer.
+ * distance grid, and the spans each fix's `segmentSeq` covered on it. Distance is folded with the
+ * SAME smoother the stored distance used (ADR 0021 §3), so the chart's x extent agrees with the
+ * summary's headline figure. Inputs must already pass `accuracyFilter`. Both lists are empty for a
+ * run that covered no ground, or a `bucketCount` that is not a positive integer.
  */
-export function toRunProfile(
-  fixes: readonly LocationFix[],
-  {
-    bucketCount = bucketCountFor(fixes.length),
-    altitude = [],
-    policy,
-  }: { bucketCount?: number; altitude?: readonly TimedAltitude[]; policy?: FixPolicy } = {},
-): ProfilePoint[] {
-  if (fixes.length === 0) return [];
-  if (!Number.isInteger(bucketCount) || bucketCount < 1) return [];
+export function foldRunProfile(
+  fixes: readonly (LocationFix & { segmentSeq?: number })[],
+  { bucketCount = bucketCountFor(fixes.length), altitude = [], policy }: ProfileOptions = {},
+): RunProfileFold {
+  const none = { points: [], spans: [] };
+  if (fixes.length === 0) return none;
+  if (!Number.isInteger(bucketCount) || bucketCount < 1) return none;
 
   let state = createSmootherState();
   let cumulative = 0;
   const walked: Walked[] = [];
+  const spans: ProfileSpan[] = [];
   for (const fix of fixes) {
     const step = stepWithPolicy(state, fix, policy);
     if (!step) continue;
     state = step.state;
+    const fromM = cumulative;
     cumulative += step.acceptedDeltaMeters;
+    // why the end fix's seq: a leg's metres belong to the fix that ends it, as the saved buckets'
+    const segmentSeq = fix.segmentSeq ?? 0;
+    let span = spans.at(-1);
+    if (span?.segmentSeq === segmentSeq) span.toM = cumulative;
+    else spans.push((span = { segmentSeq, fromM, toM: cumulative, measuredS: 0 }));
     // why a restart is marked: the leg into it spans a pause, which is no time spent covering ground
     walked.push({
       distanceM: cumulative,
       timestamp: fix.timestamp,
       restarted: policy !== undefined && step.restarted,
+      span,
     });
   }
 
   const total = cumulative;
-  if (total <= 0) return [];
+  if (total <= 0) return none;
 
   const width = total / bucketCount;
   const meters = new Array<number>(bucketCount).fill(0);
@@ -132,6 +153,7 @@ export function toRunProfile(
       continue;
     }
     if (legSeconds <= 0) continue;
+    to.span.measuredS += legSeconds;
 
     const legMeters = to.distanceM - from.distanceM;
     if (legMeters <= 0) {
@@ -156,12 +178,26 @@ export function toRunProfile(
 
   const elevation = elevationBuckets(walked, altitude, width, bucketCount);
 
-  return meters.map((bucketMeters, index) => ({
+  const points = meters.map((bucketMeters, index) => ({
     distanceM: (index + 0.5) * width,
     paceSecPerKm:
       bucketMeters > 0 && seconds[index] > 0 ? (seconds[index] / bucketMeters) * 1000 : null,
     elevationM: elevation[index],
   }));
+  return { points, spans };
+}
+
+interface ProfileOptions {
+  bucketCount?: number;
+  altitude?: readonly TimedAltitude[];
+  policy?: FixPolicy;
+}
+
+export function toRunProfile(
+  fixes: readonly LocationFix[],
+  options: ProfileOptions = {},
+): ProfilePoint[] {
+  return foldRunProfile(fixes, options).points;
 }
 
 // why: `Line` splits at nulls and a one-point group emits a move with no lineto, so a chart can

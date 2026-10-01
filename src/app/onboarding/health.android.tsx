@@ -1,9 +1,11 @@
 import { PermissionStepScreen } from '@/components/permission-step-screen';
-import { requestWriteAccess } from '@/services/health';
+import { openHealthStore, requestWriteAccess, useHealthAuthorization } from '@/services/health';
 
 // Health Connect's onboarding guidance is educate → consent → request, and asks that the data
 // types written be named up front (carousel design §5.4) — hence the three rows below.
 export default function HealthPrimerScreen() {
+  // why one button: returning from the Play Store re-probes, so the same button becomes the request.
+  const needsApp = useHealthAuthorization() === 'updateRequired';
   return (
     <PermissionStepScreen
       stepId="health-primer-v1"
@@ -25,9 +27,10 @@ export default function HealthPrimerScreen() {
         },
       ]}
       disclosure="Not now is fine: your runs are saved here either way. You can set this up later in Settings, and change what RunBro may write at any time in Health Connect."
-      primaryLabel="Set up Health Connect"
+      primaryLabel={needsApp ? 'Get Health Connect' : 'Set up Health Connect'}
       secondaryLabel="Not now"
       onPrimaryPress={async (advance) => {
+        if (needsApp) return openHealthStore();
         // requestWriteAccess catches and logs its own failures (the composition seam, ADR 0011).
         const status = await requestWriteAccess();
         // A refusal advances exactly like "Not now" — Health Connect is optional (ADR 0011 §4).

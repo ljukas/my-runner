@@ -3,17 +3,16 @@ import { describe, expect, mock, test } from 'bun:test';
 import type { HealthAuthorization } from './port';
 
 // why this many modules: `index.ts` is the composition seam under test, and its barrel pulls in
-// every file in this directory — `./sync` opens a real db at import time and `./open-health-app`
-// pulls `expo-linking`, which in turn needs more of `react-native` than a bare `AppState` stub
-// offers, so each has to be swapped for an inert double before `./index` can load under `bun test`.
-function mockDeps(requestWriteAccess: () => Promise<HealthAuthorization>) {
+// every file in this directory — `./sync` opens a real db at import time and `./adapter` reaches
+// the native module through `expo` — so each has to be swapped for an inert double before
+// `./index` can load under `bun test`.
+function mockDeps(
+  requestWriteAccess: () => Promise<HealthAuthorization>,
+  openSettings: () => Promise<void> = async () => {},
+) {
   void mock.module('@/db/client', () => ({ db: {} }));
   void mock.module('@/db/run-points', () => ({ loadRunFixes: () => [] }));
   void mock.module('@/db/run-segments', () => ({ loadRunSegments: () => [] }));
-  void mock.module('expo-linking', () => ({
-    openURL: async () => {},
-    openSettings: async () => {},
-  }));
   void mock.module('react-native', () => ({
     AppState: { addEventListener: () => ({ remove: () => {} }) },
   }));
@@ -22,8 +21,23 @@ function mockDeps(requestWriteAccess: () => Promise<HealthAuthorization>) {
       getAuthorization: () => 'notDetermined',
       requestWriteAccess,
       saveRun: async () => {},
+      openSettings,
+      openStore: openSettings,
+      subscribeRationale: () => () => {},
     },
   }));
+}
+
+async function warningsDuring(body: () => Promise<unknown>): Promise<unknown[][]> {
+  const original = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => void warnings.push(args);
+  try {
+    await body();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
 }
 
 describe('requestWriteAccess (composition seam, finding 2)', () => {
@@ -84,5 +98,22 @@ describe('requestWriteAccess (composition seam, finding 2)', () => {
     expect(status).toBe('notDetermined');
     expect(warnings.length).toBe(1);
     expect(notified).toBe(false);
+  });
+});
+
+// The Settings rows and the run summary call these from onPress without a catch of their own.
+describe('openHealthApp and openHealthStore', () => {
+  test('log and resolve when the native call rejects', async () => {
+    mockDeps(
+      async () => 'denied',
+      () => Promise.reject(new Error('no activity')),
+    );
+    const { openHealthApp, openHealthStore } = await import('./index');
+
+    const warnings = await warningsDuring(async () => {
+      await expect(openHealthApp()).resolves.toBeUndefined();
+      await expect(openHealthStore()).resolves.toBeUndefined();
+    });
+    expect(warnings.length).toBe(2);
   });
 });

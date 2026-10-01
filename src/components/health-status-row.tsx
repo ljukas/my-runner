@@ -4,17 +4,19 @@ import { View } from 'react-native';
 import { Island } from '@/components/island';
 import { Card } from '@/components/ui/card';
 import { Text } from '@/components/ui/text';
+import { HEALTH_STORE } from '@/constants/health-store';
 import type { Run } from '@/db/schema';
 import { isFieldTestRun } from '@/services/field-test';
 import {
   isHealthSyncFailure,
+  openHealthStore,
   requestWriteAccess,
   syncRunToHealth,
   useHealthAuthorization,
 } from '@/services/health';
 
 /**
- * The run summary's Apple Health row (ADR 0013 domain component). One button serves both the
+ * The run summary's health-store row (ADR 0013 domain component). One button serves both the
  * fresh-finish retry and the deliberate push of an older run — the auto-save fires only on a run's
  * finish, so a revisited run is never backfilled behind the user's back (spec §2, §7.1).
  */
@@ -26,7 +28,7 @@ export function HealthStatusRow({ run }: { run: Run }) {
   // button with `disabled` set — same idiom as onboarding-step-screen's async-CTA guard.
   const busy = useRef(false);
 
-  // A field-test capture must never reach Apple Health (spec §8.0) — the composition root only
+  // A field-test capture must never reach a health store (spec §8.0) — the composition root only
   // gates the auto-sync on finish, so this manual retry needs its own guard too, or the row would
   // be the one path left to defeat it.
   if (isFieldTestRun(run.sessionKey)) return null;
@@ -34,13 +36,27 @@ export function HealthStatusRow({ run }: { run: Run }) {
   if (run.healthkitSaved) {
     return (
       <Card surface="card">
-        <Text tone="secondary">Saved to Apple Health</Text>
+        <Text tone="secondary">{`Saved to ${HEALTH_STORE}`}</Text>
       </Card>
     );
   }
 
   // Denied and unavailable offer no action here; Settings owns the route to change that.
   if (authorization === 'denied' || authorization === 'unavailable') return null;
+
+  // why literal: updateRequired is Android-only.
+  if (authorization === 'updateRequired') {
+    return (
+      <Card surface="card">
+        <View className="gap-3">
+          <Text tone="secondary">
+            Saving runs to Health Connect needs the Health Connect app, or an update to it.
+          </Text>
+          <Island.Button fill label="Get Health Connect" onPress={() => void openHealthStore()} />
+        </View>
+      </Card>
+    );
+  }
 
   const save = () => {
     if (busy.current) return;
@@ -65,11 +81,11 @@ export function HealthStatusRow({ run }: { run: Run }) {
   return (
     <Card surface="card">
       <View className="gap-3">
-        {failed ? <Text tone="secondary">Couldn&rsquo;t save to Apple Health.</Text> : null}
+        {failed ? <Text tone="secondary">{`Couldn’t save to ${HEALTH_STORE}.`}</Text> : null}
         <Island.Button
           fill
           disabled={saving}
-          label={saving ? 'Saving…' : 'Save to Apple Health'}
+          label={saving ? 'Saving…' : `Save to ${HEALTH_STORE}`}
           onPress={save}
         />
       </View>

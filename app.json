@@ -26,10 +26,7 @@
       },
       "predictiveBackGestureEnabled": true,
       "permissions": [
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.health.WRITE_EXERCISE",
-        "android.permission.health.WRITE_EXERCISE_ROUTE",
-        "android.permission.health.WRITE_DISTANCE"
+        "android.permission.RECEIVE_BOOT_COMPLETED"
       ]
     },
     "plugins": [
@@ -70,12 +67,11 @@
         }
       ],
       [
-        "./plugins/with-apple-health",
+        "./plugins/with-health",
         {
           "updateUsageDescription": "Save your completed runs (duration, distance, route) to Apple Health."
         }
       ],
-      "react-native-health-connect",
       [
         "expo-build-properties",
         {

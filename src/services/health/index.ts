@@ -4,8 +4,6 @@ import { notifyAuthorizationChanged } from './use-health-authorization';
 
 export type { HealthAuthorization } from './port';
 
-export { openHealthApp } from './open-health-app';
-export { subscribeHealthRationaleIntent } from './rationale-intent';
 export { isHealthSyncFailure, syncRunToHealth, type HealthSyncResult } from './sync';
 export { useHealthAuthorization } from './use-health-authorization';
 export { withHealthSync } from './with-health-sync';
@@ -28,4 +26,26 @@ export async function requestWriteAccess(): Promise<HealthAuthorization> {
     console.warn('[health] requestWriteAccess failed', error);
     return 'notDetermined';
   }
+}
+
+/** Opens Health, or Health Connect's settings; logs rather than rejects. */
+export async function openHealthApp(): Promise<void> {
+  try {
+    await healthAdapter.openSettings();
+  } catch (error) {
+    console.warn('[health] openHealthApp failed', error);
+  }
+}
+
+/** Opens Health Connect's Play Store page, for `updateRequired`; logs rather than rejects. */
+export async function openHealthStore(): Promise<void> {
+  try {
+    await healthAdapter.openStore();
+  } catch (error) {
+    console.warn('[health] openHealthStore failed', error);
+  }
+}
+
+export function subscribeHealthRationale(listener: () => void): () => void {
+  return healthAdapter.subscribeRationale(listener);
 }

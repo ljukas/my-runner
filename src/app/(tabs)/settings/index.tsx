@@ -34,6 +34,8 @@ const HEALTH_ACCESS: Record<HealthAuthorization, string> = {
   denied: 'Off',
   notDetermined: 'Not Set Up',
   unavailable: 'Not Available',
+  // Health Connect's alone; the record stays total over the shared status.
+  updateRequired: 'Update Needed',
 };
 
 export default function SettingsScreen() {

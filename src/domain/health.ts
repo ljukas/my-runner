@@ -1,5 +1,6 @@
-/** Pure Apple Health payload mapping — no React, Expo, native or DB imports (ADR 0003 §1). */
+/** Pure health-store payload mapping — no React, Expo, native or DB imports (ADR 0003 §1). */
 
+import { runTitle } from './format';
 import type { SegmentedFix } from './geo';
 import {
   pauseWindows,
@@ -61,6 +62,7 @@ export interface HealthDistanceSample {
 /** The stored run fields Health needs; `startedAt`/`endedAt` are ISO-8601 UTC as persisted. */
 export interface HealthRunInput {
   id: string;
+  sessionKey: string;
   startedAt: string;
   endedAt: string;
   distanceM: number | null;
@@ -69,6 +71,7 @@ export interface HealthRunInput {
 
 /** The platform-neutral payload crossing the HealthAdapter port (ADR 0011 §1). */
 export interface HealthWorkoutInput {
+  title: string;
   startedAt: number;
   endedAt: number;
   totalDistanceM: number | null;
@@ -107,6 +110,7 @@ export function toHealthWorkout(
   const events = parseEventLog(run.eventLogJson);
   return {
     ...workout,
+    title: runTitle(run.sessionKey),
     totalDistanceM: run.distanceM,
     distanceSample: toHealthDistanceSample(run),
     route: toHealthRoute(fixes),

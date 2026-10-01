@@ -17,35 +17,43 @@ left to the owner.
   short device checklist (H1–H5) that the owner runs.
 - **Criterion 1's bar is "distinct visible intervals"**, even unlabelled. Had it failed, the useful
   subset would ship anyway.
-- **A locked finish writes once unlocked.** The wait lives in Swift, inside the save.
+- **A locked finish writes at once** (revised after the Apple best-practice review). HealthKit caches
+  locked writes, so the first build's wait for an unlock was dropped.
 - **Full replacement:** the module owns every HealthKit call and has its own config plugin, and
   `@kingstinct/react-native-healthkit`, Nitro and `with-healthkit-write-only.js` go. The owner wants
   both health integrations owned, one at a time; Android follows in #90.
-- **Distance is split at pauses**, one sample per stretch between them. It is not split per
-  interval, which would fragment Health's distance history.
+- **One distance sample per interval** (revised after the same review). Apple encourages samples
+  of a minute or less, and per-interval samples give each interval its own pace. Splitting per
+  pause gap gave every interval the same pace.
 
 ## Design
 
 - **Native** (`modules/apple-health/ios/`):
-  - `AppleHealthModule.swift` provides `isAvailable`, `authorizationStatus` (synchronous),
-    `requestWriteAccess` and `saveWorkout`.
-  - `WorkoutWriter.swift` drives `HKWorkoutBuilder`. It writes the distance parts, the pause/resume
-    events, one `.running` activity per interval tagged `RunBroSegmentKind`, the sync metadata, then
-    `finishWorkout`. The route comes from the workout builder's series builder and commits with the
-    workout.
+  - `AppleHealthModule.swift` provides `isAvailable`, `authorizationStatus` (synchronous, an
+    `Enumerable`), `requestWriteAccess` and `saveWorkout`. HealthKit errors reach JS as
+    `ERR_HEALTHKIT_<code>` (`AppleHealthExceptions.swift`).
+  - `WorkoutWriter.swift` writes at once, inside a background task. It first deletes the app's own
+    distance samples inside the workout's window. Then it drives `HKWorkoutBuilder`:
+    1. the route through the series builder;
+    2. the metadata (sync, `IndoorWorkout = false`, time zone);
+    3. the pause/resume events and one `.running` activity per interval, tagged
+       `RunBroSegmentKind`;
+    4. the per-interval distance samples, added last because a sample saves at once;
+    5. `finishWorkout`. A nil workout means it saved while locked.
   - If HealthKit refuses the intervals (`errorInvalidArgument` from adding them or from
-    `finishWorkout`), the writer saves a plain workout. A refusal from any other step fails the save.
-  - If the phone relocks during a write, the writer waits for a fresh unlock signal and writes it
-    all again, at most three attempts. Each attempt takes two sync versions: one for the structured
-    write and one for its plain fallback.
-  - It skips the distance or the route when the runner refused that type.
-  - `ProtectedData.swift` waits for an unlock or for the app coming to the foreground.
+    `finishWorkout`), the save writes a plain workout one sync version up. Any other error fails the
+    save, and the summary's button retries.
+  - Records mark the sync identifiers and the window as required. The segment kind is an
+    `Enumerable`.
 - **Pure** (`bun test`): `services/health/healthkit.ts` maps `HealthWorkoutInput` to the wire
-  payload (`modules/apple-health/types.ts`). It splits the distance at pauses, weighted by the route
-  inside each stretch, or by time without a route, and gives the parts and the route their own sync
-  identifiers.
-- **Plugin:** `plugins/with-apple-health.js` sets the entitlement and the update purpose string,
-  never the read string.
+  payload (`modules/apple-health/types.ts`).
+  - The distance becomes one part per interval, or per stretch between pauses when a run has no
+    intervals. Each part is weighted by the route inside it, or by time without a route. Parts are
+    clamped at zero, empty ones are dropped, and they sum to the total.
+  - Route points with an accuracy that is unknown or worse than 50 m are dropped.
+  - `domain/health.ts` marks a fix without an altitude as vertically invalid.
+- **Plugin:** `plugins/with-apple-health.js` (`createRunOncePlugin`) sets the entitlement and the
+  update purpose string, never the read string.
 - **Development:** `syncRunToHealth(runId, { resave: true })` and `resaveLatestRunToHealth()`, which
   the root layout registers under `__DEV__`.
 
@@ -63,12 +71,12 @@ left to the owner.
 
   | Variant               | 5a         | 5b         |
   | --------------------- | ---------- | ---------- |
-  | iOS unset             | `9d09364…` | `6b2ff87…` |
-  | iOS `development`     | `4cf7631…` | `1255414…` |
-  | iOS `e2e`             | `9419024…` | `01a889d…` |
-  | Android unset         | `6bb185f…` | `97c2b27…` |
-  | Android `development` | —          | `b0c4e49…` |
-  | Android `e2e`         | —          | `c0d002d…` |
+  | iOS unset             | `9d09364…` | `f94373d…` |
+  | iOS `development`     | `4cf7631…` | `025a76f…` |
+  | iOS `e2e`             | `9419024…` | `f0238fa…` |
+  | Android unset         | `6bb185f…` | `4a83a62…` |
+  | Android `development` | —          | `273badd…` |
+  | Android `e2e`         | —          | `3ebafb7…` |
 
 - On the iOS 26.5 simulator, read in its Health app (below). On a device: H1–H5.
 
@@ -124,3 +132,35 @@ Not changed:
 - The route weights use raw GPS, so jitter skews only how a total is split, never the total itself.
 - `requireNativeModule` stays at the top level, so a JS-only repack onto an older binary fails at
   launch, as with expo-maps.
+
+## Best-practice review (2026-10-01)
+
+Two more reviewers, at the owner's request ("all native work … reviewed with Expo Modules best
+practices and Apple best practices for its purpose"): one against the `expo:expo-module` skill,
+the SDK 57 local-module template and first-party modules, one against Apple's HealthKit
+documentation, the SDK headers, the HIG and App Review §5.1.3. Changed:
+
+- **No unlock wait.** HealthKit caches locked writes, and with the series-builder route a nil
+  `finishWorkout` is a save. The wait was unbounded, and killing the app during it lost the save.
+- **One distance sample per interval**, so each interval has its own pace (see above).
+- **HealthKit error codes reach JS.** Required record fields. An exceptions file. The authorization
+  status is an `Enumerable`. `Int64(exactly:)`. The expiration handler uses
+  `MainActor.assumeIsolated`. The plugin uses `createRunOncePlugin` and has a JSDoc type.
+- **Metadata:** `IndoorWorkout = false`, the time zone, and the device on the distance samples.
+- **Data:** distance samples go last, stale ones are deleted first, low-accuracy route points are
+  filtered, and a missing altitude is marked invalid.
+- **The onboarding copy** no longer promises "your rings": no energy is written, so a third-party
+  workout does not move them.
+
+Simulator, after this round:
+
+- A paused plan run shows a duration of 1m 27.49s (active time), Time Zone (Central European Summer
+  Time), Indoor Workout No, 0.3 km from four per-interval rows, the route, four activities and the
+  pause.
+- A re-save left one workout and the same four rows.
+
+Not changed:
+
+- The sync version stays `Date.now()`. A per-run counter would guard against a clock set back, a
+  rare case.
+- The permission is still asked in onboarding as well as from the summary.

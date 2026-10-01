@@ -1,6 +1,6 @@
 # 11. Apple Health writes via @kingstinct/react-native-healthkit
 
-> **iOS: the library is gone — 2026-10-01.** `modules/apple-health/` (owned Swift over `HKWorkoutBuilder`) replaced `@kingstinct/react-native-healthkit` and Nitro in free-run stage 5b. The Decision's library headline, item 3's plugin settings and the Consequences on Nitro, "one continuous workout" and "no silent retries" are superseded where the [Amendment (2026-10-01)](#amendment-2026-10-01-an-owned-module-replaces-the-library-on-ios) says.
+> **iOS: the library is gone — 2026-10-01.** `modules/apple-health/` (owned Swift over `HKWorkoutBuilder`) replaced `@kingstinct/react-native-healthkit` and Nitro in free-run stage 5b. The Decision's library headline, item 3's plugin settings and the Consequences on Nitro and "one continuous workout" are superseded where the [Amendment (2026-10-01)](#amendment-2026-10-01-an-owned-module-replaces-the-library-on-ios) says.
 >
 > **Android: stage 5 (Health Connect) — built 2026-09-22.** Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Health Connect adapter and the three Android UI surfaces shipped in stage 5. See the [Amendment (2026-09-22)](#amendment-2026-09-22-android--health-connect-behind-the-same-port) for where Decision item 7's "designed against both APIs' shapes" needed correcting.
 
@@ -17,8 +17,8 @@ Health slice the same day: they fragmented the user's distance history rather
 than conveying structure, and the workout now writes a single whole-session
 sample instead — see amendment item 7. Research findings under Context
 are left as the dated 2026-07-11 record of what was believed then, and the
-amendment says where they were wrong or incomplete. **Amended 2026-10-01**: an owned module replaces the library on iOS (structured workouts, the
-distance split at pauses, a locked save that waits); see that amendment.
+amendment says where they were wrong or incomplete. **Amended 2026-10-01**: an owned module replaces the library on iOS (structured workouts, one
+distance sample per interval, saves that work locked); see that amendment.
 
 ## Context
 
@@ -388,35 +388,39 @@ device checklist's H1–H5.
    - the route;
    - workout-level sync metadata.
 
-   Health lists the activities, each with its own start, end and duration, plus the events and the
-   route map. Each activity also shows a distance, but HealthKit derives it by spreading the
-   distance samples (item 3) evenly over time, so the intervals of one stretch show the same pace.
-   If HealthKit refuses the activities or events, whether as they are added or at
+   Health lists the activities, each with its own start, end, duration and distance (item 3), plus
+   the events and the route map. The workout also carries `HKMetadataKeyIndoorWorkout = false` and
+   the time zone, and its distance samples carry the device. If HealthKit refuses the activities or events, whether as they are added or at
    `finishWorkout`, the same save writes a plain workout and warns. A refusal anywhere else fails
    the save as before.
    - **The route comes from the workout builder's series builder** (`seriesBuilder(for:)`), per
      `HKWorkoutRouteBuilder.h`. It commits with the workout rather than after it.
-3. **Item 7 changes: the distance is split at pauses.** HealthKit spreads a distance sample evenly
-   over the workout's active time, so one whole-run sample across a pause cost the total its paused
-   share (0.29 km written read as 0.24 km; measured). There is now one sample per stretch between
-   pauses: still one sample for a run that was never paused. Each sample is weighted by the route
-   run in it, or by time without a route, and they sum to the run's total. The sync identifiers are
-   `${runId}:distance:${i}` and `${runId}:route`, so a re-save replaces every piece. That was
-   verified: one workout, one route and one distance row remained after a re-save. The library had
-   left the route with no sync identifier at all.
-4. **The Consequences' "no silent retries" gains one exception.** A save made while the phone is
-   locked waits inside the native call, until the next unlock or (since a suspended app never hears
-   the unlock) the next foreground, and then writes. `finishWorkout` cannot return the workout while
-   the device is locked, so the route could not attach. The run is already saved locally, and the
-   promise stays pending, so `sync.ts` reports the run as busy rather than writing twice. If the app
-   is killed while waiting, nothing is written and the summary's Save button remains. A write that
-   meets a relock is attempted again, three attempts in all. Each attempt waits for a fresh unlock
-   or foreground signal, because the flag can still read "available" during the grace period after
-   a lock. Each attempt also takes two sync versions above the last, one for the structured write
-   and one for its plain fallback.
+3. **Item 7 changes: one distance sample per interval.** HealthKit spreads a sample evenly over the
+   active time it spans, so a single whole-run sample did two kinds of damage, both measured:
+   - across a pause, the total lost the paused share (0.29 km written read as 0.24 km);
+   - across intervals, every interval showed the same pace.
+
+   Each interval (activity) now gets its own sample, weighted by the route run in it, or by time
+   without a route, and the samples sum to the run's total. A run without intervals is split at
+   its pauses. Apple encourages samples of a minute or less (saving-data-to-healthkit). The rows
+   stage 5 rejected were one second long; these are one to five minutes.
+
+   The sync identifiers are `${runId}:distance:${i}` and `${runId}:route`. Before writing, the
+   save deletes the app's own distance samples inside the workout's window, so a re-save with fewer
+   parts leaves none behind. Verified: a re-save left one workout, one route and the same four
+   distance rows. The library had left the route with no sync identifier at all.
+4. **A save works with the phone locked; there is no wait.** HealthKit caches a locked device's
+   writes and merges them at unlock (protecting-user-privacy). With the route from the workout
+   builder's series builder, `finishWorkout` returning nil with no error means "saved, only not
+   readable yet". So the save runs at once, inside a background task, and the Consequences' "no
+   silent retries" holds unchanged. A first build waited for the unlock, until Apple's guidance
+   overruled it. Device check H2 confirms the route on a locked finish.
 5. **The route and distance are skipped, not failed,** when the runner refused that type in the
    sheet. Only the workout type's status decides "authorized".
 6. **One more file sees the module's types:** the pure `services/health/healthkit.ts` imports
    `modules/apple-health/types.ts` type-only, which is erased at runtime. Like `health-connect.ts`'s
    type-only library import, this is the one exception to ADR 0003's "only adapters import a local
    module".
+7. **HealthKit errors reach JS with their code** (`ERR_HEALTHKIT_<code>`, through a
+   `GenericException<HKError>` at the module boundary), and the sync identifiers and window are
+   required record fields, so a dropped key fails the save rather than writing under `""`.

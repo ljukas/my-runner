@@ -71,9 +71,9 @@ left to the owner.
 
   | Variant               | 5a         | 5b         |
   | --------------------- | ---------- | ---------- |
-  | iOS unset             | `9d09364…` | `f94373d…` |
-  | iOS `development`     | `4cf7631…` | `025a76f…` |
-  | iOS `e2e`             | `9419024…` | `f0238fa…` |
+  | iOS unset             | `9d09364…` | `620c1db…` |
+  | iOS `development`     | `4cf7631…` | `40b4c43…` |
+  | iOS `e2e`             | `9419024…` | `f44dc76…` |
   | Android unset         | `6bb185f…` | `4a83a62…` |
   | Android `development` | —          | `273badd…` |
   | Android `e2e`         | —          | `3ebafb7…` |
@@ -164,3 +164,14 @@ Not changed:
 - The sync version stays `Date.now()`. A per-run counter would guard against a clock set back, a
   rare case.
 - The permission is still asked in onboarding as well as from the summary.
+
+Final re-check (both lenses, after this round):
+
+- **Major:** the stale-distance delete used `.strictEndDate`, which matches only samples ending
+  before the window's end, so it never removed the last part. The window now runs a millisecond
+  past the end.
+- **Verified:** re-saving the 07:45 run, first saved with a single whole-run sample, left exactly
+  its four per-interval rows.
+- **Minor:** stale JSDoc and domain wording; a zero-weight part now gets 0 m instead of a ~1e-13 m
+  remainder; the redundant `assumeIsolated` is dropped. The dev hook takes `olderBy` to re-save an
+  older run.

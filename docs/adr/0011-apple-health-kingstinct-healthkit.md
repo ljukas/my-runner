@@ -407,8 +407,14 @@ device checklist's H1–H5.
 
    The sync identifiers are `${runId}:distance:${i}` and `${runId}:route`. Before writing, the
    save deletes the app's own distance samples inside the workout's window, so a re-save with fewer
-   parts leaves none behind. Verified: a re-save left one workout, one route and the same four
-   distance rows. The library had left the route with no sync identifier at all.
+   parts leaves none behind. The window includes its last millisecond, because `.strictEndDate`
+   alone misses the part that ends exactly at the workout's end. The delete runs before the write,
+   so a failed write leaves the earlier workout without its distance until the summary's retry.
+   Verified twice:
+   - a re-save left one workout, one route and the same four distance rows;
+   - a re-save of a run first saved with one whole-run sample replaced that sample with four rows.
+
+   The library had left the route with no sync identifier at all.
 4. **A save works with the phone locked; there is no wait.** HealthKit caches a locked device's
    writes and merges them at unlock (protecting-user-privacy). With the route from the workout
    builder's series builder, `finishWorkout` returning nil with no error means "saved, only not

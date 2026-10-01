@@ -39,9 +39,13 @@ function segmentRowsOf(runId: string): SegmentRow[] {
 
 /**
  * Writes a finalized run to Apple Health and records it locally. Never throws and never blocks a
- * run: the local save has already committed by the time this runs (ADR 0011 §4).
+ * run: the local save has already committed by the time this runs (ADR 0011 §4). `resave` writes a
+ * run already saved once more — a development hook for watching Health replace, not duplicate, it.
  */
-export async function syncRunToHealth(runId: string): Promise<HealthSyncResult> {
+export async function syncRunToHealth(
+  runId: string,
+  { resave = false }: { resave?: boolean } = {},
+): Promise<HealthSyncResult> {
   if (inFlight.has(runId)) return 'busy';
 
   inFlight.add(runId);
@@ -51,7 +55,9 @@ export async function syncRunToHealth(runId: string): Promise<HealthSyncResult> 
     if (healthAdapter.getAuthorization() !== 'authorized') return 'skipped';
 
     const run = db.select().from(runs).where(eq(runs.id, runId)).get();
-    if (!run || !isHealthWritable(run)) return 'skipped';
+    if (!run || !isHealthWritable(resave ? { ...run, healthkitSaved: false } : run)) {
+      return 'skipped';
+    }
 
     await healthAdapter.saveRun(toHealthWorkout(run, loadRunFixes(runId), segmentRowsOf(runId)));
 

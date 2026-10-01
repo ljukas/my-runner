@@ -53,7 +53,7 @@ export default function HealthPrimerScreen() {
           title="Works with your other apps"
           template="primer"
         >
-          Anything that reads Apple Health &mdash; your rings, other fitness apps &mdash; picks your
+          Anything that reads Apple Health &mdash; Fitness, other running apps &mdash; picks your
           runs up automatically.
         </FeatureRow>
         <FeatureRow

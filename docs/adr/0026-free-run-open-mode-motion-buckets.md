@@ -583,3 +583,35 @@ Where the build changed §3, §8 and the Consequences:
   pause segments intact, and Health Connect's own entry details list them (§6 of the spec had that
   unconfirmed). That Health Connect's aggregate duration subtracts them is not verified: aggregates
   need a READ permission the app does not hold.
+
+## Amendment (2026-10-01): stage 5b built
+
+The iOS spike ran as stage 5b ([plan](../superpowers/plans/2026-10-01-free-run-stage-5b-apple-health-module.md)),
+on the simulator first (owner decision), with the device checks left as H1–H5 in the device
+checklist. Per §8's criteria:
+
+1. **Visible intervals: passes** on the owner's bar of "distinct visible intervals, even unlabelled".
+   - Health lists one activity per interval, each with its own times, duration and distance, and
+     lists the pauses as events.
+   - Every activity reads "Running". HealthKit refuses a walking activity inside a running workout
+     (measured, which confirms this ADR's Context), and Health does not show the custom kind. Each
+     activity does have its own distance, and so its own pace.
+   - Fitness is unverified (H1).
+2. **The route after a locked finish: met by design, unverified.** HealthKit caches locked writes,
+   and the route commits with the workout through the builder's series builder, so the save runs at
+   once (ADR 0011's 2026-10-01 amendment, item 4). H2 confirms this on a device.
+3. **Sync-identifier replacement: passes.** A re-save of a paused run left one workout, one route and
+   its four distance rows (one per interval). The route and each distance part carry their own
+   identifier, and the app's stale distance samples inside the window are deleted first.
+
+The module ships. The owner decided earlier that, had criterion 1 failed, the useful parts would ship
+anyway. It replaces the HealthKit library entirely rather than only its write path, and Health
+Connect follows the same way later (#90). Two consequences for §8 and the Consequences:
+- **The module is `modules/apple-health/`,** not §8's `modules/workout-writer/`. It owns every
+  HealthKit call, not only the write.
+- **iOS duration is the run's active time.** Pause/resume events override §8's "the workout's start
+  and end stay wall-clock, so its duration does not change". Start and end are still wall clock.
+- **iOS distance is one sample per interval** (ADR 0011's amendment, item 3), so each interval in
+  Health and Fitness has its own distance and pace.
+- **The iOS fingerprint moves** through the new module and the removed packages, and Android's
+  moves through the removed Nitro and the plugin list.

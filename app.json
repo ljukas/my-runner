@@ -69,12 +69,10 @@
           "motionPermission": "RunBro reads the barometer to measure how much you climbed on a run. It never leaves your phone."
         }
       ],
-      "./plugins/with-healthkit-write-only",
       [
-        "@kingstinct/react-native-healthkit",
+        "./plugins/with-apple-health",
         {
-          "NSHealthUpdateUsageDescription": "Save your completed runs (duration, distance, route) to Apple Health.",
-          "background": false
+          "updateUsageDescription": "Save your completed runs (duration, distance, route) to Apple Health."
         }
       ],
       "react-native-health-connect",

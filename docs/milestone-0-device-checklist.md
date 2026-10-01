@@ -327,3 +327,19 @@ with milestone cues on:
 | K2 | The spoken pace is close to the summary's Moving Pace for a steady kilometre | compare the cue row's `paceSecPerKm` with the summary |
 | K3 | With milestone cues off, no kilometre is spoken (the row is still logged) | Settings → Milestone cues off; `cue` rows |
 | K4 | Killing the app 10 s or more after km 1 and resuming announces "Resuming your workout." but not km 1 again (a kill within ~5 s of it may repeat it by design: the point flush had not run) | ear; `cue` rows after the `lifecycle` resume |
+
+## Apple Health workout builder — device-only (free-run stage 5b, 2026-10-01)
+
+The simulator's Health app proved the write: one activity per interval, the pause/resume events, a
+duration equal to active time, the route, one distance sample per interval, and a re-save that
+replaces rather than duplicates (ADR 0011's 2026-10-01 amendment). It cannot lock, and it has no Fitness app.
+On an iPhone with a **passcode** (without one, the phone never locks its data), on a dev build
+(`bun expo run:ios --device` with Metro on 8087):
+
+| # | Check | How |
+| --- | --- | --- |
+| H1 | Fitness shows the workout from a plan run with a pause: note whether it shows the intervals, the pause or the route at all | Fitness → the workout; compare with Health → Workouts → Show All Data → the entry |
+| H2 | A run that ends while the phone is **locked** is saved at once. After unlocking, the workout is in Health **with its route**; also when the run ends within ~10 s of locking | Let a run end locked (a short session, or End from the lock screen's Live Activity if available); unlock and check Health → the workout's details |
+| H3 | Fitness shows each interval's own distance and pace for a run where the walks are slower than the runs | Fitness → the workout; compare with the run's summary in the app |
+| H4 | A re-save replaces: one workout, one route, one distance row per interval | `resaveLatestRunToHealth()` in the JS debugger, then Health → Workouts and Walking + Running Distance |
+| H5 | Upgrading from a build that used `@kingstinct/react-native-healthkit` keeps the existing grant: no prompt, and Settings still reads *Saving workouts* | Install this build over the previous one without deleting the app |

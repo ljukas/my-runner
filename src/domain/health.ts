@@ -44,13 +44,14 @@ export function toHealthRoute(fixes: readonly SegmentedFix[]): HealthRoutePoint[
         speed: fix.speed ?? CL_UNKNOWN,
         // Never recorded: run_points has no course column (spec §5.1).
         course: CL_UNKNOWN,
-        // CoreLocation's own negative-means-invalid convention makes CL_UNKNOWN a safe, un-clamped fallback.
-        verticalAccuracy: fix.altitudeAccuracy ?? CL_UNKNOWN,
+        // CoreLocation's own negative-means-invalid convention makes CL_UNKNOWN a safe, un-clamped
+        // fallback; without an altitude the 0 above must not read as a measured sea level.
+        verticalAccuracy: fix.altitude == null ? CL_UNKNOWN : (fix.altitudeAccuracy ?? CL_UNKNOWN),
       }))
   );
 }
 
-/** The run's total distance over its own wall-clock window — one sample per session, not per segment. */
+/** The run's total distance over its own wall-clock window; the HealthKit mapping splits it per interval. */
 export interface HealthDistanceSample {
   startedAt: number;
   endedAt: number;
@@ -85,7 +86,7 @@ function hasMeasurableDistance(distanceM: number | null): distanceM is number {
   return distanceM !== null && Number.isFinite(distanceM) && distanceM > 0;
 }
 
-// per ADR 0011 amendment (item 7): one sample per run, not per segment.
+// per ADR 0011 amendment (item 7): one sample per run here; HealthKit's mapping splits it (2026-10-01).
 export function toHealthDistanceSample(
   run: Pick<HealthRunInput, 'startedAt' | 'endedAt' | 'distanceM'>,
 ): HealthDistanceSample | null {

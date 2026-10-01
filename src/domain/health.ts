@@ -51,7 +51,7 @@ export function toHealthRoute(fixes: readonly SegmentedFix[]): HealthRoutePoint[
   );
 }
 
-/** The run's total distance over its own wall-clock window — one sample per session, not per segment. */
+/** The run's total distance over its own wall-clock window; the HealthKit mapping splits it per interval. */
 export interface HealthDistanceSample {
   startedAt: number;
   endedAt: number;
@@ -86,7 +86,7 @@ function hasMeasurableDistance(distanceM: number | null): distanceM is number {
   return distanceM !== null && Number.isFinite(distanceM) && distanceM > 0;
 }
 
-// per ADR 0011 amendment (item 7): one sample per run, not per segment.
+// per ADR 0011 amendment (item 7): one sample per run here; HealthKit's mapping splits it (2026-10-01).
 export function toHealthDistanceSample(
   run: Pick<HealthRunInput, 'startedAt' | 'endedAt' | 'distanceM'>,
 ): HealthDistanceSample | null {

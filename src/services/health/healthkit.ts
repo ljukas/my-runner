@@ -63,10 +63,13 @@ function distanceParts(
     .map((window, i) => {
       const last = i === windows.length - 1;
       // why the clamp: the remainder after shares rounded up can be a hair below zero, and a
-      // negative quantity would fail the whole save.
-      const meters = last
-        ? Math.max(0, sample.meters - assigned)
-        : (sample.meters * weights[i]) / totalWeight;
+      // negative quantity would fail the whole save; a part with no weight gets no distance.
+      const meters =
+        weights[i] === 0
+          ? 0
+          : last
+            ? Math.max(0, sample.meters - assigned)
+            : (sample.meters * weights[i]) / totalWeight;
       assigned += meters;
       return { ...window, meters, syncIdentifier: `${input.syncIdentifier}:distance:${i}` };
     })

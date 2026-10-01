@@ -44,10 +44,12 @@ enum WorkoutWriter {
   private static func deleteDistanceSamples(within workout: WorkoutRecord) async {
     let type = HKQuantityType(.distanceWalkingRunning)
     guard isAuthorized(type) else { return }
+    // why a millisecond past the end: `.strictEndDate` matches only samples ending before it, and the
+    // last part ends exactly at the workout's end; `.strictStartDate` keeps the next run's out.
     let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
       HKQuery.predicateForObjects(from: HKSource.default()),
       HKQuery.predicateForSamples(
-        withStart: date(workout.startMs), end: date(workout.endMs),
+        withStart: date(workout.startMs), end: date(workout.endMs + 1),
         options: [.strictStartDate, .strictEndDate]),
     ])
     // why ignored: a stale part is a cosmetic leftover, never a reason to lose the save.
@@ -176,8 +178,7 @@ private final class BackgroundTask {
   static func begin() -> BackgroundTask {
     let task = BackgroundTask()
     task.id = UIApplication.shared.beginBackgroundTask(withName: "AppleHealth.saveWorkout") {
-      // UIKit calls the expiration handler on the main thread.
-      MainActor.assumeIsolated { task.end() }
+      task.end()
     }
     return task
   }

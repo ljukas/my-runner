@@ -23,7 +23,7 @@ export interface HealthKitWorkout extends HealthKitWindow {
   syncIdentifier: string;
   /** Must rise on every save, or HealthKit keeps the stored copy. */
   syncVersion: number;
-  /** The run's distance split at its pauses; together they sum to the run's total. */
+  /** One part per interval (per stretch between pauses without intervals); they sum to the total. */
   distances: (HealthKitWindow & { meters: number; syncIdentifier: string })[];
   pauses: HealthKitWindow[];
   segments: (HealthKitWindow & { kind: HealthKitSegmentKind })[];

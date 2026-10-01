@@ -6,11 +6,13 @@ import { Island } from '@/components/island';
 import { Text } from '@/components/ui/text';
 import { FREE_RUN_PLAN } from '@/domain/free-run';
 import { freeRunLocationLine } from '@/domain/free-run-view';
+import { useRunEntry } from '@/hooks/use-run-entry';
 import { useStartRun } from '@/hooks/use-start-run';
 import { useLocationPermission } from '@/services/location-tracker';
 
 export default function FreeRunSheet() {
   const start = useStartRun();
+  const entry = useRunEntry();
   const location = useLocationPermission();
 
   return (
@@ -25,7 +27,12 @@ export default function FreeRunSheet() {
         </Text>
       </View>
       <Text tone="secondary">{freeRunLocationLine(location)}</Text>
-      <Island.Button fill label="Start Free Run" onPress={() => void start(FREE_RUN_PLAN)} />
+      <Island.Button
+        fill
+        label="Start Free Run"
+        disabled={entry.disabled}
+        onPress={() => void start(FREE_RUN_PLAN)}
+      />
     </View>
   );
 }

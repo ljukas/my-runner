@@ -28,10 +28,10 @@ tags:
 - stopApp
 - launchApp
 - extendedWaitUntil:
-    visible: "Week 1 ·.*"
+    visible: "Couch to 5K.*" # the Run tab (helpers/assert-run-home.yaml)
     timeout: 120000
 # The expired run is finalized during detection, so its Log entry is the proof detection ran and
-# chose to abandon. A sheet offered instead swallows this tap and strands the flow on the plan list,
+# chose to abandon. A sheet offered instead swallows this tap and strands the flow on the Run tab,
 # where the Log row it scrolls for does not exist.
 - runFlow: ../helpers/open-log-row.yaml
 - assertVisible: ".*Partial.*"

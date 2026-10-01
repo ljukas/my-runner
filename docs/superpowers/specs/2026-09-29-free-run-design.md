@@ -6,6 +6,11 @@ Decision record: [ADR 0026](../../adr/0026-free-run-open-mode-motion-buckets.md)
 how and the when: the owner's decisions, the measurements behind the classifier, where the design
 touches the code, and the delivery stages. §10 records the review that produced revision 2.
 
+> **2026-09-30, stage 3c:** the entry described here (a header button on the Plan tab, §2's Entry
+> row, §5.1, §8's first flow step) was replaced by the Run tab's chooser — a Free run card beside
+> the Couch to 5K card. See ADR 0026's stage-3c amendment and the
+> [3c plan](../plans/2026-09-30-free-run-stage-3c-run-chooser.md).
+
 ## 1. What this is
 
 A **free run** is a run started from the Plan tab's header at any time. It has no scripted intervals

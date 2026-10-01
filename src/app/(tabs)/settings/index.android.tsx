@@ -127,7 +127,7 @@ export default function SettingsScreen() {
             </ListItem.HeadlineContent>
           </ListItem>
         ) : null}
-        <ListItem modifiers={[clickable(() => router.push('/privacy'))]}>
+        <ListItem modifiers={[clickable(() => router.navigate('/privacy'))]}>
           <ListItem.HeadlineContent>
             <Text color={colors.primary}>Privacy policy</Text>
           </ListItem.HeadlineContent>

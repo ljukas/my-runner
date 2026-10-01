@@ -5,10 +5,10 @@ tags:
 - runFlow: ../helpers/launch-and-onboard.yaml
 - stopApp
 - launchApp
-# Onboarding must not restart after a relaunch: none of the four steps reappears, plan list shows.
+# Onboarding must not restart after a relaunch: none of the four steps reappears, the Run tab shows.
 - assertNotVisible: "(Welcome to|From couch to 5K)" # welcome-marker (iOS | Android)
 - assertNotVisible: "Your pocket running coach" # audio-cues-marker
 - assertNotVisible: "(Track your route and your pace|Location for distance and cues)" # location-primer-marker
 - assertNotVisible: "Your runs, in (Apple Health|Health Connect)" # health-primer-marker
-- assertVisible: "Week 1 ·.*"
-- assertVisible: "Day 1"
+- runFlow: ../helpers/assert-run-home.yaml
+- assertVisible: "Up next: Week 1 · Day 1"

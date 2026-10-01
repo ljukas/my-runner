@@ -111,13 +111,16 @@ describe('toHealthWorkout', () => {
     startedAt: '2026-08-01T06:00:00.000Z',
     endedAt: '2026-08-01T06:30:00.000Z',
     distanceM: 4_200,
+    eventLogJson: null,
   };
+  const startMs = Date.parse(run.startedAt);
 
   test('reports the run total and a single sample spanning the whole run', () => {
-    const workout = toHealthWorkout(run, [
-      makeFix({ segmentSeq: 0, timestamp: 1_000 }),
-      makeFix({ segmentSeq: 1, timestamp: 2_000 }),
-    ]);
+    const workout = toHealthWorkout(
+      run,
+      [makeFix({ segmentSeq: 0, timestamp: 1_000 }), makeFix({ segmentSeq: 1, timestamp: 2_000 })],
+      [],
+    );
     expect(workout.totalDistanceM).toBe(4_200);
     expect(workout.distanceSample).toEqual({
       startedAt: Date.parse('2026-08-01T06:00:00.000Z'),
@@ -127,20 +130,50 @@ describe('toHealthWorkout', () => {
   });
 
   test('converts the stored ISO timestamps to epoch ms', () => {
-    const workout = toHealthWorkout(run, []);
+    const workout = toHealthWorkout(run, [], []);
     expect(workout.startedAt).toBe(Date.parse('2026-08-01T06:00:00.000Z'));
     expect(workout.endedAt).toBe(Date.parse('2026-08-01T06:30:00.000Z'));
   });
 
   test('a GPS-less run still yields a workout, with no route and no distance sample', () => {
-    const workout = toHealthWorkout({ ...run, distanceM: null }, []);
+    const workout = toHealthWorkout({ ...run, distanceM: null }, [], []);
     expect(workout.totalDistanceM).toBeNull();
     expect(workout.route).toEqual([]);
     expect(workout.distanceSample).toBeNull();
   });
 
   test('carries the run id through as the sync identifier (finding 1: idempotent retries)', () => {
-    const workout = toHealthWorkout(run, []);
+    const workout = toHealthWorkout(run, [], []);
     expect(workout.syncIdentifier).toBe('run-4200');
+  });
+
+  test('carries the segments and the pauses of the stored event log', () => {
+    const eventLogJson = JSON.stringify([
+      { type: 'start', at: startMs },
+      { type: 'pause', at: startMs + 60_000 },
+      { type: 'resume', at: startMs + 120_000 },
+    ]);
+    const workout = toHealthWorkout(
+      { ...run, eventLogJson },
+      [],
+      [{ seq: 0, kind: 'run', actualDurationS: 90 }],
+    );
+    expect(workout.segments).toEqual([
+      { activity: 'running', startedAt: startMs, endedAt: startMs + 60_000 },
+      { activity: 'running', startedAt: startMs + 120_000, endedAt: startMs + 150_000 },
+    ]);
+    expect(workout.pauses).toEqual([{ startedAt: startMs + 60_000, endedAt: startMs + 120_000 }]);
+  });
+
+  test('a malformed event log costs the pauses, not the segments', () => {
+    const workout = toHealthWorkout(
+      { ...run, eventLogJson: '{not json' },
+      [],
+      [{ seq: 0, kind: 'walk', actualDurationS: 60 }],
+    );
+    expect(workout.segments).toEqual([
+      { activity: 'walking', startedAt: startMs, endedAt: startMs + 60_000 },
+    ]);
+    expect(workout.pauses).toEqual([]);
   });
 });

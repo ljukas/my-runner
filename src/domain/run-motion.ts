@@ -12,7 +12,7 @@ import {
   type SegmentedFix,
   type SmootherState,
 } from './geo';
-import { largestRemainder, quantile } from './math';
+import { quantile } from './math';
 import type { SegmentKind } from './plan';
 import type { PausedInterval } from './run-altitude';
 
@@ -390,13 +390,18 @@ function toBuckets(
     durationS: 0,
     distanceM: 0,
   }));
-  // why the total from whole milliseconds: a sum of per-bucket seconds can land a hair under x.5 and
-  // round away from the run's own active time.
-  const whole = largestRemainder(
-    buckets.map((b) => b.activeS),
-    Math.round(spanMs.reduce((sum, ms) => sum + ms, 0) / 1000),
-  );
-  buckets.forEach((bucket, i) => (bucket.durationS = whole[i]));
+  // why by running total: every boundary then lies within half a second of the real one, where
+  // rounding each bucket alone lets the error walk (Health windows are laid from these durations).
+  // why whole milliseconds: a sum of per-bucket seconds can land a hair under x.5 and round away from
+  // the run's own active time.
+  let elapsedMs = 0;
+  let roundedS = 0;
+  buckets.forEach((bucket, i) => {
+    elapsedMs += spanMs[i];
+    const nextS = Math.round(elapsedMs / 1000);
+    bucket.durationS = nextS - roundedS;
+    roundedS = nextS;
+  });
   // why `<`: a delta is the leg ending at its fix, so a fix exactly on a boundary closes the earlier bucket.
   for (const delta of deltas) {
     const owner = buckets.findLast((bucket) => bucket.startMs < delta.atMs) ?? buckets[0];

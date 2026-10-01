@@ -329,3 +329,33 @@ plan is [`2026-09-22-android-stage-5-health-connect.md`](../superpowers/plans/20
    and `SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED` (Health Connect is part of the
    platform on this image), an explicit *Don't allow*, and the twice-cancelled
    auto-decline.
+
+## Amendment (2026-09-30): Android sessions carry exercise segments
+
+Written on shipping free-run stage 5a ([plan](../superpowers/plans/2026-09-30-free-run-stage-5a-health-segments.md);
+[ADR 0026](0026-free-run-open-mode-motion-buckets.md) §8 and its 2026-09-30 stage-5a amendment),
+verified on the emulator (Pixel 10 Pro, API 37) the same day.
+
+1. **The library is patched** (`patches/react-native-health-connect@4.1.3.patch`, the repo's
+   first `bun patch`). Its writer read both `laps` and `segments` from a `samples` key, so a
+   `segments` field was dropped without an error (upstream #277); the patch reads the keys the
+   TypeScript types declare. The exact pin in the Android amendment's item 1 now also guards the
+   patch: a version bump must re-check it. The patch is interim (owner decision): RunBro needs
+   different things from Health Connect than this library offers, so rather than fight it, an
+   owned Android-only module under `modules/` replaces it later (#90).
+2. **The payload grows two platform-neutral fields**, `segments` (running, walking, resting) and
+   `pauses`, both wall-clock and derived in `domain/health-segments.ts`. Only the Health Connect
+   mapper turns pauses into PAUSE segments; the iOS adapter ignores both until stage 5b.
+3. **A rejected segment list costs the segments, not the save.** Health Connect validates segments
+   in the session constructor (inside the session, not overlapping, a type the exercise allows)
+   and throws `IllegalArgumentException`, which the library rejects as `ARGUMENT_VALIDATION_ERROR`.
+   On that code alone, the same save inserts the session again without segments and warns; any
+   other failure (unavailable service, permissions) is rethrown at once, so a transient error
+   never costs valid segments on a run then marked saved. This is a degrade within one call, not a
+   retry, so the Consequences' "no silent retries" holds, and a second rejection fails the save as
+   before. Likewise, segment rows that cannot be read cost the segments, not the save.
+4. **Item 7's single distance sample is unchanged**; segments carry no distance.
+5. **Facts elsewhere in this ADR that moved:** Decision item 1's builder is now
+   `toHealthWorkout(run, fixes, segmentRows)`; the Android amendment's "three files reference the
+   library" is four, the fourth a type-only import in `health-connect.test.ts`; and the mapper
+   restates seven of its numeric constants, not three (the four segment types).

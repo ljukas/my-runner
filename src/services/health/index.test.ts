@@ -9,6 +9,7 @@ import type { HealthAuthorization } from './port';
 function mockDeps(requestWriteAccess: () => Promise<HealthAuthorization>) {
   void mock.module('@/db/client', () => ({ db: {} }));
   void mock.module('@/db/run-points', () => ({ loadRunFixes: () => [] }));
+  void mock.module('@/db/run-segments', () => ({ loadRunSegments: () => [] }));
   void mock.module('expo-linking', () => ({
     openURL: async () => {},
     openSettings: async () => {},

@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { ExerciseSessionRecord } from 'react-native-health-connect';
+
 import { CL_UNKNOWN, type HealthRoutePoint, type HealthWorkoutInput } from '@/domain/health';
 import {
+  insertExerciseSession,
   isHealthRationaleAction,
   resolveAuthorization,
   toDistanceRecord,
   toExerciseRouteLocations,
+  toExerciseSegments,
   toExerciseSessionRecord,
   WRITE_PERMISSIONS,
 } from './health-connect';
@@ -34,6 +38,8 @@ function makeInput(overrides: Partial<HealthWorkoutInput> = {}): HealthWorkoutIn
     totalDistanceM: 4_200,
     distanceSample: { startedAt: START, endedAt: END, meters: 4_200 },
     route: [makePoint()],
+    segments: [],
+    pauses: [],
     syncIdentifier: 'run-4200',
     ...overrides,
   };
@@ -127,6 +133,97 @@ describe('toExerciseSessionRecord', () => {
       recordingMethod: 1,
       device: { type: 2 },
     });
+  });
+});
+
+const MIN = 60_000;
+const iso = (ms: number) => new Date(ms).toISOString();
+const segmented = makeInput({
+  segments: [
+    { activity: 'walking', startedAt: START, endedAt: START + 5 * MIN },
+    { activity: 'running', startedAt: START + 5 * MIN, endedAt: START + 6 * MIN },
+    { activity: 'resting', startedAt: START + 8 * MIN, endedAt: START + 9 * MIN },
+  ],
+  pauses: [{ startedAt: START + 6 * MIN, endedAt: START + 8 * MIN }],
+});
+
+describe('toExerciseSegments', () => {
+  test('writes walking, running and rest segments, and each pause as a pause, in time order', () => {
+    expect(toExerciseSegments(segmented)).toEqual([
+      { startTime: iso(START), endTime: iso(START + 5 * MIN), segmentType: 64, repetitions: 0 },
+      {
+        startTime: iso(START + 5 * MIN),
+        endTime: iso(START + 6 * MIN),
+        segmentType: 46,
+        repetitions: 0,
+      },
+      {
+        startTime: iso(START + 6 * MIN),
+        endTime: iso(START + 8 * MIN),
+        segmentType: 39,
+        repetitions: 0,
+      },
+      {
+        startTime: iso(START + 8 * MIN),
+        endTime: iso(START + 9 * MIN),
+        segmentType: 44,
+        repetitions: 0,
+      },
+    ]);
+  });
+
+  test('the session carries them, and omits the key when there are none', () => {
+    expect(toExerciseSessionRecord(segmented, 7).segments).toHaveLength(4);
+    expect('segments' in toExerciseSessionRecord(makeInput(), 7)).toBe(false);
+  });
+});
+
+describe('insertExerciseSession', () => {
+  // The library rejects with the code it maps each native exception to (ExceptionsUtils.kt).
+  function recorder(failures: number, code = 'ARGUMENT_VALIDATION_ERROR') {
+    const calls: ExerciseSessionRecord[][] = [];
+    const insert = async (records: ExerciseSessionRecord[]) => {
+      calls.push(records);
+      if (calls.length <= failures) throw Object.assign(new Error('rejected'), { code });
+    };
+    return { calls, insert };
+  }
+
+  test('inserts the session once when Health Connect accepts it', async () => {
+    const { calls, insert } = recorder(0);
+    await insertExerciseSession(insert, toExerciseSessionRecord(segmented, 7));
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0].segments).toHaveLength(4);
+  });
+
+  test('saves the same record again without segments when they are rejected', async () => {
+    const { calls, insert } = recorder(1);
+    const record = toExerciseSessionRecord(segmented, 7);
+    await insertExerciseSession(insert, record);
+    expect(calls).toHaveLength(2);
+    const { segments: _rejected, ...bare } = record;
+    expect(calls[1]).toEqual([bare]);
+  });
+
+  test('rethrows at once when Health Connect failed for another reason', async () => {
+    const { calls, insert } = recorder(1, 'SERVICE_UNAVAILABLE');
+    const record = toExerciseSessionRecord(segmented, 7);
+    await expect(insertExerciseSession(insert, record)).rejects.toThrow('rejected');
+    expect(calls).toHaveLength(1);
+  });
+
+  test('rethrows at once when there were no segments to blame', async () => {
+    const { calls, insert } = recorder(1);
+    const record = toExerciseSessionRecord(makeInput(), 7);
+    await expect(insertExerciseSession(insert, record)).rejects.toThrow('rejected');
+    expect(calls).toHaveLength(1);
+  });
+
+  test('rethrows when the record without segments is rejected too', async () => {
+    const { calls, insert } = recorder(2);
+    const record = toExerciseSessionRecord(segmented, 7);
+    await expect(insertExerciseSession(insert, record)).rejects.toThrow('rejected');
+    expect(calls).toHaveLength(2);
   });
 });
 

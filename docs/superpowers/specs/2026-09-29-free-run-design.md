@@ -163,8 +163,9 @@ The overlap between walking and running moves with the day. On `2d8d4091` (w4d1)
   - A GPS gap longer than `MAX_GAP_S` becomes stopped time.
   - Each committed delta goes to the bucket of the fix that ends it, so the buckets' distances sum to
     `distanceM`.
-  - Each bucket's `durationS` is its active seconds rounded by largest remainder, so they sum to the
-    run's rounded active time (`activeDurationS`).
+  - Each bucket's `durationS` is its active seconds rounded by running total (ADR 0026's stage-5a
+    amendment; largest remainder before), so they sum to the run's rounded active time
+    (`activeDurationS`) and every boundary stays within half a second.
   - **Stage 3 must restart every other re-fold at resumes too.** `smoothTrackBySegment`,
     `smoothTrackForRender` and `toRunProfile` do not restart at a pause, so over a free run with a
     pause shorter than `MAX_GAP_S` they would count the chord this fold excludes. Finalize uses this
@@ -351,7 +352,7 @@ the kilometre cue are verified by replay tests, and by driving GPS by hand on iO
 | 3a | **Engine and persistence** | `OpenMode` and `modeFor`; the snapshot union; the derived finalize with the `segment_seq` rewrite; `deriveOpenRun` (cap, stopped trim, under-a-minute discard); hard-delete discard; `planOf` and the 4 h resume; the learned-threshold reader; the pause rule in every re-fold; the `stopped` kind's label, colour and symbol; the ADR 0007 and 0021 amendments. No entry point, so the app is unchanged. | `bun test` (open mode, derived finalize under `bun:sqlite`, `deriveOpenRun`); the differential old-vs-new engine harness for plan runs. [Plan](../plans/2026-09-29-free-run-stage-3a-engine-persistence.md). |
 | 3b | **The surfaces** | The header button, sheet, `FreeRunView` and `showSkip`; the Save / Discard / Cancel End dialog (Android: Discard in the dialog body); the free-run stat grid; `runTitle`; the resume sheet's copy. | `free-run.yaml` and a discard flow (below), waiting out the minute; a manual GPS drive on both platforms. |
 | 4 | **Chart and cue** | Chart bands and stop markers; the `kilometre` cue; Settings copy; the ADR 0009 amendment. | `bun test`; a drive past 1 km; light and dark screenshots on iOS and Android. [Plan](../plans/2026-09-30-free-run-stage-4-chart-and-cue.md). |
-| 5a | **Health segments, Android** | `segmentWindows`; the library patch; exercise segments for plan and free runs; the ADR 0011 amendment. Depends only on stage 1 and can ship any time after it. | Readback through `readRecords`; the Health Connect data browser. |
+| 5a | **Health segments, Android** | `segmentWindows`; the library patch; exercise segments for plan and free runs; the ADR 0011 amendment. Depends only on stage 1 and can ship any time after it. | Readback through `readRecords`; the Health Connect data browser. [Plan](../plans/2026-09-30-free-run-stage-5a-health-segments.md): pauses are written as PAUSE segments too, and the patch moves both fingerprints (ADR 0026's stage-5a amendment). |
 | 5b | **Health segments, iOS** | The spike, then `modules/workout-writer/`, or an amendment dropping it. | §6's three criteria on a device. |
 
 ## 8. Testing

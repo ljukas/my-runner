@@ -194,8 +194,8 @@ What constrains the design:
   - The buckets tile the run from the `start` event to the `end` event.
   - A GPS gap longer than `MAX_GAP_S` becomes stopped time. It carries no distance and no
     moving time.
-  - Each bucket's active seconds exclude pauses. The integer durations are rounded with
-    largest remainder, so they sum exactly to `activeDurationS`.
+  - Each bucket's active seconds exclude pauses. The integer durations are rounded by running
+    total (largest remainder until stage 5a's amendment), so they sum exactly to `activeDurationS`.
 
 ### 4. Buckets are stored as `run_segments` rows, and each point's tag is rewritten at finalize
 
@@ -550,3 +550,36 @@ The chart and the kilometre cue shipped as stage 4
 - **The phrase** drops the seconds on a whole minute and the pace when it is unknown or under a
   minute per kilometre; seconds are rounded before splitting, so 359.6 s is "6 minutes". ADR 0009's
   Decision 1 is amended for the typed data.
+
+## Amendment (2026-09-30): stage 5a built
+
+Health Connect segments shipped as stage 5a ([plan](../superpowers/plans/2026-09-30-free-run-stage-5a-health-segments.md)).
+Where the build changed §3, §8 and the Consequences:
+
+- **Pauses are written, as PAUSE segments** (owner decision). §8 said nothing is written for a
+  paused span. Per AOSP (cited in upstream #277; not verified here, below), Health Connect
+  subtracts PAUSE and REST segments from a session's exercise duration, so an unwritten pause
+  counted as exercise time. A pause the event log ended in runs to the workout's end. Stopped time
+  stays REST, so where GPS measured the buckets, Health Connect's duration for a free run is its
+  moving time rather than the app's active time. A timer-only free run has no buckets and writes
+  no REST; a GPS silence is a stopped bucket, so it is written as REST too.
+- **Pauses stay out of the segment list in the domain.** `HealthWorkoutInput` carries `segments`
+  and `pauses` apart, because HealthKit models a pause as a pause/resume event, not a segment
+  (stage 5b); the Health Connect mapper merges them.
+- **Bucket durations are rounded by running total** (§3's rounding). Largest remainder kept the
+  sum exact but let each boundary drift as a random walk: rebuilt from the durations, as the
+  Health windows are, a boundary sat a median 0.7 s out over 10 buckets and 2.5 s over 120. Each
+  bucket now takes the rounded active time at its end less the rounded time at its start, which
+  keeps the sum and holds every boundary within half a second. `largestRemainder` is gone.
+- **No upstream PR** (owner decision, replacing §8's): the patch has the shape upstream issue #277
+  proposes and is interim. An owned Health Connect module replaces the library later (#90).
+- **Fingerprints (correcting the Consequences):** the patch moves **both**. `@expo/fingerprint`
+  hashes `patches/` for iOS and Android alike; Android also hashes the patched package. iOS moved
+  with `patches` as its only new source: `fd770db…` → `9d09364…` unset, `bcd744b…` → `4cf7631…`
+  `development`, `aca9e74…` → `9419024…` `e2e` (so CI's `e2e-ios` rebuilds once). Android unset:
+  `f1019d0…` → `6bb185f…`. Ignoring the directory was offered and declined, so the next iOS
+  release is a store build.
+- **Verified on the emulator:** plan and free runs read back with their walking, running, rest and
+  pause segments intact, and Health Connect's own entry details list them (§6 of the spec had that
+  unconfirmed). That Health Connect's aggregate duration subtracts them is not verified: aggregates
+  need a READ permission the app does not hold.

@@ -2,6 +2,8 @@
 
 > **iOS: the library is gone — 2026-10-01.** `modules/apple-health/` (owned Swift over `HKWorkoutBuilder`) replaced `@kingstinct/react-native-healthkit` and Nitro in free-run stage 5b. The Decision's library headline, item 3's plugin settings and the Consequences on Nitro and "one continuous workout" are superseded where the [Amendment (2026-10-01)](#amendment-2026-10-01-an-owned-module-replaces-the-library-on-ios) says.
 >
+> **Both platforms: one owned module — 2026-10-01.** `modules/health/` (Swift and Kotlin behind one JS API) replaced `react-native-health-connect` and `modules/launch-intent/` in free-run stage 5c; see the [Amendment (2026-10-01): one owned module on both platforms](#amendment-2026-10-01-one-owned-module-on-both-platforms).
+>
 > **Android: stage 5 (Health Connect) — built 2026-09-22.** Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Health Connect adapter and the three Android UI surfaces shipped in stage 5. See the [Amendment (2026-09-22)](#amendment-2026-09-22-android--health-connect-behind-the-same-port) for where Decision item 7's "designed against both APIs' shapes" needed correcting.
 
 Date: 2026-07-11
@@ -18,7 +20,9 @@ than conveying structure, and the workout now writes a single whole-session
 sample instead — see amendment item 7. Research findings under Context
 are left as the dated 2026-07-11 record of what was believed then, and the
 amendment says where they were wrong or incomplete. **Amended 2026-10-01**: an owned module replaces the library on iOS (structured workouts, one
-distance sample per interval, saves that work locked); see that amendment.
+distance sample per interval, saves that work locked); see that amendment. **Amended again
+2026-10-01**: the same module, renamed `modules/health/`, owns Health Connect too (one JS API, a
+native status cache, an `updateRequired` status); see that amendment.
 
 ## Context
 
@@ -430,3 +434,77 @@ device checklist's H1–H5.
 7. **HealthKit errors reach JS with their code** (`ERR_HEALTHKIT_<code>`, through a
    `GenericException<HKError>` at the module boundary), and the sync identifiers and window are
    required record fields, so a dropped key fails the save rather than writing under `""`.
+
+## Amendment (2026-10-01): one owned module on both platforms
+
+Written on shipping free-run stage 5c ([plan](../superpowers/plans/2026-10-01-free-run-stage-5c-health-connect-module.md);
+closes #90). Verified on the emulator (Pixel 10 Pro, API 37, platform Health Connect), on an API 33
+image without the Health Connect app, and on the iOS 26.5 simulator, all the same day.
+
+1. **`modules/health/` replaces `react-native-health-connect`, its patch and `modules/launch-intent/`**
+   (owner decision: own both health integrations). It is one Expo module, `Health`, with the same
+   JS API on both platforms (`modules/health/index.ts`): Swift over HealthKit (`modules/apple-health/`
+   renamed) and Kotlin over `connect-client` 1.1.0. One `services/health/adapter.ts` replaces the
+   two forks, and the pure `health-connect.ts` mapping moves into Kotlin. `plugins/with-health.js`
+   replaces `with-apple-health.js` and the library's plugin: the iOS entitlement and purpose string
+   as before, plus the rationale intent filter and the `ViewPermissionUsageActivity` alias on
+   `MainActivity`. The module's own manifest declares the three write permissions and the
+   `<queries>` entry for the Health Connect app, so they left `android.permissions`.
+   - **The port grows from three members to six:** `openSettings()`, `openStore()` and
+     `subscribeRationale()` join Decision item 1's `getAuthorization()`, `requestWriteAccess()`
+     and `saveRun()`. Opening the store's settings is now a port member on both platforms, which
+     replaces the 2026-09-22 amendment's "never a port member". Each was a forked service seam
+     (`open-health-app`, `rationale-intent`) before; one module behind one adapter made them port
+     members rather than more forks.
+2. **The status lives natively and stays synchronous.** Kotlin keeps the cached status, starting
+   from the last answer it stored, and re-probes on module creation, on every return to the
+   foreground, after a request and after a save refused for permissions. It reports a change as an
+   `onAuthorizationChange` event, which feeds `notifyAuthorizationChanged`. The "asked once" memory
+   moved from the kv-store to the module's SharedPreferences. Android had not shipped to Play, so
+   nothing was migrated. These replace the 2026-09-22 amendment's items 2 (first bullet) and 3:
+   - **Authorized means the exercise grant** (owner decision), as on iOS. A partial grant no longer
+     reads as denied; the writer leaves out a refused route or distance (item 5 of the iOS
+     amendment, now on both platforms).
+   - **A fifth status, `updateRequired`:** Android 9–13 without a current Health Connect app.
+     Settings, the run summary and the Android primer offer *Get Health Connect*, which opens its
+     Play Store page (`openStore()`, a no-op on iOS). Returning re-probes. `unavailable` is Android
+     8 (API 26–27) or a device without HealthKit.
+3. **The permission dialog goes through the activity's own `ActivityResultRegistry`,** not Expo's
+   `RegisterActivityContracts`. On Android 14+ Health Connect's contract is a runtime-permission
+   request, which Expo's registry starts with `requestPermissions`, and the answer then arrives in
+   `onRequestPermissionsResult`, which that registry never receives. Measured: the request never
+   resolved, for *Don't allow* and the privacy link alike.
+4. **The rationale interruption is decided natively** (the 2026-09-22 amendment's item 4, minus the
+   1 s JS wait). The module watches the two rationale actions on the launch and new intents. An
+   empty result counts as an interruption when a rationale request arrived since the dialog opened,
+   checked after a main-thread hop and again 500 ms later; the earlier status then stands
+   (`notDetermined`, or `denied` for a runner who refused before) and nothing is stored. The request goes to JS as `onRationale`. A cold start through the link is
+   held for `consumeRationale()`, which `HealthRationaleGate` reads on mount.
+5. **The Android write matches iOS's shape:**
+   - one atomic `insertRecords` with the session and its distance parts (the library could not mix
+     record types, so it took two calls);
+   - one distance record per interval, as the iOS amendment's item 3, from the same pure
+     `services/health/health-payload.ts` (`healthkit.ts` renamed). The app's own distance records
+     inside the workout's window (plus a millisecond) are deleted first. Verified: the free-run
+     fixture's five parts sum to its 286.7 m, the 5a-era single record is gone, and a re-save leaves
+     the same five;
+   - the session title, *Week N · Day M* or *Free run* (`runTitle`). HealthKit has no field Health
+     shows, so iOS drops it;
+   - `Metadata.activelyRecorded` with the phone as the device, and the zone offset at each instant;
+   - route points filtered to strictly increasing times in `[start, end)`, accuracies clamped at
+     0 m, and the shared 50 m accuracy filter now on Android too;
+   - Health Connect's `IllegalArgumentException` for the segments makes the same save insert the
+     session plain, at the same version (the insert is atomic, so nothing half-landed). Verified
+     with overlapping segments.
+
+   Errors reach JS as `ERR_HEALTH_CONNECT_*` codes.
+6. **The type-only exception (iOS amendment item 6) is now `health-payload.ts` importing
+   `modules/health/types.ts`.** The library's type import is gone.
+7. **Verified:** the privacy link → the policy, the status still *Not set up*; an exercise-only
+   grant → *Saving workouts*; a save with only that grant, then with all three; titles, segments
+   (Walking, Running, Rest, Pause) and the route in the data browser; a revoke → *Off* after the
+   cold start it causes, and *Open Health Connect*; a grant in Health Connect → *Saving workouts* on
+   return; Health Connect's own *Read privacy policy* → the policy; on API 33 without the app,
+   *Get Health Connect* in the primer and Settings, and the Play Store opening. **Not exercised:**
+   installing Health Connect from Play (the image has no Google account), a real Android 9–13
+   phone, and the twice-cancelled auto-decline.

@@ -143,3 +143,13 @@ the same stage: a local native module (`modules/*`) may back more than one
 adapter — `modules/motion-sensors/` serves both `elevation` and
 `step-counter` — but only adapters import it.
 
+## Amendment (2026-10-01): one adapter for a module that has both platforms
+
+Decision item 2's sibling files (`adapter.ios.ts`, `adapter.android.ts`) assume the two platforms
+reach different native code from JS. `modules/health/` (free-run stage 5c; ADR 0011's amendment of
+that date) puts both platforms behind one JS API, Swift in `ios/` and Kotlin in `android/`, so
+`services/health/adapter.ts` is a single unsuffixed file and the platform split lives in the
+module. The rule: a port whose local module has the same JS API on both platforms takes one
+unsuffixed adapter; a port over different libraries per platform keeps the sibling files. Only
+the adapter imports the module at runtime, as before.
+

@@ -77,7 +77,7 @@ screens.
 | 2 — Location & background | Foreground-service location (expo-location's Android config), fixes into the engine, distance and pace, the run keeps its heartbeat with the screen off; keep-awake reverts to lock-only. Location primer onboarding step returns. | `location-tracker/adapter.android.ts`; `runHoldsScreenAwake`; `RunLocationBanner`'s `'unsupported'` branch goes dead, not removed (see the 2026-09-21 amendment). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-2-location-heartbeat.md); mechanics and measurements in ADR 0008's 2026-09-21 amendment. |
 | 3 — Spoken cues | expo-speech over Android audio focus (ducking semantics differ, ADR 0009); audio-cues onboarding step returns. | `cue-service/adapter.android.ts`; `modules/audio-focus/`, a local Expo module for transient may-duck focus (decided 2026-09-21). | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-3-spoken-cues.md); mechanics and measurements in ADR 0009's 2026-09-21 amendment. |
 | 4 — Maps | `GoogleMaps.View` behind the `RouteMap` port; needs a build-time Maps API key (`android.config.googleMaps.apiKey`, ADR 0010). Route card and viewer return to the summary. | `route-map/adapter.android.tsx`; delete the `route-map-card.android.tsx` stub. | **Built 2026-09-21** — [plan](../superpowers/plans/2026-09-21-android-stage-4-maps.md); mechanics in ADR 0010's and ADR 0012's 2026-09-21 amendments. Card, viewer, degradations and rendering all verified on the emulator with a real Maps key (see the amendment below). |
-| 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | **Built 2026-09-22** — [plan](../superpowers/plans/2026-09-22-android-stage-5-health-connect.md); mechanics and measurements in ADR 0011's 2026-09-22 amendment; the deliberate iOS fingerprint move in ADR 0012's. |
+| 5 — Health Connect | `react-native-health-connect` behind `HealthAdapter` (ADR 0011); health onboarding step and Settings row return. | `health/adapter.android.ts`; `health-status-row.android.tsx` stub goes. | **Built 2026-09-22** — [plan](../superpowers/plans/2026-09-22-android-stage-5-health-connect.md); mechanics and measurements in ADR 0011's 2026-09-22 amendment; the deliberate iOS fingerprint move in ADR 0012's. The library and `modules/launch-intent/` were replaced by the owned `modules/health/` on 2026-10-01 (free-run stage 5c; ADR 0011's amendment of that date). |
 | 6 — Elevation | Barometer where the hardware has one, GPS-altitude fallback otherwise (ADR 0015); field export returns. | `elevation/adapter.android.ts`; `run-export-row.android.tsx` stub goes. | **Built 2026-09-27** — [plan](../superpowers/plans/2026-09-27-android-stage-6-elevation.md); capture parity only; the render landed platform-blind on 2026-09-29 without a GPS fallback (ADR 0015's 2026-09-29 amendment); mechanics and measurements in ADR 0015's 2026-09-27 amendment. |
 | 7 — Release pipeline | `eas.json` Android profiles, Play service account, `.eas/workflows/deploy-production.yml`'s existing Android jobs go live (ADR 0012), an `e2e-android` GitHub Actions lane with Maestro on the emulator (ADR 0001). | `eas.json`, `.github/workflows/`, `.maestro/` `appId` per platform. | **Built 2026-09-27** — [plan](../superpowers/plans/2026-09-27-android-stage-7-release-pipeline.md); release mechanics in ADR 0012's, the E2E lane in ADR 0001's and ADR 0016's amendments of the same date; the Play Console steps the repo cannot take are in [`docs/android-release-checklist.md`](../android-release-checklist.md). |
 
@@ -527,3 +527,25 @@ to this record:
   counter's run-start dialog; repack needs `ANDROID_SDK_ROOT` and signs with the
   same debug certificate as the `withoutCredentials` build, so `adb install -r`
   over it works.
+
+## Amendment (2026-10-01): Health Connect moves into an owned module
+
+Free-run stage 5c replaced stage 5's `react-native-health-connect` (and its `bun patch`) with
+Kotlin in `modules/health/`, the module that already owned HealthKit, renamed from
+`modules/apple-health/`; ADR 0011's amendment of the same date has the mechanics. What changes in
+this record:
+
+- **The first local module with both platforms.** `modules/health/` has `ios/` and `android/` and
+  one unsuffixed `index.ts`, so `services/health/` has a single adapter instead of a fork, and the
+  Android and iOS status rows merged into one `health-status-row.tsx` (the store name comes from
+  `constants/health-store.ts`). It moves both platforms' fingerprints, unlike the Android-only
+  modules.
+- **`modules/launch-intent/` is gone.** The health module reads the rationale intents itself, so the
+  stage-5 bullet above about the second local module is history.
+- **One more Android-only state:** `updateRequired` (Android 9–13 without a current Health Connect
+  app), with *Get Health Connect* in Settings, the run summary and the primer. Testing it needs an
+  image without Health Connect; the `RunBro_API_33` AVD (API 33, Google Play) is one.
+- **Emulator fact:** `pm revoke` of a health permission kills the app's process, so returning from
+  it is a cold start; a grant in Health Connect's own UI does not, and exercises the
+  foreground re-probe.
+

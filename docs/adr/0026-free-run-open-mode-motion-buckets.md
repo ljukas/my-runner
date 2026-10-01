@@ -523,12 +523,17 @@ checklist. Per §8's criteria:
    - Fitness is unverified (H1).
 2. **The route after a locked finish: met by design, unverified.** The save waits for the next unlock
    or foreground (ADR 0011's 2026-10-01 amendment, item 4) instead of finishing while locked (H2).
-3. **Sync-identifier replacement: passes.** A re-save left one workout, one route and one distance
-   row, because the route and the distance parts each carry their own identifier.
+3. **Sync-identifier replacement: passes.** A re-save of a paused run left one workout, one route and
+   both of its distance rows (one per stretch between pauses), because the route and each distance
+   part carry their own identifier.
 
 The module ships. The owner decided earlier that, had criterion 1 failed, the useful parts would ship
 anyway. It replaces the HealthKit library entirely rather than only its write path, and Health
 Connect follows the same way later (#90). Two consequences for §8 and the Consequences:
+- **The module is `modules/apple-health/`,** not §8's `modules/workout-writer/`. It owns every
+  HealthKit call, not only the write.
+- **iOS duration is the run's active time.** Pause/resume events override §8's "the workout's start
+  and end stay wall-clock, so its duration does not change". Start and end are still wall clock.
 - **iOS distance is split at pauses** (ADR 0011's amendment, item 3).
 - **The iOS fingerprint moves** through the new module and the removed packages, and Android's
   moves through the removed Nitro and the plugin list.

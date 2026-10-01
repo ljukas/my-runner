@@ -325,7 +325,7 @@ On an iPhone with a **passcode** (without one, protected data is never unavailab
 | # | Check | How |
 | --- | --- | --- |
 | H1 | Fitness shows the workout from a plan run with a pause: note whether it shows the intervals, the pause or the route at all | Fitness → the workout; compare with Health → Workouts → Show All Data → the entry |
-| H2 | A run that ends while the phone is **locked** writes nothing until unlock. After unlocking and opening the app, the workout appears **with its route** | Let a run end locked (a short session, or End from the lock screen's Live Activity if available); check Health before and after unlocking |
+| H2 | A run that ends while the phone is **locked** writes nothing until unlock. After unlocking and opening the app, the workout appears **with its route**; also when the run ends within ~10 s of locking (the grace period) | Let a run end locked (a short session, or End from the lock screen's Live Activity if available); check Health before and after unlocking |
 | H3 | Force-quitting while the save waits writes nothing, and the summary's *Save to Apple Health* then saves it | As H2, but swipe the app away before unlocking; then open the run in Log |
 | H4 | A re-save replaces: one workout, one route, one distance row per stretch between pauses | `resaveLatestRunToHealth()` in the JS debugger, then Health → Workouts and Walking + Running Distance |
 | H5 | Upgrading from a build that used `@kingstinct/react-native-healthkit` keeps the existing grant: no prompt, and Settings still reads *Saving workouts* | Install this build over the previous one without deleting the app |

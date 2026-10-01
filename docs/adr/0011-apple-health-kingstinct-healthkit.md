@@ -1,5 +1,7 @@
 # 11. Apple Health writes via @kingstinct/react-native-healthkit
 
+> **iOS: the library is gone — 2026-10-01.** `modules/apple-health/` (owned Swift over `HKWorkoutBuilder`) replaced `@kingstinct/react-native-healthkit` and Nitro in free-run stage 5b. The Decision's library headline, item 3's plugin settings and the Consequences on Nitro, "one continuous workout" and "no silent retries" are superseded where the [Amendment (2026-10-01)](#amendment-2026-10-01-an-owned-module-replaces-the-library-on-ios) says.
+>
 > **Android: stage 5 (Health Connect) — built 2026-09-22.** Android ships in stages ([ADR 0025](0025-android-staged-migration.md)); the Health Connect adapter and the three Android UI surfaces shipped in stage 5. See the [Amendment (2026-09-22)](#amendment-2026-09-22-android--health-connect-behind-the-same-port) for where Decision item 7's "designed against both APIs' shapes" needed correcting.
 
 Date: 2026-07-11
@@ -15,7 +17,8 @@ Health slice the same day: they fragmented the user's distance history rather
 than conveying structure, and the workout now writes a single whole-session
 sample instead — see amendment item 7. Research findings under Context
 are left as the dated 2026-07-11 record of what was believed then, and the
-amendment says where they were wrong or incomplete.
+amendment says where they were wrong or incomplete. **Amended 2026-10-01**: an owned module replaces the library on iOS (structured workouts, the
+distance split at pauses, a locked save that waits); see that amendment.
 
 ## Context
 
@@ -385,9 +388,14 @@ device checklist's H1–H5.
    - the route;
    - workout-level sync metadata.
 
-   Health lists the activities, each with its own start, end, duration and distance, plus the events
-   and the route map. If HealthKit refuses the activities or events, the same save writes a plain
-   workout and warns.
+   Health lists the activities, each with its own start, end and duration, plus the events and the
+   route map. Each activity also shows a distance, but HealthKit derives it by spreading the
+   distance samples (item 3) evenly over time, so the intervals of one stretch show the same pace.
+   If HealthKit refuses the activities or events, whether as they are added or at
+   `finishWorkout`, the same save writes a plain workout and warns. A refusal anywhere else fails
+   the save as before.
+   - **The route comes from the workout builder's series builder** (`seriesBuilder(for:)`), per
+     `HKWorkoutRouteBuilder.h`. It commits with the workout rather than after it.
 3. **Item 7 changes: the distance is split at pauses.** HealthKit spreads a distance sample evenly
    over the workout's active time, so one whole-run sample across a pause cost the total its paused
    share (0.29 km written read as 0.24 km; measured). There is now one sample per stretch between
@@ -402,6 +410,13 @@ device checklist's H1–H5.
    the device is locked, so the route could not attach. The run is already saved locally, and the
    promise stays pending, so `sync.ts` reports the run as busy rather than writing twice. If the app
    is killed while waiting, nothing is written and the summary's Save button remains. A write that
-   meets a relock retries the whole write under a higher sync version, at most three times.
+   meets a relock is attempted again, three attempts in all. Each attempt waits for a fresh unlock
+   or foreground signal, because the flag can still read "available" during the grace period after
+   a lock. Each attempt also takes two sync versions above the last, one for the structured write
+   and one for its plain fallback.
 5. **The route and distance are skipped, not failed,** when the runner refused that type in the
    sheet. Only the workout type's status decides "authorized".
+6. **One more file sees the module's types:** the pure `services/health/healthkit.ts` imports
+   `modules/apple-health/types.ts` type-only, which is erased at runtime. Like `health-connect.ts`'s
+   type-only library import, this is the one exception to ADR 0003's "only adapters import a local
+   module".

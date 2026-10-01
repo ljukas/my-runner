@@ -21,10 +21,10 @@ workout until stage 5b's spike.
 - **A free run's stopped buckets become REST (44)**, as specified, although the app counts stopped
   time as active time: Health Connect's figure then means moving time.
 - **The readback that proves the segments landed is temporary**, not committed.
-- **The patch has the shape upstream issue
-  [#277](https://github.com/matinzd/react-native-health-connect/issues/277) proposes** (laps from
-  `"laps"`, segments from `"segments"`), so it drops out when upstream ships the fix; a comment on
-  #277 with the emulator evidence is drafted for the owner before it is posted.
+- **The patch is interim.** It has the shape upstream issue
+  [#277](https://github.com/matinzd/react-native-health-connect/issues/277) proposes (laps from
+  `"laps"`, segments from `"segments"`). Nothing goes upstream: RunBro needs different things than
+  the library offers, so an owned Health Connect module replaces it later (#90).
 - **Architecture: the clean design.** The workout payload carries two platform-neutral facts,
   `segments` (running, walking, resting) and `pauses`; only the Health Connect mapper knows pauses
   are segments there, since HealthKit models them as pause/resume events (stage 5b).
@@ -104,7 +104,7 @@ Fixed:
   0.7 s over 10 buckets, 2.5 s over 120); stage 1's `toBuckets` now rounds by running total, every
   boundary within half a second (ADR 0026's stage-5a amendment).
 - Docs: ADR 0011's moved facts (the builder's third argument, four files referencing the library,
-  seven restated constants), the upstream step (a #277 comment, not a PR), the unverified duration
+  seven restated constants), no upstream PR (an owned module replaces the library, #90), the unverified duration
   subtraction hedged in the ADR and the mapper's JSDoc, per-variant fingerprints; `SegmentRow`
   extends `RunStatsSegment`; a stale type comment.
 

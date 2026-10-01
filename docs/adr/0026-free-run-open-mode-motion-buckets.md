@@ -496,9 +496,8 @@ Where the build changed §3, §8 and the Consequences:
   Health windows are, a boundary sat a median 0.7 s out over 10 buckets and 2.5 s over 120. Each
   bucket now takes the rounded active time at its end less the rounded time at its start, which
   keeps the sum and holds every boundary within half a second. `largestRemainder` is gone.
-- **Upstream:** the patch has the shape upstream issue #277 proposes, and the evidence from this
-  stage goes there as a comment, drafted for the owner, rather than as the PR §8 promised; a PR
-  stays open for whoever the maintainer asks.
+- **No upstream PR** (owner decision, replacing §8's): the patch has the shape upstream issue #277
+  proposes and is interim. An owned Health Connect module replaces the library later (#90).
 - **Fingerprints (correcting the Consequences):** the patch moves **both**. `@expo/fingerprint`
   hashes `patches/` for iOS and Android alike; Android also hashes the patched package. iOS moved
   with `patches` as its only new source: `fd770db…` → `9d09364…` unset, `bcd744b…` → `4cf7631…`

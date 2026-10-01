@@ -340,7 +340,9 @@ verified on the emulator (Pixel 10 Pro, API 37) the same day.
    first `bun patch`). Its writer read both `laps` and `segments` from a `samples` key, so a
    `segments` field was dropped without an error (upstream #277); the patch reads the keys the
    TypeScript types declare. The exact pin in the Android amendment's item 1 now also guards the
-   patch: a version bump must re-check it, and can drop it once upstream ships the fix.
+   patch: a version bump must re-check it. The patch is interim (owner decision): RunBro needs
+   different things from Health Connect than this library offers, so rather than fight it, an
+   owned Android-only module under `modules/` replaces it later (#90).
 2. **The payload grows two platform-neutral fields**, `segments` (running, walking, resting) and
    `pauses`, both wall-clock and derived in `domain/health-segments.ts`. Only the Health Connect
    mapper turns pauses into PAUSE segments; the iOS adapter ignores both until stage 5b.

@@ -16,13 +16,13 @@ export type { CueService } from './port';
  */
 export const cueService: CueService = {
   prepare: () => adapter.prepare(),
-  announce: (cue) => {
+  announce: (cue, data) => {
     const s = settingsStore.getSnapshot();
     const effective = effectiveCue(cue, {
       intervalCues: s.intervalCuesEnabled,
       milestoneCues: s.milestoneCuesEnabled,
     });
-    if (effective) adapter.announce(effective);
+    if (effective) adapter.announce(effective, data);
   },
   release: () => adapter.release(),
 };

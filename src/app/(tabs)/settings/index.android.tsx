@@ -59,7 +59,7 @@ export default function SettingsScreen() {
         />
         <SettingsToggle
           label="Milestone cues"
-          description="Milestone cues add motivational spots — halfway, your last run, and finishing. A gentle vibration accompanies each cue while the screen is on."
+          description="Milestone cues add motivational spots — halfway, your last run, each kilometre of a free run, and finishing. A gentle vibration accompanies each cue while the screen is on."
           settingKey="milestoneCuesEnabled"
         />
 
@@ -138,7 +138,7 @@ export default function SettingsScreen() {
             </ListItem.HeadlineContent>
           </ListItem>
         ) : null}
-        <ListItem modifiers={[clickable(() => router.push('/privacy'))]}>
+        <ListItem modifiers={[clickable(() => router.navigate('/privacy'))]}>
           <ListItem.HeadlineContent>
             <Text color={colors.primary}>Privacy policy</Text>
           </ListItem.HeadlineContent>

@@ -528,6 +528,14 @@ to this record:
   same debug certificate as the `withoutCredentials` build, so `adb install -r`
   over it works.
 
+## Amendment (2026-09-30): the Run tab's routes
+
+§2's "pure SwiftUI screens (Plan, Log, Settings) get an `index.android.tsx` sibling" changed shape
+for the first tab (ADR 0026's stage-3c amendment): the week list is `(tabs)/(index)/plan.tsx` with a
+`plan.android.tsx` sibling, and the chooser at `(tabs)/(index)/index.tsx` has no sibling — its fork
+lives in the `run-mode-card` domain component, so the route is platform-blind. The stack's layout
+no longer forks either, now that the free-run header button is gone.
+
 ## Amendment (2026-10-01): Health Connect moves into an owned module
 
 Free-run stage 5c replaced stage 5's `react-native-health-connect` (and its `bun patch`) with

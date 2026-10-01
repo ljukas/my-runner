@@ -1,0 +1,5 @@
+appId: se.lukaslindqvist.runbro.e2e
+---
+# The Run tab's chooser → the week list.
+- tapOn: "Couch to 5K.*"
+- assertVisible: "Week 1 ·.*"

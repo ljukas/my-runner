@@ -1,4 +1,4 @@
-import type { CueId } from '@/domain/cues';
+import type { CueData, CueId } from '@/domain/cues';
 import { accuracyFilter, type LocationFix } from '@/domain/geo';
 import { keyOf, type RunPlan } from '@/domain/free-run';
 import { MOTION } from '@/domain/run-motion';
@@ -449,8 +449,8 @@ export class RunEngine {
     // Cues fire on live running refreshes only — never on pause/resume/finalize
     // (whose status is already non-running here).
     if (this.status === 'running') {
-      for (const cue of this.mode.takeCues(this.events, view.activeElapsedSeconds)) {
-        this.announce(cue);
+      for (const { cue, data } of this.mode.takeCues(this.events, view.activeElapsedSeconds)) {
+        this.announce(cue, data);
       }
     }
     this.emit();
@@ -458,11 +458,11 @@ export class RunEngine {
 
   // why a seam: one flag can silence a whole run, and the log records what it would have said
   // either way (spec §6, §8.0).
-  private announce(cue: CueId): void {
+  private announce(cue: CueId, data?: CueData): void {
     const suppressed = this.mode?.cuesSuppressed ?? false;
-    this.note('cue', { cue, suppressed });
+    this.note('cue', { cue, suppressed, data });
     if (suppressed) return;
-    this.cue.announce(cue);
+    this.cue.announce(cue, data);
   }
 
   private resetIngestState(): void {
@@ -600,6 +600,7 @@ export class RunEngine {
       if (acceptedDeltaMeters > 0) this.lastAcceptedFix = toFix(point);
       if (point.seq >= this.nextSeq) this.nextSeq = point.seq + 1;
     }
+    this.mode.caughtUp();
     return true;
   }
 

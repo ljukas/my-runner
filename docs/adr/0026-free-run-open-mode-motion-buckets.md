@@ -4,7 +4,7 @@ Date: 2026-09-29
 
 ## Status
 
-Accepted (2026-09-29, on merge of #77). Stage 1 (the classifier) is in implementation. Revision 2: revision 1 went
+Accepted (2026-09-29, on merge of #77). Stages 1–4 are built; the amendments below record each. Revision 2: revision 1 went
 through four adversarial reviews on 2026-09-29 (evidence, engine, Health, and the spec's
 premises). This revision applies their findings and the owner's answers to what the
 findings reopened. The spec's §10 records both.
@@ -475,6 +475,81 @@ Where the build refined this ADR or the spec:
   hidden and the gate shut, and a new run would then orphan its row for good.
 - **The summary** without measured distance keeps only Active Time, so the E2E flows anchor on it
   (spec §8 corrected).
+
+## Amendment (2026-09-30): stage 3c — the Run tab
+
+Owner decision after 3b ([plan](../superpowers/plans/2026-09-30-free-run-stage-3c-run-chooser.md)):
+a header icon made the free run a side door, and a tab named "Plan" said it did not belong there.
+This supersedes the entry-point bullet of Decision §6 and the entry bullet of the 3b amendment.
+
+- **The Plan tab is the Run tab.** Its root is a chooser of two cards: Couch to 5K (its body pushes
+  the week list, now `(tabs)/(index)/plan`; an "Up next" button opens the next session's sheet; a
+  finished plan drops the button) and Free run (opens the `/free-run` sheet). The two modes are not
+  mixed on one screen.
+- **The header button is gone**, with `FreeRunHeaderButton` and the Android fork of the stack's
+  layout. The cards are one `RunModeCard` domain component, a pair with identical props
+  ([ADR 0013](0013-component-design-conventions.md)): SwiftUI cards in a `ScrollView` on iOS, not a
+  `List`, where two buttons in one row both fire; Material 3 cards on Android. The chooser route
+  itself is platform-blind, so it is still a pure island ([ADR 0005](0005-system-native-ui-expo-ui.md)).
+- **Every start now waits on the resume gate**: the free-run card, the Up next button and the week
+  list's rows (`useRunEntry`), the two sheets' Start buttons, and `useStartRun` itself, so a sheet
+  reached by a deep link during the check cannot start a run beside the one it may offer. The 3b
+  amendment's asymmetry — only the free-run entry waited — was invisible with the entry in a header
+  and would be visible with both side by side. Opening the week list only browses and stays open.
+- **The not-saved notice** shows above the chooser's cards and at the top of the week list: a
+  resume sheet can open over the list, and `leaveToTabs` then lands there, not on the chooser.
+- **The Run stack anchors on the chooser** (`unstable_settings.anchor`), so a deep link to the week
+  list keeps its way back, and the entries use `router.navigate`: a double tap unwinds to the screen
+  it already opened instead of stacking a second one.
+
+## Amendment (2026-09-30): stage 4 built
+
+The chart and the kilometre cue shipped as stage 4
+([plan](../superpowers/plans/2026-09-30-free-run-stage-4-chart-and-cue.md)). Where the build refined
+§5 and §7:
+
+- **The bands are a strip, the stops hairlines** (owner decision). Run and walk shade a strip hung
+  just under the plot's x-axis, not the plot's full height, which competed with the pace and
+  elevation lines; every stopped bucket is a full-height 2 dp hairline in the stopped colour at the
+  distance it began, the short ones included, so the chart counts the stops the bucket timeline
+  below it does. Plan runs get neither.
+  - **Under the axis, not inside the plot**: the pace domain puts the slowest pace on the plot's
+    bottom edge, which is exactly where a walk is drawn, so a strip inside it was covered by the
+    line (found on device). It is drawn in victory's unclipped `renderOutside` layer, and the tick
+    labels move down by the strip's height, only when there are bands.
+  - **Run 4 dp, walk 2 dp**, so the two differ by more than hue (spec §7.3), as the route's stroke
+    widths also keep them apart. A stop's few metres go to the band before it, so the strip has no
+    gaps.
+  - **The card's label** reads the strip as distances: "Running 1.21 km, walking 0.21 km, stopped
+    1 time."
+- **A GPS silence is drawn apart from a stop** (owner decision after review). A stopped bucket the
+  GPS measured less than half of — a tunnel, a slow first fix, a phone that lost its signal — is
+  a translucent grey zone of fixed width (a silence covers no distance, so it has none on this
+  axis), not a brown hairline, and the label counts it as "GPS lost N times", not as a stop. The
+  measured share is the fold's own: seconds between fixes under `MAX_GAP_S`, none across a pause
+  (`ProfileSpan.measuredS`). The bucket itself stays stopped time (the 3a amendment); only the
+  chart tells the two apart.
+- **One fold draws both.** `foldRunProfile` returns the chart's points and, from the same smoother
+  and pause policy, the span each `segment_seq` covered, so the strip tiles exactly the axis the
+  pace line is drawn on (ADR 0021 §3). A stop the GPS never saw — a silence — has no fixes and so
+  no span; it sits where the span before it ended. The kinds come from the run's segment rows in a
+  separate memo, so they never re-run the fold.
+- **The kilometre count lives in `OpenMode.ingest`**, from the metres it commits, because the engine
+  takes cues before it ingests the fix; a crossing is therefore announced one heartbeat late.
+- **The pace is the last kilometre's moving pace from the live kind**, not from the saved buckets,
+  which finalize back-dates. A stop's first seconds count as moving until the dwell confirms it
+  (spec §9), so the spoken pace can be a few seconds slower than the summary's.
+- **Two crossings captured before one refresh** speak the latest kilometre, with that kilometre's
+  pace. Live, one fix cannot cross two kilometres (the velocity gate and ADR 0021 §5's gap rule
+  bound a step to under ~200 m), so this is a rule for folds, not an expected case.
+- **A crossing lives for one heartbeat before it is spoken.** Pausing within that second defers it
+  to the resume, where it is spoken before "Resumed."; ending within it drops it, and "Workout
+  complete" plays alone. Both are accepted.
+- **A resume announces nothing the re-folded points crossed**: `RunMode.caughtUp()` runs after the
+  rebuild, keeping the partial kilometre's totals. Nothing is persisted, as §7 wanted.
+- **The phrase** drops the seconds on a whole minute and the pace when it is unknown or under a
+  minute per kilometre; seconds are rounded before splitting, so 359.6 s is "6 minutes". ADR 0009's
+  Decision 1 is amended for the typed data.
 
 ## Amendment (2026-09-30): stage 5a built
 

@@ -31,7 +31,7 @@ export function ResumeRunGate() {
       .then((found) => {
         if (!found) return settleResumeCheck();
         setResumeOffer(found);
-        router.push('/resume-run');
+        router.navigate('/resume-run');
       })
       .catch(() => settleResumeCheck());
   }, [router, pathname]);

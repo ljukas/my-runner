@@ -2,7 +2,7 @@ import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio';
 import * as Speech from 'expo-speech';
 import { AppState } from 'react-native';
 
-import { CUE_PHRASE, type CueId } from '@/domain/cues';
+import { cuePhrase, type CueData, type CueId } from '@/domain/cues';
 import { CUE_HAPTIC } from './cue-haptics';
 import type { CueService } from './port';
 import { createReleaseScheduler, RELEASE_DEBOUNCE_MS } from './release-scheduler';
@@ -38,11 +38,11 @@ export const cueService: CueService = {
 
   // `cue` is already resolved and gated by the composition seam (index.ts); the
   // adapter just produces the speech + haptic for it.
-  announce(cue: CueId) {
+  announce(cue: CueId, data?: CueData) {
     releaseScheduler.begin();
     void setIsAudioActiveAsync(true).catch(warn('activate'));
     try {
-      Speech.speak(CUE_PHRASE[cue], {
+      Speech.speak(cuePhrase(cue, data), {
         onDone: () => releaseScheduler.end(),
         onError: () => releaseScheduler.end(),
         onStopped: () => releaseScheduler.end(),

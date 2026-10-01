@@ -14,4 +14,5 @@ export const CUE_HAPTIC: Record<CueId, () => void> = {
   paused: () => Presets.System.impactSoft(),
   resumed: () => Presets.System.impactMedium(),
   resuming: () => Presets.System.impactMedium(),
+  kilometre: () => Presets.bellToll(), // a distance marker, recurring through the run
 };

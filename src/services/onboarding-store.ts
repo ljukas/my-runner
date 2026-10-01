@@ -34,5 +34,5 @@ export function completeAndAdvance(router: ImperativeRouter, id: OnboardingStepI
  */
 export function resetAndRestart(router: ImperativeRouter): void {
   onboarding.reset();
-  router.push(ONBOARDING_STEPS[0].route);
+  router.navigate(ONBOARDING_STEPS[0].route);
 }

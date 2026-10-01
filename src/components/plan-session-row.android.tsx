@@ -8,11 +8,13 @@ export function PlanSessionRow({
   session,
   completed,
   isNext,
+  disabled,
   onPress,
 }: {
   session: PlanSession;
   completed: boolean;
   isNext: boolean;
+  disabled: boolean;
   onPress: () => void;
 }) {
   // Inside the Island, so this is the Host's own (wallpaper-derived) palette.
@@ -20,7 +22,7 @@ export function PlanSessionRow({
   const state = completed ? 'Completed' : isNext ? 'Up next' : 'Not started';
   return (
     <ListItem
-      modifiers={[clickable(onPress)]}
+      modifiers={disabled ? [] : [clickable(onPress)]}
       colors={
         isNext
           ? { containerColor: m.secondaryContainer, contentColor: m.onSecondaryContainer }

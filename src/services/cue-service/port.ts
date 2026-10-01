@@ -1,4 +1,4 @@
-import type { CueId } from '@/domain/cues';
+import type { CueData, CueId } from '@/domain/cues';
 
 /**
  * Cue production port (ADR 0003, ADR 0009). The engine fires cues by ID on
@@ -14,8 +14,9 @@ export interface CueService {
   prepare(): void;
   /** Announce a cue. The engine announces unconditionally on every derived
    * change; category (interval/milestone) gating happens at the composition
-   * seam (index.ts) and TTS/haptic production is the platform adapter's. */
-  announce(cue: CueId): void;
+   * seam (index.ts) and TTS/haptic production is the platform adapter's. `data` fills in a
+   * cue's numbers (ADR 0026 §7); an adapter that cannot speak them plays the cue's fixed phrase. */
+  announce(cue: CueId, data?: CueData): void;
   /** Stop any in-flight speech and release the audio session. Idempotent. */
   release(): void;
 }

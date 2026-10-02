@@ -344,6 +344,14 @@ On an iPhone with a **passcode** (without one, the phone never locks its data), 
 | H4 | A re-save replaces: one workout, one route, one distance row per interval | `resaveLatestRunToHealth()` in the JS debugger, then Health → Workouts and Walking + Running Distance |
 | H5 | Upgrading from a build that used `@kingstinct/react-native-healthkit` keeps the existing grant: no prompt, and Settings still reads *Saving workouts* | Install this build over the previous one without deleting the app |
 
+**2026-10-02, iPhone 16 Pro, iOS 27.0, Debug build of `main` at `2314234`: H4 and H5 pass; H1–H3 not run yet.**
+
+- **H5 pass.** Installed over the production-identity app (`se.lukaslindqvist.runbro`), whose previous build used the library and held the Workouts grant: no prompt, and Settings reads *Saving workouts*.
+- **H4 pass**, on a real Week 4 Day 1 run (26 Sep, 31 min, 4.1 km). The second `resaveLatestRunToHealth()` (it returned `saved`) replaced the first's workout: one workout with 9 Workout Activities, a route, and 9 Walking + Running Distance rows, one per interval. The library's whole-run 4.1 km sample was deleted by the first re-save, since it lay inside the workout window.
+- Every activity reads **Running**: Health refuses `.walking` inside a running workout, and the walk/run kind sits in metadata Health does not display. Intervals are still distinct, each with its own times and distance.
+- **The library's saves never deduplicated.** That run already had two library-written workouts with the same `HKSyncIdentifier` and different `HKSyncVersion` values (`17904…`, both from 26 Sep). No re-save replaces them, so they stay next to the new workout until deleted by hand. Ordinary use never re-saves an old run, so upgrading adds no duplicates.
+- Ground truth for whether a save ran is the run's `updated_at` in the app's database (`xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier <bundle id> --source Documents/SQLite/runbro.db`, plus `-wal` and `-shm`). Health's list can lag behind a save.
+
 ## Health Connect module — device-only (free-run stage 5c, 2026-10-01)
 
 The emulators proved the module (API 37: the dialog, the privacy-link interruption, partial grants,
